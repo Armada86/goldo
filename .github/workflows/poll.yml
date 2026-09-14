@@ -1,8 +1,10 @@
 name: Poll indicators
 
+# Triggered externally (every 5 min) via cron-job.org calling the GitHub API
+# workflow_dispatch endpoint — GitHub's own `schedule:` cron trigger is not
+# reliable enough for a 5-minute cadence (observed runs delayed/dropped for
+# 90+ minutes on this repo), so we don't rely on it.
 on:
-  schedule:
-    - cron: "*/5 * * * *"
   workflow_dispatch: {}
 
 jobs:
