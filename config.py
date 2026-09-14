@@ -45,6 +45,11 @@ PCT_CHANGE_ALERT_THRESHOLD = {
     "inflation": 1.0,
 }
 
+# Indicators that alert on ANY change from the previous poll, instead of a
+# percentage threshold (used for financial_stress, which oscillates around
+# zero and updates weekly — any change at all is noteworthy).
+VALUE_CHANGE_ALERT_NAMES = ["financial_stress"]
+
 # Simple moving-average crossover on gold price, evaluated on daily closes.
 SMA_SHORT = 20
 SMA_LONG = 50

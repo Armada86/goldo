@@ -1,8 +1,20 @@
 """Alert conditions: % change since last poll, and SMA crossover on gold."""
 
-from config import PCT_CHANGE_ALERT_THRESHOLD, SMA_LONG, SMA_SHORT
+from config import PCT_CHANGE_ALERT_THRESHOLD, SMA_LONG, SMA_SHORT, VALUE_CHANGE_ALERT_NAMES
 from data_fetcher import fetch_daily_history
 from storage import get_previous_reading
+
+
+def check_value_change_alerts(prices: dict[str, float]) -> list[str]:
+    alerts = []
+    for name in VALUE_CHANGE_ALERT_NAMES:
+        if name not in prices:
+            continue
+        price = prices[name]
+        previous = get_previous_reading(name)
+        if previous is not None and price != previous:
+            alerts.append(f"{name.upper()} changed: {previous:+.4f} -> {price:+.4f}")
+    return alerts
 
 
 def check_pct_change_alerts(prices: dict[str, float]) -> list[str]:
