@@ -18,9 +18,15 @@ GOLD_SPOT_SYMBOL = "XAU/USD"
 # FRED (Federal Reserve Economic Data) series for indicators not available
 # via yfinance/Twelve Data. T10YIE = 10-Year Breakeven Inflation Rate, the
 # market-implied inflation expectation (TIPS yield vs nominal Treasury
-# yield), updated daily. Free API key: https://fredaccount.stlouisfed.org/apikeys
+# yield), updated daily. STLFSI4 = St. Louis Fed Financial Stress Index, a
+# weekly composite of market stress (~0 = average, positive = more stress,
+# negative = calmer than average) — oscillates around zero, so it's tracked
+# but deliberately left out of PCT_CHANGE_ALERT_THRESHOLD below (a % change
+# near zero is meaningless/explosive). Free API key:
+# https://fredaccount.stlouisfed.org/apikeys
 FRED_SERIES = {
     "inflation": "T10YIE",
+    "financial_stress": "STLFSI4",
 }
 
 # Every tracked indicator name, across all data sources (yfinance, Twelve
