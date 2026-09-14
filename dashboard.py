@@ -40,7 +40,8 @@ def load_alerts() -> pd.DataFrame:
 
 try:
     readings = load_readings()
-except Exception:
+except Exception as e:
+    st.error(f"Could not load readings: {e}")
     readings = pd.DataFrame(columns=["ts", "name", "price"])
 
 if readings.empty:
@@ -66,7 +67,8 @@ else:
 st.subheader("Recent Alerts")
 try:
     alerts = load_alerts()
-except Exception:
+except Exception as e:
+    st.error(f"Could not load alerts: {e}")
     alerts = pd.DataFrame(columns=["ts", "message"])
 
 if alerts.empty:
