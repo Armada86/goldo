@@ -33,7 +33,7 @@ POLL_INTERVAL_MINUTES = 5
 
 # Percentage move (since previous poll) that triggers an alert.
 PCT_CHANGE_ALERT_THRESHOLD = {
-    "gold": 0.5,
+    "gold": 0.1,
     "dxy": 0.3,
     "us10y": 1.0,
     "inflation": 1.0,
