@@ -6,11 +6,14 @@ from datetime import datetime, timezone
 import psycopg2
 from dotenv import load_dotenv
 
+from retry import with_retries
+
 load_dotenv()
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 
+@with_retries()
 def get_connection():
     return psycopg2.connect(DATABASE_URL)
 

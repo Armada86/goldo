@@ -7,6 +7,7 @@ import yfinance as yf   #Imports values from the yfinance lib of YAHOO and saves
 from dotenv import load_dotenv
 
 from config import FRED_SERIES, GOLD_SPOT_SYMBOL, INDICATORS
+from retry import with_retries
 
 load_dotenv()
 
@@ -14,6 +15,7 @@ TWELVE_DATA_API_KEY = os.environ.get("TWELVE_DATA_API_KEY")
 FRED_API_KEY = os.environ.get("FRED_API_KEY")
 
 
+@with_retries()
 def fetch_gold_spot_price() -> float | None:
     """Live XAU/USD spot price from Twelve Data (yfinance has no working spot symbol)."""
     if not TWELVE_DATA_API_KEY:
@@ -32,6 +34,7 @@ def fetch_gold_spot_price() -> float | None:
     return float(payload["price"])
 
 
+@with_retries()
 def fetch_fred_latest(series_id: str) -> float | None:
     """Most recent published value for a FRED series (e.g. T10YIE)."""
     if not FRED_API_KEY:
@@ -57,26 +60,38 @@ def fetch_fred_latest(series_id: str) -> float | None:
     return None
 
 
+@with_retries()
+def _fetch_yfinance_price(ticker: str) -> float | None:
+    data = yf.Ticker(ticker).history(period="1d", interval="1m")
+    if data.empty:
+        # Market closed (weekend/holiday) and no intraday bars yet;
+        # fall back to the most recent daily close.
+        data = yf.Ticker(ticker).history(period="5d", interval="1d")
+    if data.empty:
+        return None
+    return float(data["Close"].iloc[-1])
+
+
 def fetch_latest_prices() -> dict[str, float]: #picks up the data and formats it
-    """Returns {name: last_price} for every configured indicator."""
+    """Returns {name: last_price} for every configured indicator. A single
+    indicator failing (even after retries) is logged and skipped rather than
+    aborting the whole poll — the other indicators still get saved/checked."""
     prices = {}
     for name, ticker in INDICATORS.items():
-        if name == "gold":
-            price = fetch_gold_spot_price()
-            if price is not None:
-                prices[name] = price
+        try:
+            price = fetch_gold_spot_price() if name == "gold" else _fetch_yfinance_price(ticker)
+        except Exception as e:
+            print(f"[data_fetcher] {name} fetch failed after retries: {e}")
             continue
-        data = yf.Ticker(ticker).history(period="1d", interval="1m")
-        if data.empty:
-            # Market closed (weekend/holiday) and no intraday bars yet;
-            # fall back to the most recent daily close.
-            data = yf.Ticker(ticker).history(period="5d", interval="1d")
-        if data.empty:
-            continue
-        prices[name] = float(data["Close"].iloc[-1])
+        if price is not None:
+            prices[name] = price
 
     for name, series_id in FRED_SERIES.items():
-        value = fetch_fred_latest(series_id)
+        try:
+            value = fetch_fred_latest(series_id)
+        except Exception as e:
+            print(f"[data_fetcher] {name} fetch failed after retries: {e}")
+            continue
         if value is not None:
             prices[name] = value
 
