@@ -7,10 +7,15 @@ import pandas as pd
 import plotly.graph_objects as go
 import requests
 import streamlit as st
+from dotenv import load_dotenv
+from plotly.subplots import make_subplots
 
-# Streamlit Community Cloud secrets arrive via st.secrets, not the OS
-# environment — mirror them into os.environ before storage.py/this module
-# read them at import time. Local runs already have these via .env/dotenv.
+load_dotenv()  # local runs: .env into os.environ. No-op on Streamlit Cloud (no .env there).
+
+# Streamlit Community Cloud secrets arrive via st.secrets instead of a .env
+# file — mirror them into os.environ before storage.py/this module read them
+# at import time. Only reached for keys load_dotenv() above didn't already
+# set, so a missing secrets.toml (e.g. any local run) never gets checked.
 for _key in ("DATABASE_URL", "TWELVE_DATA_API_KEY"):
     if _key not in os.environ and _key in st.secrets:
         os.environ[_key] = st.secrets[_key]
@@ -53,6 +58,36 @@ def fetch_gold_candles(interval: str = "15min", outputsize: int = 96) -> pd.Data
     for col in ("open", "high", "low", "close"):
         df[col] = df[col].astype(float)
     return df.sort_values("datetime")
+
+
+def compute_rsi(close: pd.Series, period: int = 14) -> pd.Series:
+    """Wilder's RSI — the standard formula (exponential smoothing with
+    alpha=1/period), matching what most trading platforms show."""
+    delta = close.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+    rs = avg_gain / avg_loss
+    return 100 - (100 / (1 + rs))
+
+
+def compute_adx(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> pd.Series:
+    """Wilder's ADX (trend strength, 0-100; conventionally >25 = trending)."""
+    up_move = high.diff()
+    down_move = -low.diff()
+    plus_dm = ((up_move > down_move) & (up_move > 0)) * up_move
+    minus_dm = ((down_move > up_move) & (down_move > 0)) * down_move
+    prev_close = close.shift(1)
+    tr = pd.concat(
+        [high - low, (high - prev_close).abs(), (low - prev_close).abs()], axis=1
+    ).max(axis=1)
+
+    atr = tr.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+    plus_di = 100 * plus_dm.ewm(alpha=1 / period, min_periods=period, adjust=False).mean() / atr
+    minus_di = 100 * minus_dm.ewm(alpha=1 / period, min_periods=period, adjust=False).mean() / atr
+    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di)
+    return dx.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
 
 
 def load_readings() -> pd.DataFrame:
@@ -156,7 +191,35 @@ else:
             margin=dict(l=0, r=0, t=40, b=0),
             height=550,
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
+
+    if gold_ok:
+        st.subheader("Technical Indicators (Gold)")
+        rsi = compute_rsi(candles["close"])
+        adx = compute_adx(candles["high"], candles["low"], candles["close"])
+
+        ta_fig = make_subplots(
+            rows=2,
+            cols=1,
+            shared_xaxes=True,
+            vertical_spacing=0.08,
+            subplot_titles=["RSI (14)", "ADX (14)"],
+        )
+        ta_fig.add_trace(
+            go.Scatter(x=candles["datetime"], y=rsi, mode="lines", name="RSI"), row=1, col=1
+        )
+        ta_fig.add_hline(y=70, line=dict(color="gray", dash="dash", width=1), row=1, col=1)
+        ta_fig.add_hline(y=30, line=dict(color="gray", dash="dash", width=1), row=1, col=1)
+        ta_fig.update_yaxes(range=[0, 100], row=1, col=1)
+
+        ta_fig.add_trace(
+            go.Scatter(x=candles["datetime"], y=adx, mode="lines", name="ADX"), row=2, col=1
+        )
+        ta_fig.add_hline(y=25, line=dict(color="gray", dash="dash", width=1), row=2, col=1)
+        ta_fig.update_yaxes(range=[0, 100], row=2, col=1)
+
+        ta_fig.update_layout(height=420, margin=dict(l=0, r=0, t=40, b=0), showlegend=False)
+        st.plotly_chart(ta_fig, width='stretch')
 
 st.subheader("Recent Alerts")
 try:
@@ -168,4 +231,4 @@ except Exception as e:
 if alerts.empty:
     st.write("No alerts recorded yet.")
 else:
-    st.dataframe(alerts, use_container_width=True)
+    st.dataframe(alerts, width='stretch')
