@@ -2,11 +2,15 @@
 
 # yfinance tickers. GC=F is COMEX gold futures (used only for the daily-close
 # SMA crossover trend, not the live price); DX-Y.NYB is the US Dollar Index;
-# ^TNX is the 10-year Treasury yield in percent (e.g. 4.97 = 4.97%).
+# ^TNX is the 10-year Treasury yield in percent (e.g. 4.97 = 4.97%); GLD is
+# the SPDR Gold Shares ETF (~1/10 oz of gold per share, minus accumulated
+# expense-ratio drag — trades close to but not exactly spot, unlike the
+# XAU/USD price used for the "gold" indicator above).
 INDICATORS = {
     "gold": "GC=F",
     "dxy": "DX-Y.NYB",
     "us10y": "^TNX",
+    "gld": "GLD",
 }
 
 # Live gold price comes from Twelve Data instead of yfinance: yfinance no
