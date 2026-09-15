@@ -7,7 +7,6 @@ import pandas as pd
 import plotly.graph_objects as go
 import requests
 import streamlit as st
-from plotly.subplots import make_subplots
 
 # Streamlit Community Cloud secrets arrive via st.secrets, not the OS
 # environment — mirror them into os.environ before storage.py/this module
@@ -90,7 +89,8 @@ else:
         delta = series["price"].iloc[-1] - series["price"].iloc[-2] if len(series) > 1 else None
         col.metric(name.upper(), f"{latest:,.2f}", f"{delta:+.2f}" if delta is not None else None)
 
-    st.subheader("Charts")
+    st.subheader("Chart")
+    st.caption("Click a name in the legend to toggle it on/off; double-click to isolate one.")
 
     other_names = [name for name in ALL_INDICATOR_NAMES if name != "gold"]
     other_series = {}
@@ -108,22 +108,17 @@ else:
 
     row_names = (["gold"] if gold_ok else []) + list(other_series)
     if row_names:
-        # One combined figure with a shared/linked x-axis (time) across every
-        # row, so panning or zooming any panel — gold included — moves them
-        # all together, the same way a real trading terminal syncs a price
-        # chart with the indicator panels stacked under it. Each row keeps
-        # its own independent, auto-ranging y-axis.
-        row_heights = [0.45 if name == "gold" else 0.55 / len(other_series) for name in row_names]
-        fig = make_subplots(
-            rows=len(row_names),
-            cols=1,
-            shared_xaxes=True,
-            vertical_spacing=0.03,
-            row_heights=row_heights,
-            subplot_titles=[name.upper() for name in row_names],
-        )
-
-        for i, name in enumerate(row_names, start=1):
+        # All series overlaid on ONE plot area instead of separate panels.
+        # Each gets its own y-axis (all but the first hidden) so wildly
+        # different scales — gold ~4300 vs inflation ~2.3 — don't flatten
+        # each other out; only the first series' axis is drawn to avoid a
+        # wall of axis labels. Plotly's legend already supports click to
+        # toggle a series and double-click to isolate one, so that's the
+        # on/off switch, no custom widget needed.
+        fig = go.Figure()
+        layout_updates = {}
+        for i, name in enumerate(row_names):
+            axis_id = "y" if i == 0 else f"y{i + 1}"
             if name == "gold":
                 fig.add_trace(
                     go.Candlestick(
@@ -132,24 +127,34 @@ else:
                         high=candles["high"],
                         low=candles["low"],
                         close=candles["close"],
-                        showlegend=False,
-                    ),
-                    row=i,
-                    col=1,
+                        name="GOLD",
+                        yaxis=axis_id,
+                    )
                 )
-                fig.update_xaxes(rangeslider_visible=False, row=i, col=1)
             else:
                 series = other_series[name]
                 fig.add_trace(
-                    go.Scatter(x=series.index, y=series.values, mode="lines", showlegend=False),
-                    row=i,
-                    col=1,
+                    go.Scatter(
+                        x=series.index,
+                        y=series.values,
+                        mode="lines",
+                        name=name.upper(),
+                        yaxis=axis_id,
+                    )
                 )
-            fig.update_yaxes(autorange=True, fixedrange=False, row=i, col=1)
+            if i == 0:
+                layout_updates["yaxis"] = dict(autorange=True, fixedrange=False, title=name.upper())
+            else:
+                layout_updates[f"yaxis{i + 1}"] = dict(
+                    overlaying="y", side="right", visible=False, autorange=True
+                )
 
         fig.update_layout(
-            height=450 + 220 * len(other_series),
-            margin=dict(l=0, r=0, t=30, b=0),
+            **layout_updates,
+            xaxis_rangeslider_visible=False,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+            margin=dict(l=0, r=0, t=40, b=0),
+            height=550,
         )
         st.plotly_chart(fig, use_container_width=True)
 
