@@ -8,7 +8,6 @@ import plotly.graph_objects as go
 import requests
 import streamlit as st
 from dotenv import load_dotenv
-from plotly.subplots import make_subplots
 
 load_dotenv()  # local runs: .env into os.environ. No-op on Streamlit Cloud (no .env there).
 
@@ -125,7 +124,10 @@ else:
         col.metric(name.upper(), f"{latest:,.2f}", f"{delta:+.2f}" if delta is not None else None)
 
     st.subheader("Chart")
-    st.caption("Click a name in the legend to toggle it on/off; double-click to isolate one.")
+    st.caption(
+        "Click a name in the legend to toggle it on/off; double-click to isolate one. "
+        "Pan/zoom on any panel moves all of them together."
+    )
 
     other_names = [name for name in ALL_INDICATOR_NAMES if name != "gold"]
     other_series = {}
@@ -143,13 +145,19 @@ else:
 
     row_names = (["gold"] if gold_ok else []) + list(other_series)
     if row_names:
-        # All series overlaid on ONE plot area instead of separate panels.
-        # Each gets its own y-axis (all but the first hidden) so wildly
-        # different scales — gold ~4300 vs inflation ~2.3 — don't flatten
-        # each other out; only the first series' axis is drawn to avoid a
-        # wall of axis labels. Plotly's legend already supports click to
-        # toggle a series and double-click to isolate one, so that's the
-        # on/off switch, no custom widget needed.
+        # Everything below — the overlaid price panel and the RSI/ADX
+        # panels — lives on ONE shared x-axis (time), so panning or
+        # zooming anywhere moves all of them together. This can't use
+        # plotly's make_subplots helper: that only gives one secondary
+        # y-axis per row, but the price panel alone overlays up to 6 series
+        # (gold ~4300 vs inflation ~2.3 need independent y-axes so they
+        # don't flatten each other out) — so the layout is built by hand:
+        # every axis anchors to the same default x-axis, and each panel is
+        # just a vertical `domain` slice of the figure instead of a
+        # separate subplot row.
+        has_ta = gold_ok  # RSI/ADX need the same OHLC candles as the price panel
+        price_domain = [0.44, 1.0] if has_ta else [0.0, 1.0]
+
         fig = go.Figure()
         layout_updates = {}
         for i, name in enumerate(row_names):
@@ -177,49 +185,74 @@ else:
                         yaxis=axis_id,
                     )
                 )
+            axis_key = "yaxis" if i == 0 else f"yaxis{i + 1}"
             if i == 0:
-                layout_updates["yaxis"] = dict(autorange=True, fixedrange=False, title=name.upper())
-            else:
-                layout_updates[f"yaxis{i + 1}"] = dict(
-                    overlaying="y", side="right", visible=False, autorange=True
+                layout_updates[axis_key] = dict(
+                    autorange=True, fixedrange=False, title=name.upper(), domain=price_domain
                 )
+            else:
+                layout_updates[axis_key] = dict(
+                    overlaying="y", side="right", visible=False, autorange=True, domain=price_domain
+                )
+
+        shapes = []
+        if has_ta:
+            rsi_domain = [0.24, 0.40]
+            adx_domain = [0.0, 0.20]
+            next_axis_num = len(row_names) + 1  # continue numbering past the price panel's axes
+            # Two different naming conventions in Plotly: a trace's `yaxis`
+            # and a shape's `yref` both use the short form ("y7"), but the
+            # layout dict key for that same axis is the long form ("yaxis7").
+            rsi_yref, adx_yref = f"y{next_axis_num}", f"y{next_axis_num + 1}"
+            rsi_axis_key, adx_axis_key = f"yaxis{next_axis_num}", f"yaxis{next_axis_num + 1}"
+
+            rsi = compute_rsi(candles["close"])
+            adx = compute_adx(candles["high"], candles["low"], candles["close"])
+
+            fig.add_trace(
+                go.Scatter(
+                    x=candles["datetime"], y=rsi, mode="lines", name="RSI",
+                    yaxis=rsi_yref, showlegend=False,
+                )
+            )
+            layout_updates[rsi_axis_key] = dict(range=[0, 100], domain=rsi_domain, anchor="x")
+            for level in (70, 30):
+                shapes.append(
+                    dict(type="line", xref="paper", x0=0, x1=1, yref=rsi_yref,
+                         y0=level, y1=level, line=dict(color="gray", dash="dash", width=1))
+                )
+
+            fig.add_trace(
+                go.Scatter(
+                    x=candles["datetime"], y=adx, mode="lines", name="ADX",
+                    yaxis=adx_yref, showlegend=False,
+                )
+            )
+            layout_updates[adx_axis_key] = dict(range=[0, 100], domain=adx_domain, anchor="x")
+            shapes.append(
+                dict(type="line", xref="paper", x0=0, x1=1, yref=adx_yref,
+                     y0=25, y1=25, line=dict(color="gray", dash="dash", width=1))
+            )
+
+            annotations = [
+                dict(text="RSI (14)", xref="paper", yref="paper", x=0, y=rsi_domain[1],
+                     showarrow=False, xanchor="left", yanchor="bottom", font=dict(size=12)),
+                dict(text="ADX (14)", xref="paper", yref="paper", x=0, y=adx_domain[1],
+                     showarrow=False, xanchor="left", yanchor="bottom", font=dict(size=12)),
+            ]
+        else:
+            annotations = []
 
         fig.update_layout(
             **layout_updates,
-            xaxis_rangeslider_visible=False,
+            xaxis=dict(rangeslider_visible=False),
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
             margin=dict(l=0, r=0, t=40, b=0),
-            height=550,
+            height=850 if has_ta else 550,
+            shapes=shapes,
+            annotations=annotations,
         )
         st.plotly_chart(fig, width='stretch')
-
-    if gold_ok:
-        st.subheader("Technical Indicators (Gold)")
-        rsi = compute_rsi(candles["close"])
-        adx = compute_adx(candles["high"], candles["low"], candles["close"])
-
-        ta_fig = make_subplots(
-            rows=2,
-            cols=1,
-            shared_xaxes=True,
-            vertical_spacing=0.08,
-            subplot_titles=["RSI (14)", "ADX (14)"],
-        )
-        ta_fig.add_trace(
-            go.Scatter(x=candles["datetime"], y=rsi, mode="lines", name="RSI"), row=1, col=1
-        )
-        ta_fig.add_hline(y=70, line=dict(color="gray", dash="dash", width=1), row=1, col=1)
-        ta_fig.add_hline(y=30, line=dict(color="gray", dash="dash", width=1), row=1, col=1)
-        ta_fig.update_yaxes(range=[0, 100], row=1, col=1)
-
-        ta_fig.add_trace(
-            go.Scatter(x=candles["datetime"], y=adx, mode="lines", name="ADX"), row=2, col=1
-        )
-        ta_fig.add_hline(y=25, line=dict(color="gray", dash="dash", width=1), row=2, col=1)
-        ta_fig.update_yaxes(range=[0, 100], row=2, col=1)
-
-        ta_fig.update_layout(height=420, margin=dict(l=0, r=0, t=40, b=0), showlegend=False)
-        st.plotly_chart(ta_fig, width='stretch')
 
 st.subheader("Recent Alerts")
 try:
