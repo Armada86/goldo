@@ -7,6 +7,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import requests
 import streamlit as st
+from plotly.subplots import make_subplots
 
 # Streamlit Community Cloud secrets arrive via st.secrets, not the OS
 # environment — mirror them into os.environ before storage.py/this module
@@ -89,51 +90,68 @@ else:
         delta = series["price"].iloc[-1] - series["price"].iloc[-2] if len(series) > 1 else None
         col.metric(name.upper(), f"{latest:,.2f}", f"{delta:+.2f}" if delta is not None else None)
 
-    st.subheader("Gold (XAU/USD)")
+    st.subheader("Charts")
+
+    other_names = [name for name in ALL_INDICATOR_NAMES if name != "gold"]
+    other_series = {}
+    for name in other_names:
+        series = readings[readings["name"] == name].sort_values("ts").set_index("ts")["price"]
+        if not series.empty:
+            other_series[name] = series
+
     try:
         candles = fetch_gold_candles()
-        fig = go.Figure(
-            data=[
-                go.Candlestick(
-                    x=candles["datetime"],
-                    open=candles["open"],
-                    high=candles["high"],
-                    low=candles["low"],
-                    close=candles["close"],
-                )
-            ]
-        )
-        # Auto-range the y-axis to the visible candles instead of starting
-        # at 0 — otherwise gold's ~1% intraday swings look like a flat line.
-        fig.update_layout(
-            xaxis_rangeslider_visible=False,
-            yaxis=dict(autorange=True, fixedrange=False),
-            margin=dict(l=0, r=0, t=10, b=0),
-            height=450,
-        )
-        st.plotly_chart(fig, use_container_width=True)
+        gold_ok = True
     except Exception as e:
         st.error(f"Could not load gold candles: {e}")
+        gold_ok = False
 
-    st.subheader("Other Indicators")
-    for name in ALL_INDICATOR_NAMES:
-        if name == "gold":
-            continue
-        series = readings[readings["name"] == name].sort_values("ts").set_index("ts")["price"]
-        if series.empty:
-            continue
-        st.caption(name.upper())
-        # Plotly instead of st.line_chart so the y-axis auto-ranges tightly
-        # to this indicator's own value range — same fix as gold's chart,
-        # since e.g. us10y's ~4-5% band or inflation's ~2.3-2.4% band both
-        # look like a flat line against a wider default axis.
-        line_fig = go.Figure(data=[go.Scatter(x=series.index, y=series.values, mode="lines")])
-        line_fig.update_layout(
-            yaxis=dict(autorange=True, fixedrange=False),
-            margin=dict(l=0, r=0, t=10, b=0),
-            height=250,
+    row_names = (["gold"] if gold_ok else []) + list(other_series)
+    if row_names:
+        # One combined figure with a shared/linked x-axis (time) across every
+        # row, so panning or zooming any panel — gold included — moves them
+        # all together, the same way a real trading terminal syncs a price
+        # chart with the indicator panels stacked under it. Each row keeps
+        # its own independent, auto-ranging y-axis.
+        row_heights = [0.45 if name == "gold" else 0.55 / len(other_series) for name in row_names]
+        fig = make_subplots(
+            rows=len(row_names),
+            cols=1,
+            shared_xaxes=True,
+            vertical_spacing=0.03,
+            row_heights=row_heights,
+            subplot_titles=[name.upper() for name in row_names],
         )
-        st.plotly_chart(line_fig, use_container_width=True)
+
+        for i, name in enumerate(row_names, start=1):
+            if name == "gold":
+                fig.add_trace(
+                    go.Candlestick(
+                        x=candles["datetime"],
+                        open=candles["open"],
+                        high=candles["high"],
+                        low=candles["low"],
+                        close=candles["close"],
+                        showlegend=False,
+                    ),
+                    row=i,
+                    col=1,
+                )
+                fig.update_xaxes(rangeslider_visible=False, row=i, col=1)
+            else:
+                series = other_series[name]
+                fig.add_trace(
+                    go.Scatter(x=series.index, y=series.values, mode="lines", showlegend=False),
+                    row=i,
+                    col=1,
+                )
+            fig.update_yaxes(autorange=True, fixedrange=False, row=i, col=1)
+
+        fig.update_layout(
+            height=450 + 220 * len(other_series),
+            margin=dict(l=0, r=0, t=30, b=0),
+        )
+        st.plotly_chart(fig, use_container_width=True)
 
 st.subheader("Recent Alerts")
 try:
