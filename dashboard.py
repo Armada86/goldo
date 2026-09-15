@@ -123,7 +123,17 @@ else:
         if series.empty:
             continue
         st.caption(name.upper())
-        st.line_chart(series)
+        # Plotly instead of st.line_chart so the y-axis auto-ranges tightly
+        # to this indicator's own value range — same fix as gold's chart,
+        # since e.g. us10y's ~4-5% band or inflation's ~2.3-2.4% band both
+        # look like a flat line against a wider default axis.
+        line_fig = go.Figure(data=[go.Scatter(x=series.index, y=series.values, mode="lines")])
+        line_fig.update_layout(
+            yaxis=dict(autorange=True, fixedrange=False),
+            margin=dict(l=0, r=0, t=10, b=0),
+            height=250,
+        )
+        st.plotly_chart(line_fig, use_container_width=True)
 
 st.subheader("Recent Alerts")
 try:
