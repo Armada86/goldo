@@ -43,17 +43,22 @@ POLL_INTERVAL_MINUTES = 5
 
 # Percentage move (since previous poll) that triggers an alert.
 PCT_CHANGE_ALERT_THRESHOLD = {
-    "dxy": 0.3,
     "inflation": 1.0,
 }
 
 # Absolute move (since previous poll) that triggers an alert — a fixed
 # amount instead of a percentage. Gold uses dollars, since a flat dollar
 # threshold is more meaningful than a % of a ~$4,300 price. us10y uses
-# yield points (^TNX is quoted in percent, e.g. 4.97 = 4.97%).
+# yield points (^TNX is quoted in percent, e.g. 4.97 = 4.97%). dxy uses
+# index points, replacing its old %-based PCT_CHANGE_ALERT_THRESHOLD entry —
+# 0.2 requested directly (see docs/technical-analyst-gld-log.md); note this
+# check compares poll-to-poll (5-min) like gold/us10y, where 0.2 vs. 0.3
+# barely differs (both ~2 hits/30 days) — the 13-vs-6 gap seen at 0.2 was
+# from a separate *hourly* high-low-range analysis, a different mechanism.
 ABS_CHANGE_ALERT_THRESHOLD = {
     "gold": 10.0,
     "us10y": 0.02,
+    "dxy": 0.2,
 }
 
 # Indicators that alert on ANY change from the previous poll, instead of a
