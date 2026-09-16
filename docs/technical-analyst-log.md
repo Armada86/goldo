@@ -15,7 +15,6 @@ a given time window?
 
 | Window | Threshold | Period | Result |
 |---|---|---|---|
-| 6 hours (rolling, 6 consecutive hourly bars) | > $5 | 60 days | 51 distinct events (254 raw overlapping windows out of 415 total) |
 | 1 hour (single bar) | > $5 | 30 days | 3 times (out of 210 bars) |
 | 1 hour (single bar) | > $3 | 30 days | 21 times (out of 210 bars) |
 
@@ -50,21 +49,6 @@ a given time window?
 | 2026-08-25 10:30 | $3.03 | 426.03 | 423.00 |
 | 2026-08-06 11:30 | $3.01 | 390.28 | 387.27 |
 | 2026-08-31 09:30 | $3.01 | 407.91 | 404.90 |
-
-**Top 10 60-day, 6-hour rolling-window swings (>$5, deduplicated events)**:
-
-| Window ends | Swing |
-|---|---|
-| 2026-08-05 13:30 | $17.61 |
-| 2026-08-28 14:30 | $17.17 |
-| 2026-06-24 09:30 | $15.63 |
-| 2026-08-19 11:30 | $14.83 |
-| 2026-08-31 09:30 | $13.68 |
-| 2026-08-07 09:30 | $13.39 |
-| 2026-09-03 10:30 | $13.20 |
-| 2026-07-23 09:30 | $11.69 |
-| 2026-07-08 11:30 | $11.65 |
-| 2026-09-01 13:30 | $11.26 |
 
 **Cross-check against gold spot (XAU/USD)**: for the three >$5 hourly GLD events, gold spot's swing
 over the exact same 60-minute window (Twelve Data 5-min bars, aggregated):
