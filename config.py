@@ -64,15 +64,15 @@ VALUE_CHANGE_ALERT_NAMES = ["financial_stress"]
 # only compare consecutive polls and would miss a slower climb/drop that
 # adds up over the hour. Every tracked indicator uses this mechanism now
 # (gld, dxy, us10y) so all three alert on the same hourly-window basis.
-# Thresholds came from historical frequency analysis, picked to land in the
-# same "frequent enough to matter, not noise-level" range (~13-21 hourly
-# events/30 days) — see docs/technical-analyst-gld-log.md (gld, $3),
-# docs/technical-analyst-dxy-log.md (dxy, 0.2 pts), and
-# docs/technical-analyst-us10y-log.md (us10y, 0.035 yield points).
+# Thresholds came from historical frequency analysis — see
+# docs/technical-analyst-gld-log.md (gld, $3), docs/technical-analyst-dxy-log.md
+# (dxy, 0.2 pts), and docs/technical-analyst-us10y-log.md (us10y, 0.025
+# yield points — chosen directly over the 0.035 the frequency analysis
+# originally suggested; 0.025 fires more often, ~33 events/30 days vs. ~13).
 INTRAHOUR_SWING_ALERT_THRESHOLD = {
     "gld": 3.0,
     "dxy": 0.2,
-    "us10y": 0.035,
+    "us10y": 0.025,
 }
 
 # Simple moving-average crossover on gold price, evaluated on daily closes.

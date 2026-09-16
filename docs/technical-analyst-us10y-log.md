@@ -142,3 +142,22 @@ three of gld/dxy/us10y use the same `check_intrahour_swing_alerts` mechanism. Al
 message in `rules.py` to include the current price (`now {price}`), on top of the direction (up/down)
 and threshold it already reported, so every intrahour-swing Telegram alert states move, direction,
 threshold, and current price.
+
+---
+
+## 2026-09-16 — US10Y hourly threshold lowered from 0.035 to 0.025
+
+**Question**: at discrete 1-hour bars (not the rolling-window method above), how many times did US10Y's
+high-low range exceed a few candidate thresholds over the last 30 days?
+
+**Method**: yfinance hourly bars (`^TNX`, `interval="1h"`), 153 bars, 2026-08-17 to 2026-09-16.
+
+| Threshold (yield points) | Hourly bars exceeded / 153 |
+|---|---|
+| 0.02 | 57 (~37%) |
+| **0.025** | **33 (~22%)** |
+| 0.035 (previous config value) | ~13 (rolling-window method, not directly comparable) |
+
+**Outcome**: `us10y`'s `INTRAHOUR_SWING_ALERT_THRESHOLD` changed from `0.035` to **`0.025`**, requested
+directly (not re-derived from a target event-rate the way 0.035 was) — roughly 33 events/30 days at
+discrete hourly-bar granularity, a looser/more frequent threshold than the previous value.

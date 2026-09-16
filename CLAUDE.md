@@ -74,7 +74,7 @@ the value from two polls back instead of one).
   check. Uses a rising-edge comparison (current 60-min window over threshold, the window as of one
   poll ago wasn't) so a sustained swing alerts once, not every 5 minutes for the rest of the hour.
   This is the mechanism for all three of gld ($3, dollars, see `docs/technical-analyst-gld-log.md`),
-  dxy (0.2 index points, see `docs/technical-analyst-dxy-log.md`), and us10y (0.035 yield points, see
+  dxy (0.2 index points, see `docs/technical-analyst-dxy-log.md`), and us10y (0.025 yield points, see
   `docs/technical-analyst-us10y-log.md`) — us10y moved here from `check_abs_change_alerts` so all
   three price/rate indicators alert on the same hourly-window basis. Each Telegram message states
   direction (up/down), the swing size, the threshold, and the current price; the `$` vs. no-unit
