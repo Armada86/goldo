@@ -43,10 +43,16 @@ POLL_INTERVAL_MINUTES = 5
 
 # Percentage move (since previous poll) that triggers an alert.
 PCT_CHANGE_ALERT_THRESHOLD = {
-    "gold": 0.1,
     "dxy": 0.3,
     "us10y": 1.0,
     "inflation": 1.0,
+}
+
+# Absolute dollar move (since previous poll) that triggers an alert — gold
+# uses this instead of a percentage threshold, since a fixed dollar amount
+# is what actually matters for a spot price around $4,300.
+ABS_CHANGE_ALERT_THRESHOLD = {
+    "gold": 10.0,
 }
 
 # Indicators that alert on ANY change from the previous poll, instead of a

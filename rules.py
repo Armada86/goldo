@@ -3,6 +3,7 @@
 from datetime import timedelta
 
 from config import (
+    ABS_CHANGE_ALERT_THRESHOLD,
     INTRAHOUR_SWING_ALERT_THRESHOLD,
     PCT_CHANGE_ALERT_THRESHOLD,
     SMA_LONG,
@@ -37,6 +38,28 @@ def check_pct_change_alerts(prices: dict[str, float]) -> list[str]:
             direction = "up" if pct_change > 0 else "down"
             alerts.append(
                 f"{name.upper()} moved {direction} {pct_change:+.2f}% "
+                f"(now {price:.2f})"
+            )
+    return alerts
+
+
+def check_abs_change_alerts(prices: dict[str, float]) -> list[str]:
+    """Like check_pct_change_alerts, but a fixed dollar move since the
+    previous poll instead of a percentage — used for gold, where a flat
+    threshold is more meaningful than a % of a ~$4,300 price."""
+    alerts = []
+    for name, threshold in ABS_CHANGE_ALERT_THRESHOLD.items():
+        if name not in prices:
+            continue
+        price = prices[name]
+        previous = get_previous_reading(name)
+        if previous is None:
+            continue
+        change = price - previous
+        if abs(change) >= threshold:
+            direction = "up" if change > 0 else "down"
+            alerts.append(
+                f"{name.upper()} moved {direction} ${abs(change):.2f} "
                 f"(now {price:.2f})"
             )
     return alerts

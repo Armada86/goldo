@@ -8,6 +8,7 @@ from config import POLL_INTERVAL_MINUTES #goes to config page and gets the value
 from data_fetcher import fetch_latest_prices
 from notifier import send_telegram_message
 from rules import (
+    check_abs_change_alerts,
     check_intrahour_swing_alerts,
     check_pct_change_alerts,
     check_sma_crossover,
@@ -31,6 +32,7 @@ def poll_once() -> None:
     # twice, once per poll, until the DB catches up).
     save_readings(prices)
     alerts = check_pct_change_alerts(prices)
+    alerts += check_abs_change_alerts(prices)
     alerts += check_value_change_alerts(prices)
     alerts += check_intrahour_swing_alerts(prices)
     alerts += check_sma_crossover()
