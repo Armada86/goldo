@@ -26,6 +26,14 @@ one — not a correctness test, but a historical backtest against live yfinance 
 for tuning `INTRAHOUR_SWING_ALERT_THRESHOLD`, one indicator's worth of updates at a time (see
 `docs/technical-analyst-*-log.md` for what past runs found and which thresholds they led to).
 
+**Standing "frequency test" workflow**: when asked to run a frequency test, (1) run `frequency_test.py`
+against the *current* `INTRAHOUR_SWING_ALERT_THRESHOLD` values and report each indicator's actual
+event count over the last 30 days; (2) for any indicator off-target, search for a new threshold that
+lands at 30 +/- 2 rising-edge events (the standing target — see the 2026-09-16 entries in
+`docs/technical-analyst-*-log.md` for the method: the threshold-vs-event-count curve is non-monotonic,
+picks the higher-threshold/post-peak side) and propose it; (3) **do not edit `config.py` or commit
+anything until the user approves the suggested thresholds** — report and wait.
+
 Installing/updating deps: `pip install -r requirements.txt` (into `./venv`).
 
 ## Architecture
