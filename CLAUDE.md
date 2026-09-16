@@ -59,8 +59,13 @@ the current price has already been saved as the most recent one. Reordering this
 fix — doing it the other way around caused every real change to be alerted on twice (compared against
 the value from two polls back instead of one).
 
-**Four alert mechanisms in `rules.py`**, each suited to a different kind of signal:
-- `check_pct_change_alerts` — % move since the *previous poll only* (`PCT_CHANGE_ALERT_THRESHOLD`)
+**Five alert mechanisms in `rules.py`**, each suited to a different kind of signal:
+- `check_pct_change_alerts` — % move since the *previous poll only* (`PCT_CHANGE_ALERT_THRESHOLD`) —
+  dxy/us10y/inflation
+- `check_abs_change_alerts` — same previous-poll comparison, but a fixed dollar move
+  (`ABS_CHANGE_ALERT_THRESHOLD`) instead of a %. Used for gold: a flat $ threshold matters more than a
+  % of a ~$4,300 price. `gold` and `dxy`/`us10y`/`inflation` are mutually exclusive between this and
+  `check_pct_change_alerts` — an indicator should only be in one of the two threshold dicts.
 - `check_value_change_alerts` — any change at all (`VALUE_CHANGE_ALERT_NAMES`), for indicators like
   `financial_stress` where a % threshold breaks down near zero
 - `check_intrahour_swing_alerts` — absolute high-low range over the trailing 60 minutes
