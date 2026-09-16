@@ -1,4 +1,4 @@
-"""Scheduled job (daily, midnight ET, via cron-job.org -> workflow_dispatch,
+"""Scheduled job (daily, 8 PM ET, via cron-job.org -> workflow_dispatch,
 same pattern as poll_job.py): run frequency_test.py against the *current*
 INTRAHOUR_SWING_ALERT_THRESHOLD values and send a Telegram alert if any
 indicator's actual 30-day rising-edge event count has drifted outside the
