@@ -44,9 +44,10 @@ def check_pct_change_alerts(prices: dict[str, float]) -> list[str]:
 
 
 def check_abs_change_alerts(prices: dict[str, float]) -> list[str]:
-    """Like check_pct_change_alerts, but a fixed dollar move since the
-    previous poll instead of a percentage — used for gold, where a flat
-    threshold is more meaningful than a % of a ~$4,300 price."""
+    """Like check_pct_change_alerts, but a fixed move since the previous
+    poll instead of a percentage — used where a flat threshold is more
+    meaningful than a %: gold (dollars, vs. a ~$4,300 price) and us10y
+    (yield points, which oscillate near zero so a % threshold is noisy)."""
     alerts = []
     for name, threshold in ABS_CHANGE_ALERT_THRESHOLD.items():
         if name not in prices:
@@ -58,8 +59,9 @@ def check_abs_change_alerts(prices: dict[str, float]) -> list[str]:
         change = price - previous
         if abs(change) >= threshold:
             direction = "up" if change > 0 else "down"
+            unit = "$" if name == "gold" else ""
             alerts.append(
-                f"{name.upper()} moved {direction} ${abs(change):.2f} "
+                f"{name.upper()} moved {direction} {unit}{abs(change):.2f} "
                 f"(now {price:.2f})"
             )
     return alerts
