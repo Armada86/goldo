@@ -7,7 +7,12 @@ from apscheduler.schedulers.blocking import BlockingScheduler   #runs in the for
 from config import POLL_INTERVAL_MINUTES #goes to config page and gets the value of POLL_INTERVAL_MINUTES
 from data_fetcher import fetch_latest_prices
 from notifier import send_telegram_message
-from rules import check_pct_change_alerts, check_sma_crossover, check_value_change_alerts
+from rules import (
+    check_intrahour_swing_alerts,
+    check_pct_change_alerts,
+    check_sma_crossover,
+    check_value_change_alerts,
+)
 from storage import init_db, save_alert, save_readings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
@@ -27,6 +32,7 @@ def poll_once() -> None:
     save_readings(prices)
     alerts = check_pct_change_alerts(prices)
     alerts += check_value_change_alerts(prices)
+    alerts += check_intrahour_swing_alerts(prices)
     alerts += check_sma_crossover()
 
     log.info("Prices: %s", prices)

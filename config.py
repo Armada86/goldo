@@ -54,6 +54,16 @@ PCT_CHANGE_ALERT_THRESHOLD = {
 # zero and updates weekly — any change at all is noteworthy).
 VALUE_CHANGE_ALERT_NAMES = ["financial_stress"]
 
+# Absolute high-low swing over the trailing 60 minutes (from our own 5-min
+# polled readings, not a separate data source) that triggers an alert —
+# different from PCT_CHANGE_ALERT_THRESHOLD, which only compares consecutive
+# polls and would miss a slower climb/drop that adds up over the hour.
+# $3 was chosen from historical analysis: GLD swung >$3 within an hour ~21
+# times over a 30-day sample (mostly right at market open), >$5 only 3 times.
+INTRAHOUR_SWING_ALERT_THRESHOLD = {
+    "gld": 3.0,
+}
+
 # Simple moving-average crossover on gold price, evaluated on daily closes.
 SMA_SHORT = 20
 SMA_LONG = 50

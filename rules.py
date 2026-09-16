@@ -1,8 +1,16 @@
 """Alert conditions: % change since last poll, and SMA crossover on gold."""
 
-from config import PCT_CHANGE_ALERT_THRESHOLD, SMA_LONG, SMA_SHORT, VALUE_CHANGE_ALERT_NAMES
+from datetime import timedelta
+
+from config import (
+    INTRAHOUR_SWING_ALERT_THRESHOLD,
+    PCT_CHANGE_ALERT_THRESHOLD,
+    SMA_LONG,
+    SMA_SHORT,
+    VALUE_CHANGE_ALERT_NAMES,
+)
 from data_fetcher import fetch_daily_history
-from storage import get_previous_reading
+from storage import get_previous_reading, get_recent_readings
 
 
 def check_value_change_alerts(prices: dict[str, float]) -> list[str]:
@@ -30,6 +38,36 @@ def check_pct_change_alerts(prices: dict[str, float]) -> list[str]:
             alerts.append(
                 f"{name.upper()} moved {direction} {pct_change:+.2f}% "
                 f"(now {price:.2f})"
+            )
+    return alerts
+
+
+def check_intrahour_swing_alerts(prices: dict[str, float]) -> list[str]:
+    """Alert once when the trailing-60-min high-low range crosses above its
+    threshold — a rising-edge check (current window over threshold, the
+    window as of one poll ago wasn't) so a sustained swing alerts once
+    instead of every 5 minutes for the rest of the hour."""
+    alerts = []
+    for name, threshold in INTRAHOUR_SWING_ALERT_THRESHOLD.items():
+        if name not in prices:
+            continue
+        readings = get_recent_readings(name, minutes=65)
+        if len(readings) < 2:
+            continue
+
+        now_ts = readings[-1][0]
+        current_window = [p for ts, p in readings if ts >= now_ts - timedelta(minutes=60)]
+        previous_window = [
+            p for ts, p in readings
+            if now_ts - timedelta(minutes=65) <= ts <= now_ts - timedelta(minutes=5)
+        ]
+        current_swing = max(current_window) - min(current_window) if current_window else 0.0
+        previous_swing = max(previous_window) - min(previous_window) if previous_window else 0.0
+
+        if current_swing >= threshold and previous_swing < threshold:
+            alerts.append(
+                f"{name.upper()} swung ${current_swing:.2f} in the last hour "
+                f"(threshold ${threshold:.2f})"
             )
     return alerts
 

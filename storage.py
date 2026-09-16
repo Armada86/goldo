@@ -65,3 +65,14 @@ def get_previous_reading(name: str) -> float | None:
     if len(rows) < 2:
         return None
     return rows[1][0]
+
+
+def get_recent_readings(name: str, minutes: int) -> list[tuple[datetime, float]]:
+    """(ts, price) rows for `name` from the trailing `minutes`, oldest first."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT ts, price FROM readings WHERE name = %s AND ts >= NOW() - (%s * INTERVAL '1 minute') "
+            "ORDER BY ts",
+            (name, minutes),
+        )
+        return cur.fetchall()
