@@ -75,4 +75,8 @@ Net move +$53.70 (+1.23%), full range $103.40 (2.37%). A single 1-minute bar (08
 gold's rally — both instruments show the same spike-then-reversal shape at the same clock-minute,
 pointing to one shared macro data release rather than coincidence.
 
-**Outcome**: no code changes made — this was read-only analysis via the `technical-analyst` subagent.
+**Outcome**: changed the us10y alert to a fixed amount threshold of **0.02 points**. `us10y` moved from
+`PCT_CHANGE_ALERT_THRESHOLD` to `ABS_CHANGE_ALERT_THRESHOLD` in `config.py` (`check_abs_change_alerts`
+in `rules.py`), so it now alerts on a flat 0.02-point move since the previous poll instead of a
+percentage. (Separately lowered from an initial 0.05 points to 0.02 after checking how often each
+threshold would actually fire over the 30-day sample above.)

@@ -64,7 +64,7 @@ the value from two polls back instead of one).
   dxy/inflation
 - `check_abs_change_alerts` — same previous-poll comparison, but a fixed move
   (`ABS_CHANGE_ALERT_THRESHOLD`) instead of a %. Used for gold (flat $ threshold matters more than a
-  % of a ~$4,300 price) and us10y (flat yield-point threshold — 0.05 points — instead of a % of a
+  % of a ~$4,300 price) and us10y (flat yield-point threshold — 0.02 points — instead of a % of a
   value that's noisy to measure relatively). `gold`/`us10y` and `dxy`/`inflation` are mutually
   exclusive between this and `check_pct_change_alerts` — an indicator should only be in one of the
   two threshold dicts.
