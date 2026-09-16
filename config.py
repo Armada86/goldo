@@ -49,16 +49,10 @@ PCT_CHANGE_ALERT_THRESHOLD = {
 # Absolute move (since previous poll) that triggers an alert — a fixed
 # amount instead of a percentage. Gold uses dollars, since a flat dollar
 # threshold is more meaningful than a % of a ~$4,300 price. us10y uses
-# yield points (^TNX is quoted in percent, e.g. 4.97 = 4.97%). dxy uses
-# index points, replacing its old %-based PCT_CHANGE_ALERT_THRESHOLD entry —
-# 0.2 requested directly (see docs/technical-analyst-gld-log.md); note this
-# check compares poll-to-poll (5-min) like gold/us10y, where 0.2 vs. 0.3
-# barely differs (both ~2 hits/30 days) — the 13-vs-6 gap seen at 0.2 was
-# from a separate *hourly* high-low-range analysis, a different mechanism.
+# yield points (^TNX is quoted in percent, e.g. 4.97 = 4.97%).
 ABS_CHANGE_ALERT_THRESHOLD = {
     "gold": 10.0,
     "us10y": 0.02,
-    "dxy": 0.2,
 }
 
 # Indicators that alert on ANY change from the previous poll, instead of a
@@ -68,12 +62,16 @@ VALUE_CHANGE_ALERT_NAMES = ["financial_stress"]
 
 # Absolute high-low swing over the trailing 60 minutes (from our own 5-min
 # polled readings, not a separate data source) that triggers an alert —
-# different from PCT_CHANGE_ALERT_THRESHOLD, which only compares consecutive
-# polls and would miss a slower climb/drop that adds up over the hour.
-# $3 was chosen from historical analysis: GLD swung >$3 within an hour ~21
-# times over a 30-day sample (mostly right at market open), >$5 only 3 times.
+# different from PCT_CHANGE_ALERT_THRESHOLD/ABS_CHANGE_ALERT_THRESHOLD, which
+# only compare consecutive polls and would miss a slower climb/drop that
+# adds up over the hour. $3 was chosen from historical analysis: GLD swung
+# >$3 within an hour ~21 times over a 30-day sample (mostly right at market
+# open), >$5 only 3 times. dxy's 0.2-point threshold was requested directly
+# (see docs/technical-analyst-gld-log.md for the supporting frequency
+# analysis: ~13 hourly events/30 days at 0.2 pts, vs. 6 at 0.3 pts).
 INTRAHOUR_SWING_ALERT_THRESHOLD = {
     "gld": 3.0,
+    "dxy": 0.2,
 }
 
 # Simple moving-average crossover on gold price, evaluated on daily closes.

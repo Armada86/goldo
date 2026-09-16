@@ -124,7 +124,16 @@ yfinance/live APIs, not the project's Neon Postgres `readings` table — per exp
 technical-analyst should never query the DB for this kind of price analysis (see
 `.claude/agents/technical-analyst.md`, updated the same day).
 
-**Outcome**: moved `dxy` from `PCT_CHANGE_ALERT_THRESHOLD` (0.3%) to `ABS_CHANGE_ALERT_THRESHOLD` in
-`config.py`, with a flat `0.2`-point threshold — same previous-poll comparison mechanism as gold/us10y
-(not an hourly-window check), just a fixed-point threshold instead of the old percentage one. Pushed to
-Telegram via the existing `check_abs_change_alerts` → `main.poll_once()` path (no new wiring needed).
+**Outcome**: two iterations, same day.
+1. First removed `dxy` from `PCT_CHANGE_ALERT_THRESHOLD` (0.3%) and added it to
+   `ABS_CHANGE_ALERT_THRESHOLD` (flat 0.2 points) — but that mechanism (`check_abs_change_alerts`)
+   only compares consecutive 5-min polls, where 0.2 vs. 0.3 barely differs (~2 hits/30 days either
+   way — see table above), not the hourly behavior the request was actually about.
+2. Corrected: removed `dxy` from `ABS_CHANGE_ALERT_THRESHOLD` entirely and added it to
+   `INTRAHOUR_SWING_ALERT_THRESHOLD` (flat 0.2 points) instead — same trailing-60-minute high-low-range
+   mechanism GLD already uses (`check_intrahour_swing_alerts`), which is what actually produces the
+   ~13-events/30-days frequency at a 0.2 threshold. Also fixed `check_intrahour_swing_alerts`'s alert
+   message, which hardcoded a `$` unit (fine for GLD, wrong for DXY's index points) — unit is now
+   picked per-indicator name. Pushed to Telegram via the existing `check_intrahour_swing_alerts` →
+   `main.poll_once()` path (no new wiring needed); alerts once per sustained swing via the existing
+   rising-edge check, not every 5 minutes for the rest of the hour.
