@@ -74,6 +74,14 @@ INTRAHOUR_SWING_ALERT_THRESHOLD = {
     "us10y": 0.021,
 }
 
+# Target rising-edge event count (over a 30-day frequency_test.py run) that
+# every INTRAHOUR_SWING_ALERT_THRESHOLD value is tuned toward, and the
+# tolerance frequency_check_job.py uses to decide whether an indicator has
+# drifted enough to alert on Telegram — requested directly, see CLAUDE.md's
+# "Standing frequency test workflow" and docs/technical-analyst-*-log.md.
+FREQUENCY_TEST_TARGET = 30
+FREQUENCY_TEST_TOLERANCE = 2
+
 # Simple moving-average crossover on gold price, evaluated on daily closes.
 SMA_SHORT = 20
 SMA_LONG = 50
