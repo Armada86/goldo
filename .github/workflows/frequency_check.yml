@@ -1,0 +1,25 @@
+name: Frequency check
+
+# Triggered externally (once daily, midnight America/New_York) via
+# cron-job.org calling the GitHub API workflow_dispatch endpoint -- same
+# reason as poll.yml: GitHub's own `schedule:` cron is UTC-only (no DST
+# handling) and has been unreliable on this repo, so we don't rely on it.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  frequency-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -r requirements.txt
+
+      - run: python frequency_check_job.py
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}

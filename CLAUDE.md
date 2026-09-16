@@ -19,6 +19,7 @@ python main.py                    # continuous local poller (BlockingScheduler l
 streamlit run dashboard.py        # local dashboard
 python poll_job.py                # one-shot poll (what the cloud job actually runs)
 python frequency_test.py          # backtest: how often would each intrahour-swing threshold have fired?
+python frequency_check_job.py     # one-shot: frequency_test.py + Telegram alert if any indicator is off target
 ```
 
 There is no test suite or linter configured in this repo. `frequency_test.py` is the closest thing to
@@ -29,10 +30,12 @@ for tuning `INTRAHOUR_SWING_ALERT_THRESHOLD`, one indicator's worth of updates a
 **Standing "frequency test" workflow**: when asked to run a frequency test, (1) run `frequency_test.py`
 against the *current* `INTRAHOUR_SWING_ALERT_THRESHOLD` values and report each indicator's actual
 event count over the last 30 days; (2) for any indicator off-target, search for a new threshold that
-lands at 30 +/- 2 rising-edge events (the standing target — see the 2026-09-16 entries in
-`docs/technical-analyst-*-log.md` for the method: the threshold-vs-event-count curve is non-monotonic,
-picks the higher-threshold/post-peak side) and propose it; (3) **do not edit `config.py` or commit
-anything until the user approves the suggested thresholds** — report and wait.
+lands within `FREQUENCY_TEST_TARGET +/- FREQUENCY_TEST_TOLERANCE` rising-edge events (30 +/- 2 — see the
+2026-09-16 entries in `docs/technical-analyst-*-log.md` for the method: the threshold-vs-event-count
+curve is non-monotonic, picks the higher-threshold/post-peak side) and propose it; (3) **do not edit
+`config.py` or commit anything until the user approves the suggested thresholds** — report and wait.
+`frequency_check_job.py` runs this same check automatically once a day and alerts on Telegram if
+anything has drifted, but even it never changes a threshold — see Scheduling below.
 
 Installing/updating deps: `pip install -r requirements.txt` (into `./venv`).
 
@@ -113,7 +116,15 @@ which run in two completely separate deployments.
 via the Actions API: it didn't fire at all for 90+ minutes on a 5-minute cron). The workflow
 (`.github/workflows/poll.yml`) now only declares `workflow_dispatch`, and an external service
 (cron-job.org) calls the `POST /repos/.../actions/workflows/poll.yml/dispatches` API every 5 minutes to
-trigger it — this is the actual scheduler.
+trigger it — this is the actual scheduler. `.github/workflows/frequency_check.yml` follows the same
+pattern for `frequency_check_job.py` (daily instead of every 5 min — same reasoning, plus GitHub's
+`schedule:` is UTC-only with no DST handling, and cron-job.org lets the trigger be set directly in
+`America/New_York`). Both workflows need their own cron-job.org job pointed at their
+`workflow_dispatch` endpoint — that setup lives in the cron-job.org account, not in this repo.
+`frequency_check_job.py` runs `frequency_test.py` against the live `INTRAHOUR_SWING_ALERT_THRESHOLD`
+values and sends a Telegram alert if any indicator's 30-day event count drifts outside
+`FREQUENCY_TEST_TARGET +/- FREQUENCY_TEST_TOLERANCE` — it only alerts, it never changes a threshold
+itself (see the "Standing frequency test workflow" above).
 
 **Secrets arrive three different ways** depending on where the code runs:
 - Locally: `.env` file + `python-dotenv` (`load_dotenv()` in `data_fetcher.py`, `storage.py`, `notifier.py`)
