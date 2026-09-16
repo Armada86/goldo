@@ -18,9 +18,13 @@ Windows venv already exists at `./venv`. Activate or call binaries directly:
 python main.py                    # continuous local poller (BlockingScheduler loop)
 streamlit run dashboard.py        # local dashboard
 python poll_job.py                # one-shot poll (what the cloud job actually runs)
+python frequency_test.py          # backtest: how often would each intrahour-swing threshold have fired?
 ```
 
-There is no test suite or linter configured in this repo.
+There is no test suite or linter configured in this repo. `frequency_test.py` is the closest thing to
+one — not a correctness test, but a historical backtest against live yfinance data (see its docstring)
+for tuning `INTRAHOUR_SWING_ALERT_THRESHOLD`, one indicator's worth of updates at a time (see
+`docs/technical-analyst-*-log.md` for what past runs found and which thresholds they led to).
 
 Installing/updating deps: `pip install -r requirements.txt` (into `./venv`).
 
