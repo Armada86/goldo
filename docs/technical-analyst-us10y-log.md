@@ -161,3 +161,27 @@ high-low range exceed a few candidate thresholds over the last 30 days?
 **Outcome**: `us10y`'s `INTRAHOUR_SWING_ALERT_THRESHOLD` changed from `0.035` to **`0.025`**, requested
 directly (not re-derived from a target event-rate the way 0.035 was) — roughly 33 events/30 days at
 discrete hourly-bar granularity, a looser/more frequent threshold than the previous value.
+
+---
+
+## 2026-09-16 — US10Y retuned to hit ~30 rising-edge events/30 days (via frequency_test.py)
+
+**Question**: requested directly — retune all three intrahour-swing thresholds (gld, dxy, us10y) so
+each produces ~30 rising-edge alert events over the last 30 days, +/-2 tolerance.
+
+**Method**: `frequency_test.py` (new script — replays `check_intrahour_swing_alerts`' exact rising-edge
+logic against live yfinance 5-min bars, properly deduped unlike the raw-hourly-bar-count method used in
+the 0.025 analysis above, which is why this run's counts read lower for the same thresholds — e.g. 0.025
+gave 20 rising-edge events here vs. 33 raw hourly-bar exceedances above). Threshold-vs-event-count is
+non-monotonic (rises to a peak around 0.012, then falls); used the higher-threshold (post-peak) side,
+consistent with prior "meaningful move" threshold choices.
+
+| Threshold | Events/30 days |
+|---|---|
+| 0.020 | 32 |
+| **0.021** | **31** |
+| 0.0215 | 31 |
+| 0.022 | 28 |
+
+**Outcome**: `INTRAHOUR_SWING_ALERT_THRESHOLD["us10y"]` changed from `0.025` to **`0.021`** — confirmed
+with a fresh `frequency_test.py` run: 31 events/30 days, within the +/-2 target band.

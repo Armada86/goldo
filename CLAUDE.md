@@ -18,9 +18,13 @@ Windows venv already exists at `./venv`. Activate or call binaries directly:
 python main.py                    # continuous local poller (BlockingScheduler loop)
 streamlit run dashboard.py        # local dashboard
 python poll_job.py                # one-shot poll (what the cloud job actually runs)
+python frequency_test.py          # backtest: how often would each intrahour-swing threshold have fired?
 ```
 
-There is no test suite or linter configured in this repo.
+There is no test suite or linter configured in this repo. `frequency_test.py` is the closest thing to
+one — not a correctness test, but a historical backtest against live yfinance data (see its docstring)
+for tuning `INTRAHOUR_SWING_ALERT_THRESHOLD`, one indicator's worth of updates at a time (see
+`docs/technical-analyst-*-log.md` for what past runs found and which thresholds they led to).
 
 Installing/updating deps: `pip install -r requirements.txt` (into `./venv`).
 
@@ -73,10 +77,11 @@ the value from two polls back instead of one).
   `storage.get_recent_readings()`. Catches a slow climb/drop that never trips the poll-to-poll %
   check. Uses a rising-edge comparison (current 60-min window over threshold, the window as of one
   poll ago wasn't) so a sustained swing alerts once, not every 5 minutes for the rest of the hour.
-  This is the mechanism for all three of gld ($3, dollars, see `docs/technical-analyst-gld-log.md`),
-  dxy (0.2 index points, see `docs/technical-analyst-dxy-log.md`), and us10y (0.025 yield points, see
+  This is the mechanism for all three of gld ($2.25, dollars, see `docs/technical-analyst-gld-log.md`),
+  dxy (0.139 index points, see `docs/technical-analyst-dxy-log.md`), and us10y (0.021 yield points, see
   `docs/technical-analyst-us10y-log.md`) — us10y moved here from `check_abs_change_alerts` so all
-  three price/rate indicators alert on the same hourly-window basis. Each Telegram message states
+  three price/rate indicators alert on the same hourly-window basis. Current values were tuned with
+  `frequency_test.py` to each land at ~30 rising-edge events/30 days. Each Telegram message states
   direction (up/down), the swing size, the threshold, and the current price; the `$` vs. no-unit
   formatting is picked per-name in `rules.py`, not hardcoded.
 - `check_sma_crossover` — 20/50-day SMA crossover on gold futures daily closes, no config threshold
