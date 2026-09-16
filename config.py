@@ -50,12 +50,10 @@ PCT_CHANGE_ALERT_THRESHOLD = {
 # Absolute move (since previous poll) that triggers an alert — a fixed
 # amount instead of a percentage. Gold uses dollars, since a flat dollar
 # threshold is more meaningful than a % of a ~$4,300 price. us10y uses
-# yield points (^TNX is quoted in percent, e.g. 4.97 = 4.97%) — 0.05 points
-# is ~3x the 30-day average trailing-60-min swing (0.0167, see
-# docs/technical-analyst-us10y-log.md).
+# yield points (^TNX is quoted in percent, e.g. 4.97 = 4.97%).
 ABS_CHANGE_ALERT_THRESHOLD = {
     "gold": 10.0,
-    "us10y": 0.05,
+    "us10y": 0.02,
 }
 
 # Indicators that alert on ANY change from the previous poll, instead of a
