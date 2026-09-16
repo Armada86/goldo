@@ -69,3 +69,31 @@ a sharp move with a partial bounce mid-hour, not a clean one-directional move.
 = {"gld": 3.0}` in `config.py`. The $3 threshold came directly from this analysis — frequent enough to
 be meaningful (~21 times/30 days) without being noise-level, and clustered enough at market open to be
 actionable. Uses a rising-edge check so a sustained swing alerts once, not every 5 minutes.
+
+---
+
+## 2026-09-16 — GLD retuned to hit ~30 rising-edge events/30 days (via frequency_test.py)
+
+**Question**: requested directly — retune all three intrahour-swing thresholds (gld, dxy, us10y) so
+each produces ~30 rising-edge alert events over the last 30 days, +/-2 tolerance.
+
+**Method**: `frequency_test.py` (new script, see repo root — replays `check_intrahour_swing_alerts`'
+exact rising-edge logic against live yfinance 5-min bars). Scanned a range of GLD thresholds; the
+threshold-vs-event-count relationship is **not monotonic** — event count rises from a low threshold,
+peaks (~$1.2, 67 events), then falls as threshold increases further (since very low thresholds mean
+the swing rarely drops back below threshold to reset, collapsing what would be many events into one
+long sustained one). Two threshold values can therefore produce the same event count, one on each side
+of the peak; picked the **higher-threshold (post-peak) side** for all three indicators, consistent with
+the existing "meaningful move, not noise" philosophy from prior threshold choices, rather than the much
+smaller/noisier low-threshold alternative.
+
+| Threshold | Events/30 days |
+|---|---|
+| $2.20 | 35 |
+| $2.24 | 31 |
+| **$2.25** | **30** |
+| $2.28 | 27 |
+| $2.30 | 28 |
+
+**Outcome**: `INTRAHOUR_SWING_ALERT_THRESHOLD["gld"]` changed from `3.0` to **`2.25`** — confirmed with
+a fresh `frequency_test.py` run: 30 events/30 days, exact target.

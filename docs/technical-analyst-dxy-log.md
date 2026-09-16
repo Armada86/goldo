@@ -73,3 +73,26 @@ technical-analyst should never query the DB for this kind of price analysis (see
    picked per-indicator name. Pushed to Telegram via the existing `check_intrahour_swing_alerts` →
    `main.poll_once()` path (no new wiring needed); alerts once per sustained swing via the existing
    rising-edge check, not every 5 minutes for the rest of the hour.
+
+---
+
+## 2026-09-16 — DXY retuned to hit ~30 rising-edge events/30 days (via frequency_test.py)
+
+**Question**: requested directly — retune all three intrahour-swing thresholds (gld, dxy, us10y) so
+each produces ~30 rising-edge alert events over the last 30 days, +/-2 tolerance.
+
+**Method**: `frequency_test.py` (new script — replays `check_intrahour_swing_alerts`' exact rising-edge
+logic against live yfinance 5-min bars, properly deduped unlike the raw-bar-count method used in the
+0.2-point analysis above, which is why this run's counts read lower than that table for the same
+thresholds). Threshold-vs-event-count is non-monotonic (rises to a peak around 0.05, then falls); used
+the higher-threshold (post-peak) side, consistent with prior "meaningful move" threshold choices.
+
+| Threshold | Events/30 days |
+|---|---|
+| 0.136 | 34 |
+| 0.138 | 32 |
+| **0.139** | **29** |
+| 0.140 | 27 |
+
+**Outcome**: `INTRAHOUR_SWING_ALERT_THRESHOLD["dxy"]` changed from `0.2` to **`0.139`** — confirmed with
+a fresh `frequency_test.py` run: 29 events/30 days, within the +/-2 target band.
