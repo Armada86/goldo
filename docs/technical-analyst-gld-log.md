@@ -1,8 +1,9 @@
-# Technical analyst — findings log
+# Technical analyst — GLD findings log
 
-A running record of market-move analyses done for this project. Kept narrow — the question asked, the
-method, and the concrete numbers found — not full writeups (those stay in whatever conversation
-produced them). Newest entries at the bottom.
+A running record of GLD-specific market-move analyses done for this project. Kept narrow — the
+question asked, the method, and the concrete numbers found — not full writeups (those stay in whatever
+conversation produced them). Newest entries at the bottom. See also `docs/technical-analyst-dxy-log.md`
+for DXY-specific analyses.
 
 ---
 

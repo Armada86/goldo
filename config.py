@@ -43,7 +43,6 @@ POLL_INTERVAL_MINUTES = 5
 
 # Percentage move (since previous poll) that triggers an alert.
 PCT_CHANGE_ALERT_THRESHOLD = {
-    "dxy": 0.3,
     "inflation": 1.0,
 }
 
@@ -63,12 +62,16 @@ VALUE_CHANGE_ALERT_NAMES = ["financial_stress"]
 
 # Absolute high-low swing over the trailing 60 minutes (from our own 5-min
 # polled readings, not a separate data source) that triggers an alert —
-# different from PCT_CHANGE_ALERT_THRESHOLD, which only compares consecutive
-# polls and would miss a slower climb/drop that adds up over the hour.
-# $3 was chosen from historical analysis: GLD swung >$3 within an hour ~21
-# times over a 30-day sample (mostly right at market open), >$5 only 3 times.
+# different from PCT_CHANGE_ALERT_THRESHOLD/ABS_CHANGE_ALERT_THRESHOLD, which
+# only compare consecutive polls and would miss a slower climb/drop that
+# adds up over the hour. $3 was chosen from historical analysis: GLD swung
+# >$3 within an hour ~21 times over a 30-day sample (mostly right at market
+# open), >$5 only 3 times. dxy's 0.2-point threshold was requested directly
+# (see docs/technical-analyst-dxy-log.md for the supporting frequency
+# analysis: ~13 hourly events/30 days at 0.2 pts, vs. 6 at 0.3 pts).
 INTRAHOUR_SWING_ALERT_THRESHOLD = {
     "gld": 3.0,
+    "dxy": 0.2,
 }
 
 # Simple moving-average crossover on gold price, evaluated on daily closes.

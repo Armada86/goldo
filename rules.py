@@ -91,9 +91,10 @@ def check_intrahour_swing_alerts(prices: dict[str, float]) -> list[str]:
 
         if current_swing >= threshold and previous_swing < threshold:
             direction = "up" if current_window[-1] >= current_window[0] else "down"
+            unit = "$" if name == "gld" else ""
             alerts.append(
-                f"{name.upper()} moved {direction} ${current_swing:.2f} in the last hour "
-                f"(threshold ${threshold:.2f})"
+                f"{name.upper()} moved {direction} {unit}{current_swing:.2f} in the last hour "
+                f"(threshold {unit}{threshold:.2f})"
             )
     return alerts
 
