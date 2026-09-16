@@ -67,7 +67,7 @@ VALUE_CHANGE_ALERT_NAMES = ["financial_stress"]
 # adds up over the hour. $3 was chosen from historical analysis: GLD swung
 # >$3 within an hour ~21 times over a 30-day sample (mostly right at market
 # open), >$5 only 3 times. dxy's 0.2-point threshold was requested directly
-# (see docs/technical-analyst-gld-log.md for the supporting frequency
+# (see docs/technical-analyst-dxy-log.md for the supporting frequency
 # analysis: ~13 hourly events/30 days at 0.2 pts, vs. 6 at 0.3 pts).
 INTRAHOUR_SWING_ALERT_THRESHOLD = {
     "gld": 3.0,
