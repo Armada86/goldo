@@ -59,6 +59,27 @@ the current price has already been saved as the most recent one. Reordering this
 fix — doing it the other way around caused every real change to be alerted on twice (compared against
 the value from two polls back instead of one).
 
+**Four alert mechanisms in `rules.py`**, each suited to a different kind of signal:
+- `check_pct_change_alerts` — % move since the *previous poll only* (`PCT_CHANGE_ALERT_THRESHOLD`)
+- `check_value_change_alerts` — any change at all (`VALUE_CHANGE_ALERT_NAMES`), for indicators like
+  `financial_stress` where a % threshold breaks down near zero
+- `check_intrahour_swing_alerts` — absolute high-low range over the trailing 60 minutes
+  (`INTRAHOUR_SWING_ALERT_THRESHOLD`), computed from our own 5-min polled readings via
+  `storage.get_recent_readings()`. Catches a slow climb/drop that never trips the poll-to-poll %
+  check. Uses a rising-edge comparison (current 60-min window over threshold, the window as of one
+  poll ago wasn't) so a sustained swing alerts once, not every 5 minutes for the rest of the hour.
+- `check_sma_crossover` — 20/50-day SMA crossover on gold futures daily closes, no config threshold
+
+**Dashboard charting (`dashboard.py`)**: gold's live price panel uses real OHLC candles from Twelve
+Data's `/time_series` endpoint (`fetch_gold_candles()`, cached 5 min via `st.cache_data`) rather than
+the point-in-time readings in Postgres, since those are single prices per poll, not bars. All series —
+the gold candlestick, the other indicators, and the RSI(14)/ADX(14) panels (computed locally with
+Wilder's formulas from the same cached candles, zero extra API cost) — live in ONE hand-built Plotly
+figure, not `make_subplots`: that helper only supports one secondary y-axis per row, but the price
+panel alone overlays up to 6 series on independent y-axes (gold ~4300 vs inflation ~2.3 need separate
+scales). Every panel is a vertical `domain` slice of a single shared x-axis instead of a subplot row,
+which is what lets panning/zooming any one panel move all of them together.
+
 **Storage is Postgres (Neon), not SQLite** — despite `market_data.db` and `streamlit.log` still sitting
 in the repo root (gitignored, unused leftovers from an earlier local-SQLite version). `storage.py` and
 `dashboard.py` both read `DATABASE_URL` and share the same DB across the poll job and the dashboard,
@@ -83,3 +104,12 @@ Required env vars: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TWELVE_DATA_API_KE
 tier caps at 800 requests/day (1-minute polling of gold alone would need 1,440/day), and `inflation`/
 `financial_stress` only update daily/weekly from FRED regardless of poll frequency, so polling faster
 wouldn't add real signal, just burn through rate limits faster.
+
+## Subagents
+
+`.claude/agents/technical-analyst.md` defines a **read-only** subagent (no `Edit`/`Write` tools) for
+studying gold price action/indicators using this project's real data. It's instructed to ask
+clarifying questions, plan any recommended change, and explicitly request permission before
+implementation — it cannot self-edit code even if asked to. Note: `.claude/agents/` files are only
+loaded at session start, so a newly-added or edited agent definition won't be callable until the next
+session.
