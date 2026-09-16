@@ -94,7 +94,7 @@ def check_intrahour_swing_alerts(prices: dict[str, float]) -> list[str]:
             unit = "$" if name == "gld" else ""
             alerts.append(
                 f"{name.upper()} moved {direction} {unit}{current_swing:.2f} in the last hour "
-                f"(threshold {unit}{threshold:.2f})"
+                f"(threshold {unit}{threshold:.2f}, now {unit}{prices[name]:.2f})"
             )
     return alerts
 

@@ -63,11 +63,9 @@ the value from two polls back instead of one).
 - `check_pct_change_alerts` — % move since the *previous poll only* (`PCT_CHANGE_ALERT_THRESHOLD`) —
   inflation
 - `check_abs_change_alerts` — same previous-poll comparison, but a fixed move
-  (`ABS_CHANGE_ALERT_THRESHOLD`) instead of a %. Used for gold (flat $ threshold matters more than a
-  % of a ~$4,300 price) and us10y (flat yield-point threshold — 0.02 points — instead of a % of a
-  value that's noisy to measure relatively). `gold`/`us10y` and `inflation` are mutually exclusive
-  between this and `check_pct_change_alerts` — an indicator should only be in one of the two
-  threshold dicts.
+  (`ABS_CHANGE_ALERT_THRESHOLD`) instead of a %. Used for gold only now (flat $ threshold matters more
+  than a % of a ~$4,300 price). `gold` and `inflation` are mutually exclusive between this and
+  `check_pct_change_alerts` — an indicator should only be in one of the two threshold dicts.
 - `check_value_change_alerts` — any change at all (`VALUE_CHANGE_ALERT_NAMES`), for indicators like
   `financial_stress` where a % threshold breaks down near zero
 - `check_intrahour_swing_alerts` — absolute high-low range over the trailing 60 minutes
@@ -75,9 +73,12 @@ the value from two polls back instead of one).
   `storage.get_recent_readings()`. Catches a slow climb/drop that never trips the poll-to-poll %
   check. Uses a rising-edge comparison (current 60-min window over threshold, the window as of one
   poll ago wasn't) so a sustained swing alerts once, not every 5 minutes for the rest of the hour.
-  Used for gld ($3, dollars, see `docs/technical-analyst-gld-log.md`) and dxy (0.2 index points, see
-  `docs/technical-analyst-dxy-log.md`). The alert-message unit (`$` vs. none) is picked per-name in
-  `rules.py`, not hardcoded.
+  This is the mechanism for all three of gld ($3, dollars, see `docs/technical-analyst-gld-log.md`),
+  dxy (0.2 index points, see `docs/technical-analyst-dxy-log.md`), and us10y (0.035 yield points, see
+  `docs/technical-analyst-us10y-log.md`) — us10y moved here from `check_abs_change_alerts` so all
+  three price/rate indicators alert on the same hourly-window basis. Each Telegram message states
+  direction (up/down), the swing size, the threshold, and the current price; the `$` vs. no-unit
+  formatting is picked per-name in `rules.py`, not hardcoded.
 - `check_sma_crossover` — 20/50-day SMA crossover on gold futures daily closes, no config threshold
 
 **Dashboard charting (`dashboard.py`)**: gold's live price panel uses real OHLC candles from Twelve
