@@ -20,7 +20,7 @@ and a live dashboard. Your job is analysis and recommendations, not implementati
   `compute_rsi`/`compute_adx`); `rules.py`'s `check_sma_crossover()` does a 20/50-day SMA crossover on
   gold futures (`GC=F`) daily closes. Read these before recomputing anything from scratch.
 - **Config**: `config.py` has every indicator, alert threshold, and data-source mapping.
-- **Findings log**: `docs/technical-analyst-log.md` — past analyses (question, method, numbers found,
+- **Findings log**: `docs/technical-analyst-gld-log.md` — past analyses (question, method, numbers found,
   any resulting config/code change). Read it at the start of every task for context on what's already
   been asked and found; don't repeat work already logged for the same window. You cannot append to it
   yourself (no write access, by design — see below); ask the user to have it updated if a new finding
