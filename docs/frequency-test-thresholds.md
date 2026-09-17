@@ -7,7 +7,12 @@ indicator. That single window has been dropped in favor of three independent, sh
 window), each naming the indicator, the window, the threshold, the direction (up/down), and the swing
 amount.
 
-## Thresholds
+**These nine thresholds are no longer a fixed, hand-picked table — they're re-tuned automatically every
+night.** The values below are the ones this backtest produced at the time this doc was written; the
+live values always live in `intrahour_swing_thresholds.json`, not here. See "Nightly auto-tuning"
+below for how and how often they actually move.
+
+## Thresholds (as of this backtest)
 
 | Indicator | 15-min threshold | 10-min threshold | 5-min threshold |
 |---|---|---|---|
@@ -54,3 +59,22 @@ Every one of these nine threshold values is wired into `rules.check_intrahour_sw
 to Telegram — no window or indicator here is backtest-only. A poll can produce anywhere from zero to
 nine of these alerts (three windows x three indicators) in a single cycle, each rising-edge deduped per
 window so a sustained swing alerts once, not repeatedly for the rest of the window.
+
+## Nightly auto-tuning
+
+`frequency_check_job.py` runs this same backtest every night (8 PM ET, see CLAUDE.md's "Scheduling")
+against the *live* thresholds in `intrahour_swing_thresholds.json`. For any of the nine
+indicator/window combinations that has drifted outside `FREQUENCY_TEST_TARGET +/-
+FREQUENCY_TEST_TOLERANCE` (60±4 events/60 days), it searches a new threshold itself
+(`threshold_search.search_threshold`, same higher-threshold/post-peak-side convention as the manual
+method above) and rewrites just that entry in the JSON file — combinations still on target are left
+untouched. `.github/workflows/frequency_check.yml` then commits the file, opens a PR, and merges it
+(`gh pr merge --squash`, no branch-protection bypass — a protected `main` requiring review will leave
+the PR open for a human instead of forcing it through).
+
+A Telegram message is sent every night either way, listing all nine combinations and marking each one
+`unchanged` (with its threshold and current event count) or showing the change (old threshold/count ->
+new threshold/count). Unlike the interactive workflow above, this path never asks for approval first —
+that trade-off (nightly drift correction with no human gate, vs. a threshold that can go stale between
+manual runs) was a deliberate choice; see CLAUDE.md's "Automatic (nightly, unattended)" workflow
+section for the reasoning.

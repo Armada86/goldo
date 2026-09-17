@@ -7,6 +7,10 @@ name: Frequency check
 on:
   workflow_dispatch: {}
 
+permissions:
+  contents: write
+  pull-requests: write
+
 jobs:
   frequency-check:
     runs-on: ubuntu-latest
@@ -19,7 +23,47 @@ jobs:
 
       - run: pip install -r requirements.txt
 
+      # frequency_check_job.py rewrites intrahour_swing_thresholds.json in
+      # place when a threshold has drifted off target, and always sends the
+      # Telegram report either way (unchanged vs. updated, per combo).
       - run: python frequency_check_job.py
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+      # If (and only if) that rewrote the thresholds file, commit it on a new
+      # branch, open a PR, and merge it -- this is the "updated
+      # automatically" half of the workflow; the Telegram message above is
+      # the audit trail of what changed and why. This does NOT force past
+      # branch protection (no --admin bypass): if main requires reviews or
+      # passing checks, this merge step fails and the PR is left open for a
+      # human to merge. Making it merge unattended on a protected branch is a
+      # repo-settings choice for the owner to make deliberately (e.g. adding
+      # this workflow's actor as an allowed bypasser), not something to force
+      # from this file -- same as the cron-job.org scheduling setup in
+      # CLAUDE.md, that configuration lives outside this repo.
+      - name: Open and merge a PR if thresholds changed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- intrahour_swing_thresholds.json; then
+            echo "No threshold changes, nothing to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          branch="frequency-check/$(date -u +%Y-%m-%d)-${{ github.run_number }}"
+          git checkout -b "$branch"
+          git add intrahour_swing_thresholds.json
+          git commit -m "Auto-update intrahour-swing thresholds ($(date -u +%Y-%m-%d))"
+          git push origin "$branch"
+
+          pr_url=$(gh pr create \
+            --title "Auto-update intrahour-swing thresholds ($(date -u +%Y-%m-%d))" \
+            --body "Automated nightly frequency-check threshold update -- see the Telegram report from this run for the per-indicator/window before/after." \
+            --base main --head "$branch")
+
+          gh pr merge "$pr_url" --squash --delete-branch

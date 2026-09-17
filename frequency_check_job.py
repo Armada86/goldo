@@ -1,28 +1,35 @@
 """Scheduled job (daily, 8 PM ET, via cron-job.org -> workflow_dispatch,
 same pattern as poll_job.py): run frequency_test.py against the *current*
-INTRAHOUR_SWING_ALERT_THRESHOLD values (now three windows -- 15/10/5 min --
-per indicator) and send a Telegram message either way -- an all-clear summary
-if every indicator/window combination's actual
-FREQUENCY_TEST_LOOKBACK_DAYS-day rising-edge event count is within target
-(config.FREQUENCY_TEST_TARGET +/- config.FREQUENCY_TEST_TOLERANCE), or a
-drift alert naming the offenders.
+INTRAHOUR_SWING_ALERT_THRESHOLD values (nine indicator/window combinations --
+15/10/5 min for each of gld/dxy/us10y) and, for any combination whose
+FREQUENCY_TEST_LOOKBACK_DAYS-day rising-edge event count has drifted outside
+config.FREQUENCY_TEST_TARGET +/- config.FREQUENCY_TEST_TOLERANCE, search a
+new threshold (threshold_search.search_threshold) and write it to
+intrahour_swing_thresholds.json.
 
-This only alerts -- it never changes a threshold. Per CLAUDE.md's "Standing
-frequency test workflow," picking and applying a new threshold is a human
-decision made in a Claude Code session, not something this job does
-automatically.
+Unlike the interactive "Standing frequency test workflow" in CLAUDE.md (which
+reports and waits for a human to approve a new threshold), this job applies
+the change itself: it's meant to run fully unattended every night, with the
+GitHub Actions workflow (.github/workflows/frequency_check.yml) committing
+the updated JSON file, opening a PR, and merging it automatically when this
+script changes anything. A Telegram message is always sent, listing every
+one of the nine combinations and whether it changed or stayed the same.
 
 Run: python frequency_check_job.py
 """
+
+import json
 
 from config import (
     FREQUENCY_TEST_LOOKBACK_DAYS,
     FREQUENCY_TEST_TARGET,
     FREQUENCY_TEST_TOLERANCE,
     INTRAHOUR_SWING_ALERT_THRESHOLD,
+    INTRAHOUR_SWING_THRESHOLDS_PATH,
 )
 from frequency_test import run_frequency_test
 from notifier import send_telegram_message
+from threshold_search import search_threshold
 
 
 def check() -> None:
@@ -30,33 +37,56 @@ def check() -> None:
 
     lo = FREQUENCY_TEST_TARGET - FREQUENCY_TEST_TOLERANCE
     hi = FREQUENCY_TEST_TARGET + FREQUENCY_TEST_TOLERANCE
-    all_combos = [
-        (name, window, len(events))
-        for name, by_window in results.items()
-        for window, events in by_window.items()
-    ]
-    offenders = [(name, window, count) for name, window, count in all_combos if not (lo <= count <= hi)]
 
-    if not offenders:
-        lines = [f"Frequency check: all indicator/window combos within {lo}-{hi} events/{FREQUENCY_TEST_LOOKBACK_DAYS} days"]
-        for name, window, count in all_combos:
-            threshold = INTRAHOUR_SWING_ALERT_THRESHOLD[name][window]
-            lines.append(f"  {name.upper()} {window}min: {count} events (threshold {threshold})")
-        message = "\n".join(lines)
-        print(message)
-        send_telegram_message(message)
-        return
+    updated_thresholds = {
+        name: dict(by_window) for name, by_window in INTRAHOUR_SWING_ALERT_THRESHOLD.items()
+    }
+    lines = []
+    any_changed = False
 
-    lines = [
-        f"Frequency test: {len(offenders)} indicator/window combo(s) outside the "
-        f"{FREQUENCY_TEST_TARGET}+/-{FREQUENCY_TEST_TOLERANCE} events/{FREQUENCY_TEST_LOOKBACK_DAYS}-day target:"
-    ]
-    for name, window, count in offenders:
-        threshold = INTRAHOUR_SWING_ALERT_THRESHOLD[name][window]
-        lines.append(f"  {name.upper()} {window}min: {count} events (threshold {threshold})")
-    lines.append("Run a frequency test in Claude Code to review and approve new thresholds.")
+    for name, data in results.items():
+        timestamps, prices = data["series"]
+        unit = "$" if name == "gld" else ""
+        for window, events in sorted(data["windows"].items(), reverse=True):
+            count = len(events)
+            old_threshold = INTRAHOUR_SWING_ALERT_THRESHOLD[name][window]
 
-    message = "\n".join(lines)
+            if lo <= count <= hi:
+                lines.append(
+                    f"  {name.upper()} {window}min: unchanged, {unit}{old_threshold:.4f} "
+                    f"({count} events)"
+                )
+                continue
+
+            any_changed = True
+            new_threshold, new_count = search_threshold(
+                timestamps, prices, window, lo, hi, seed=old_threshold
+            )
+            updated_thresholds[name][window] = round(new_threshold, 4)
+            lines.append(
+                f"  {name.upper()} {window}min: {unit}{old_threshold:.4f} ({count} events) -> "
+                f"{unit}{new_threshold:.4f} ({new_count} events)"
+            )
+
+    if any_changed:
+        with open(INTRAHOUR_SWING_THRESHOLDS_PATH, "w") as f:
+            json.dump(
+                {name: {str(w): v for w, v in by_window.items()} for name, by_window in updated_thresholds.items()},
+                f,
+                indent=2,
+            )
+            f.write("\n")
+        header = (
+            f"Frequency check: thresholds updated (target {FREQUENCY_TEST_TARGET}+/-"
+            f"{FREQUENCY_TEST_TOLERANCE} events/{FREQUENCY_TEST_LOOKBACK_DAYS} days)"
+        )
+    else:
+        header = (
+            f"Frequency check: all 9 indicator/window combos within {lo}-{hi} "
+            f"events/{FREQUENCY_TEST_LOOKBACK_DAYS} days, no changes"
+        )
+
+    message = "\n".join([header] + lines)
     print(message)
     send_telegram_message(message)
 
