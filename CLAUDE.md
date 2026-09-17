@@ -63,6 +63,11 @@ dashboard actually iterate over — adding a new indicator to one of those two d
 show up everywhere (storage, alerts loop, dashboard tiles/charts) without touching other files, unless
 it needs its own alert threshold.
 
+**Standing "new indicator" workflow**: whenever a new indicator/price is added to the project (a new
+entry in `INDICATORS` or `FRED_SERIES`, or any other tracked price), also add a row for it to the table
+in `docs/market.md` — update frequency and its typical relationship (same direction / opposite / mixed)
+to the gold price.
+
 **Every external call is wrapped in `retry.with_retries()`** (Twelve Data, FRED, yfinance, and the
 Postgres connection in `storage.get_connection()`) — exponential backoff, re-raises after exhausting
 attempts. `fetch_latest_prices()` then catches that final exception per-indicator so one permanently
