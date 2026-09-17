@@ -19,7 +19,7 @@ python main.py                    # continuous local poller (BlockingScheduler l
 streamlit run dashboard.py        # local dashboard
 python poll_job.py                # one-shot poll (what the cloud job actually runs)
 python frequency_test.py          # backtest: how often would each intrahour-swing threshold have fired?
-python frequency_check_job.py     # one-shot: frequency_test.py + Telegram alert if any indicator is off target
+python frequency_check_job.py     # one-shot: frequency_test.py + Telegram message every run (all-clear or drift alert)
 ```
 
 There is no test suite or linter configured in this repo. `frequency_test.py` is the closest thing to
@@ -34,8 +34,9 @@ lands within `FREQUENCY_TEST_TARGET +/- FREQUENCY_TEST_TOLERANCE` rising-edge ev
 2026-09-16 entries in `docs/technical-analyst-*-log.md` for the method: the threshold-vs-event-count
 curve is non-monotonic, picks the higher-threshold/post-peak side) and propose it; (3) **do not edit
 `config.py` or commit anything until the user approves the suggested thresholds** — report and wait.
-`frequency_check_job.py` runs this same check automatically once a day and alerts on Telegram if
-anything has drifted, but even it never changes a threshold — see Scheduling below.
+`frequency_check_job.py` runs this same check automatically once a day and sends a Telegram message
+every run — an all-clear summary if nothing has drifted, or a drift alert naming the offenders — but
+even it never changes a threshold — see Scheduling below.
 
 Installing/updating deps: `pip install -r requirements.txt` (into `./venv`).
 
@@ -122,9 +123,10 @@ pattern for `frequency_check_job.py` (daily instead of every 5 min — same reas
 `America/New_York`). Both workflows need their own cron-job.org job pointed at their
 `workflow_dispatch` endpoint — that setup lives in the cron-job.org account, not in this repo.
 `frequency_check_job.py` runs `frequency_test.py` against the live `INTRAHOUR_SWING_ALERT_THRESHOLD`
-values and sends a Telegram alert if any indicator's 30-day event count drifts outside
-`FREQUENCY_TEST_TARGET +/- FREQUENCY_TEST_TOLERANCE` — it only alerts, it never changes a threshold
-itself (see the "Standing frequency test workflow" above).
+values and sends a Telegram message every run: an all-clear summary (with each indicator's 30-day
+event count) if everything is within `FREQUENCY_TEST_TARGET +/- FREQUENCY_TEST_TOLERANCE`, or a drift
+alert naming the offenders otherwise — either way it never changes a threshold itself (see the
+"Standing frequency test workflow" above).
 
 **Secrets arrive three different ways** depending on where the code runs:
 - Locally: `.env` file + `python-dotenv` (`load_dotenv()` in `data_fetcher.py`, `storage.py`, `notifier.py`)
