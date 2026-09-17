@@ -11,6 +11,7 @@ from rules import (
     check_abs_change_alerts,
     check_intrahour_swing_alerts,
     check_pct_change_alerts,
+    check_rsi_alerts,
     check_sma_crossover,
     check_value_change_alerts,
 )
@@ -36,6 +37,7 @@ def poll_once() -> None:
     alerts += check_value_change_alerts(prices)
     alerts += check_intrahour_swing_alerts(prices)
     alerts += check_sma_crossover()
+    alerts += check_rsi_alerts()
 
     log.info("Prices: %s", prices)
     for alert in alerts:

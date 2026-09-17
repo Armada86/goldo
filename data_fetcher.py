@@ -2,6 +2,7 @@
 
 import os
 
+import pandas as pd
 import requests
 import yfinance as yf   #Imports values from the yfinance lib of YAHOO and saves it as yf for use in this file
 from dotenv import load_dotenv
@@ -102,3 +103,43 @@ def fetch_daily_history(name: str, period: str = "6mo"):
     """Returns a DataFrame of daily closes for one configured indicator."""
     ticker = INDICATORS[name]
     return yf.Ticker(ticker).history(period=period, interval="1d")
+
+
+@with_retries()
+def fetch_gold_candles(interval: str = "15min", outputsize: int = 96) -> pd.DataFrame:
+    """Real OHLC candles for gold spot, straight from Twelve Data (the point
+    readings in Postgres are single prices, not bars, so they can't make
+    candles on their own). Shared by the dashboard's price panel and
+    rules.check_rsi_alerts, which both need a close-price series rather than
+    just the latest point reading."""
+    response = requests.get(
+        "https://api.twelvedata.com/time_series",
+        params={
+            "symbol": GOLD_SPOT_SYMBOL,
+            "interval": interval,
+            "outputsize": outputsize,
+            "apikey": TWELVE_DATA_API_KEY,
+        },
+        timeout=10,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if payload.get("status") != "ok":
+        raise RuntimeError(f"Twelve Data error: {payload}")
+    df = pd.DataFrame(payload["values"])
+    df["datetime"] = pd.to_datetime(df["datetime"])
+    for col in ("open", "high", "low", "close"):
+        df[col] = df[col].astype(float)
+    return df.sort_values("datetime")
+
+
+def compute_rsi(close: pd.Series, period: int = 14) -> pd.Series:
+    """Wilder's RSI — the standard formula (exponential smoothing with
+    alpha=1/period), matching what most trading platforms show."""
+    delta = close.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+    rs = avg_gain / avg_loss
+    return 100 - (100 / (1 + rs))

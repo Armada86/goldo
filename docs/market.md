@@ -12,6 +12,7 @@ description; see `docs/technical-analyst-*-log.md` for the frequency-tuning anal
 | **US10Y** (`us10y`, 10-Year Treasury yield, `^TNX`) | Indicator (yield) | Continuous (intraday, market hours) | Opposite direction — gold pays no yield, so rising yields raise the opportunity cost of holding it, typically pressuring price down |
 | **Inflation expectations** (`inflation`, FRED `T10YIE`, 10Y breakeven) | Indicator (rate) | Daily | Same direction — gold is a traditional inflation hedge, so rising breakeven inflation expectations tend to support gold prices |
 | **Financial stress index** (`financial_stress`, FRED `STLFSI4`) | Index | Weekly | Same direction, but noisier — rising stress (risk-off, flight to safety) usually supports gold, though acute stress can also spike dollar demand and cause gold to be sold for liquidity, muddying the relationship |
+| **RSI(14) on gold spot** (derived, Twelve Data 15-min candles) | Indicator (oscillator) | Continuous (recomputed every 5-min poll from a fresh candle fetch) | Not a price series — momentum on `gold` itself: high RSI (overbought) suggests gold is due to cool off, low RSI (oversold) suggests it's due to bounce |
 
 ## Notes on frequency
 
@@ -30,3 +31,6 @@ Not every indicator uses the same alert logic — see `rules.py` / `CLAUDE.md` f
 - `inflation` — % move since the previous poll (`PCT_CHANGE_ALERT_THRESHOLD`)
 - `financial_stress` — any change at all since the previous poll (`VALUE_CHANGE_ALERT_NAMES`)
 - `gold` also has a separate 20/50-day SMA crossover check on daily closes, independent of any threshold
+- `gold`'s RSI(14) (15-min candles) alerts once when it crosses into overbought (`RSI_OVERBOUGHT_THRESHOLD`,
+  70) or oversold (`RSI_OVERSOLD_THRESHOLD`, 30) territory — a crossing check like the SMA crossover, not a
+  poll-to-poll comparison, so it doesn't repeat every 5 minutes while RSI stays past the threshold

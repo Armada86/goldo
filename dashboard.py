@@ -5,7 +5,6 @@ from datetime import datetime
 
 import pandas as pd
 import plotly.graph_objects as go
-import requests
 import streamlit as st
 from dotenv import load_dotenv
 
@@ -19,8 +18,9 @@ for _key in ("DATABASE_URL", "TWELVE_DATA_API_KEY"):
     if _key not in os.environ and _key in st.secrets:
         os.environ[_key] = st.secrets[_key]
 
-from config import ALL_INDICATOR_NAMES, GOLD_SPOT_SYMBOL
-from retry import with_retries
+from config import ALL_INDICATOR_NAMES
+from data_fetcher import compute_rsi
+from data_fetcher import fetch_gold_candles as _fetch_gold_candles
 from storage import get_connection
 
 TWELVE_DATA_API_KEY = os.environ.get("TWELVE_DATA_API_KEY")
@@ -33,42 +33,11 @@ st.caption(f"Page refreshes every 60s · last loaded {datetime.now().strftime('%
 
 
 @st.cache_data(ttl=300)  # matches the 5-min poll interval; keeps Twelve Data usage bounded
-@with_retries()
 def fetch_gold_candles(interval: str = "15min", outputsize: int = 96) -> pd.DataFrame:
-    """Real OHLC candles for gold spot, straight from Twelve Data (the point
-    readings in Postgres are single prices, not bars, so they can't make
-    candles on their own)."""
-    response = requests.get(
-        "https://api.twelvedata.com/time_series",
-        params={
-            "symbol": GOLD_SPOT_SYMBOL,
-            "interval": interval,
-            "outputsize": outputsize,
-            "apikey": TWELVE_DATA_API_KEY,
-        },
-        timeout=10,
-    )
-    response.raise_for_status()
-    payload = response.json()
-    if payload.get("status") != "ok":
-        raise RuntimeError(f"Twelve Data error: {payload}")
-    df = pd.DataFrame(payload["values"])
-    df["datetime"] = pd.to_datetime(df["datetime"])
-    for col in ("open", "high", "low", "close"):
-        df[col] = df[col].astype(float)
-    return df.sort_values("datetime")
-
-
-def compute_rsi(close: pd.Series, period: int = 14) -> pd.Series:
-    """Wilder's RSI — the standard formula (exponential smoothing with
-    alpha=1/period), matching what most trading platforms show."""
-    delta = close.diff()
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
-    avg_gain = gain.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
-    avg_loss = loss.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
-    rs = avg_gain / avg_loss
-    return 100 - (100 / (1 + rs))
+    """Real OHLC candles for gold spot — fetch/retry logic lives in
+    data_fetcher (shared with rules.check_rsi_alerts), this just adds
+    Streamlit's caching on top."""
+    return _fetch_gold_candles(interval, outputsize)
 
 
 def compute_adx(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> pd.Series:

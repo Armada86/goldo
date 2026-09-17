@@ -86,5 +86,14 @@ FREQUENCY_TEST_TOLERANCE = 2
 SMA_SHORT = 20
 SMA_LONG = 50
 
+# RSI (Relative Strength Index) on gold spot only, computed from Twelve Data
+# 15-min candles (see data_fetcher.fetch_gold_candles/compute_rsi — Wilder's
+# formula, the standard used by most trading platforms). Alerts fire once per
+# crossing into overbought/oversold territory, not on every poll spent there
+# — see rules.check_rsi_alerts.
+RSI_PERIOD = 14
+RSI_OVERBOUGHT_THRESHOLD = 70
+RSI_OVERSOLD_THRESHOLD = 30
+
 # Postgres connection string (DATABASE_URL env var, read in storage.py) is
 # what both the poll job and the dashboard read/write — no local DB file.
