@@ -81,17 +81,29 @@ VALUE_CHANGE_ALERT_NAMES = [
     "ppi",
 ]
 
-# Absolute high-low swing over the trailing 60 minutes that triggers an alert.
+# Trailing-window sizes (minutes) checked by check_intrahour_swing_alerts.
+# The old single 60-minute window has been dropped in favor of three shorter,
+# independently-thresholded windows.
+INTRAHOUR_SWING_WINDOWS_MINUTES = [15, 10, 5]
+
+# Absolute high-low swing over each trailing window in
+# INTRAHOUR_SWING_WINDOWS_MINUTES that triggers an alert, per indicator.
 INTRAHOUR_SWING_ALERT_THRESHOLD = {
-    "gld": 2.25,
-    "dxy": 0.139,
-    "us10y": 0.021,
+    "gld": {15: 1.65, 10: 1.42, 5: 1.08},
+    "dxy": {15: 0.102, 10: 0.084, 5: 0.064},
+    "us10y": {15: 0.0140, 10: 0.0123, 5: 0.0100},
 }
 
-# Target rising-edge event count (per 30-day frequency_test.py run) and
-# tolerance used to detect threshold drift.
-FREQUENCY_TEST_TARGET = 30
-FREQUENCY_TEST_TOLERANCE = 2
+# Backtest lookback used by frequency_test.py -- the max yfinance allows for
+# 5-min bars (see frequency_test.py's docstring).
+FREQUENCY_TEST_LOOKBACK_DAYS = 60
+
+# Target rising-edge event count (per FREQUENCY_TEST_LOOKBACK_DAYS-day
+# frequency_test.py run, per indicator/window combination) and tolerance used
+# to detect threshold drift. Same ~1-event/day rate as the original 30±2/30-day
+# target, scaled to the new lookback.
+FREQUENCY_TEST_TARGET = 60
+FREQUENCY_TEST_TOLERANCE = 4
 
 # Simple moving-average crossover on gold price, evaluated on daily closes.
 SMA_SHORT = 20

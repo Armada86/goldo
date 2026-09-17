@@ -24,16 +24,18 @@ python frequency_check_job.py     # one-shot: frequency_test.py + Telegram messa
 
 There is no test suite or linter configured in this repo. `frequency_test.py` is the closest thing to
 one — not a correctness test, but a historical backtest against live yfinance data (see its docstring)
-for tuning `INTRAHOUR_SWING_ALERT_THRESHOLD`, one indicator's worth of updates at a time (see
-`docs/technical-analyst-*-log.md` for what past runs found and which thresholds they led to).
+for tuning `INTRAHOUR_SWING_ALERT_THRESHOLD`, one indicator/window combination's worth of updates at a
+time (see `docs/technical-analyst-*-log.md` for what past runs found and which thresholds they led to).
 
 **Standing "frequency test" workflow**: when asked to run a frequency test, (1) run `frequency_test.py`
-against the *current* `INTRAHOUR_SWING_ALERT_THRESHOLD` values and report each indicator's actual
-event count over the last 30 days; (2) for any indicator off-target, search for a new threshold that
-lands within `FREQUENCY_TEST_TARGET +/- FREQUENCY_TEST_TOLERANCE` rising-edge events (30 +/- 2 — see the
-2026-09-16 entries in `docs/technical-analyst-*-log.md` for the method: the threshold-vs-event-count
-curve is non-monotonic, picks the higher-threshold/post-peak side) and propose it; (3) **do not edit
-`config.py` or commit anything until the user approves the suggested thresholds** — report and wait.
+against the *current* `INTRAHOUR_SWING_ALERT_THRESHOLD` values and report each indicator/window
+combination's actual event count over the last `FREQUENCY_TEST_LOOKBACK_DAYS` days (60 — the most
+5-min-resolution history yfinance serves for intraday bars); (2) for any combination off-target, search
+for a new threshold that lands within `FREQUENCY_TEST_TARGET +/- FREQUENCY_TEST_TOLERANCE` rising-edge
+events (60 +/- 4 — see the 2026-09-16 entries in `docs/technical-analyst-*-log.md` for the method: the
+threshold-vs-event-count curve is non-monotonic, picks the higher-threshold/post-peak side) and propose
+it; (3) **do not edit `config.py` or commit anything until the user approves the suggested
+thresholds** — report and wait.
 `frequency_check_job.py` runs this same check automatically once a day and sends a Telegram message
 every run — an all-clear summary if nothing has drifted, or a drift alert naming the offenders — but
 even it never changes a threshold — see Scheduling below.
@@ -103,18 +105,22 @@ the value from two polls back instead of one).
   `check_pct_change_alerts` — an indicator should only be in one of the two threshold dicts.
 - `check_value_change_alerts` — any change at all (`VALUE_CHANGE_ALERT_NAMES`), for indicators like
   `financial_stress` where a % threshold breaks down near zero
-- `check_intrahour_swing_alerts` — absolute high-low range over the trailing 60 minutes
-  (`INTRAHOUR_SWING_ALERT_THRESHOLD`), computed from our own 5-min polled readings via
+- `check_intrahour_swing_alerts` — absolute high-low range over three independent trailing windows,
+  15/10/5 minutes (`INTRAHOUR_SWING_WINDOWS_MINUTES`), each with its own threshold
+  (`INTRAHOUR_SWING_ALERT_THRESHOLD[name][window]`), computed from our own 5-min polled readings via
   `storage.get_recent_readings()`. Catches a slow climb/drop that never trips the poll-to-poll %
-  check. Uses a rising-edge comparison (current 60-min window over threshold, the window as of one
-  poll ago wasn't) so a sustained swing alerts once, not every 5 minutes for the rest of the hour.
-  This is the mechanism for all three of gld ($2.25, dollars, see `docs/technical-analyst-gld-log.md`),
-  dxy (0.139 index points, see `docs/technical-analyst-dxy-log.md`), and us10y (0.021 yield points, see
-  `docs/technical-analyst-us10y-log.md`) — us10y moved here from `check_abs_change_alerts` so all
-  three price/rate indicators alert on the same hourly-window basis. Current values were tuned with
-  `frequency_test.py` to each land at ~30 rising-edge events/30 days. Each Telegram message states
-  direction (up/down), the swing size, the threshold, and the current price; the `$` vs. no-unit
-  formatting is picked per-name in `rules.py`, not hardcoded.
+  check. Uses a rising-edge comparison per window (current window over threshold, the window as of one
+  poll ago wasn't) so a sustained swing alerts once per window, not every 5 minutes for the rest of the
+  window — so a single poll can produce up to one alert per window (up to 3 per indicator, 9 total).
+  This is the mechanism for all three of gld ($1.65/$1.42/$1.08 for 15/10/5 min, dollars, see
+  `docs/technical-analyst-gld-log.md`), dxy (0.102/0.084/0.064 index points, see
+  `docs/technical-analyst-dxy-log.md`), and us10y (0.0140/0.0123/0.0100 yield points, see
+  `docs/technical-analyst-us10y-log.md`) — there is no single 60-min window anymore; it was replaced by
+  these three shorter windows so the same three price/rate indicators alert at multiple timescales.
+  Current values were tuned with `frequency_test.py` (60-day lookback, the max yfinance serves for 5-min
+  bars) to each land at ~60 rising-edge events/60 days. Each Telegram message states the window, direction
+  (up/down), the swing size, the threshold, and the current price; the `$` vs. no-unit formatting is
+  picked per-name in `rules.py`, not hardcoded.
 - `check_sma_crossover` — 20/50-day SMA crossover on gold futures daily closes, no config threshold
 - `check_rsi_alerts` — RSI(14) on gold spot only (`RSI_PERIOD`), computed from Twelve Data 15-min
   candles via `data_fetcher.fetch_gold_candles()`/`compute_rsi()` (Wilder's formula, the same helpers
@@ -155,9 +161,10 @@ pattern for `frequency_check_job.py` (daily instead of every 5 min — same reas
 `America/New_York`). Both workflows need their own cron-job.org job pointed at their
 `workflow_dispatch` endpoint — that setup lives in the cron-job.org account, not in this repo.
 `frequency_check_job.py` runs `frequency_test.py` against the live `INTRAHOUR_SWING_ALERT_THRESHOLD`
-values and sends a Telegram message every run: an all-clear summary (with each indicator's 30-day
-event count) if everything is within `FREQUENCY_TEST_TARGET +/- FREQUENCY_TEST_TOLERANCE`, or a drift
-alert naming the offenders otherwise — either way it never changes a threshold itself (see the
+values and sends a Telegram message every run: an all-clear summary (with each indicator/window
+combination's `FREQUENCY_TEST_LOOKBACK_DAYS`-day event count) if everything is within
+`FREQUENCY_TEST_TARGET +/- FREQUENCY_TEST_TOLERANCE`, or a drift alert naming the offending
+indicator/window combinations otherwise — either way it never changes a threshold itself (see the
 "Standing frequency test workflow" above).
 
 **Secrets arrive three different ways** depending on where the code runs:
