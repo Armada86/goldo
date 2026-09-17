@@ -19,26 +19,41 @@ python main.py                    # continuous local poller (BlockingScheduler l
 streamlit run dashboard.py        # local dashboard
 python poll_job.py                # one-shot poll (what the cloud job actually runs)
 python frequency_test.py          # backtest: how often would each intrahour-swing threshold have fired?
-python frequency_check_job.py     # one-shot: frequency_test.py + Telegram message every run (all-clear or drift alert)
+python frequency_check_job.py     # one-shot: frequency_test.py + auto-tune off-target thresholds + Telegram report
 ```
 
 There is no test suite or linter configured in this repo. `frequency_test.py` is the closest thing to
 one — not a correctness test, but a historical backtest against live yfinance data (see its docstring)
 for tuning `INTRAHOUR_SWING_ALERT_THRESHOLD`, one indicator/window combination's worth of updates at a
 time (see `docs/technical-analyst-*-log.md` for what past runs found and which thresholds they led to).
+`INTRAHOUR_SWING_ALERT_THRESHOLD` itself lives in `intrahour_swing_thresholds.json`, not inline in
+`config.py`, specifically so `frequency_check_job.py` can rewrite it programmatically (see below)
+without touching hand-maintained source.
 
-**Standing "frequency test" workflow**: when asked to run a frequency test, (1) run `frequency_test.py`
-against the *current* `INTRAHOUR_SWING_ALERT_THRESHOLD` values and report each indicator/window
-combination's actual event count over the last `FREQUENCY_TEST_LOOKBACK_DAYS` days (60 — the most
-5-min-resolution history yfinance serves for intraday bars); (2) for any combination off-target, search
-for a new threshold that lands within `FREQUENCY_TEST_TARGET +/- FREQUENCY_TEST_TOLERANCE` rising-edge
-events (60 +/- 4 — see the 2026-09-16 entries in `docs/technical-analyst-*-log.md` for the method: the
-threshold-vs-event-count curve is non-monotonic, picks the higher-threshold/post-peak side) and propose
-it; (3) **do not edit `config.py` or commit anything until the user approves the suggested
-thresholds** — report and wait.
-`frequency_check_job.py` runs this same check automatically once a day and sends a Telegram message
-every run — an all-clear summary if nothing has drifted, or a drift alert naming the offenders — but
-even it never changes a threshold — see Scheduling below.
+**Two separate frequency-test workflows now exist** — an interactive, human-approved one for ad hoc
+requests in a Claude Code session, and a fully automatic one that runs nightly. Don't conflate them:
+
+- **Interactive ("Standing frequency test workflow")**: when a user asks *you* (in a Claude Code
+  session) to run a frequency test, (1) run `frequency_test.py` against the *current*
+  `INTRAHOUR_SWING_ALERT_THRESHOLD` values and report each indicator/window combination's actual event
+  count over the last `FREQUENCY_TEST_LOOKBACK_DAYS` days (60 — the most 5-min-resolution history
+  yfinance serves for intraday bars); (2) for any combination off-target, search for a new threshold
+  that lands within `FREQUENCY_TEST_TARGET +/- FREQUENCY_TEST_TOLERANCE` rising-edge events (60 +/- 4 —
+  see the 2026-09-16 entries in `docs/technical-analyst-*-log.md` for the method: the
+  threshold-vs-event-count curve is non-monotonic, picks the higher-threshold/post-peak side) and
+  propose it; (3) **do not edit `intrahour_swing_thresholds.json` or commit anything until the user
+  approves the suggested thresholds** — report and wait. This is for a human explicitly asking in a
+  session; it's the only path that touches `config.py` itself (e.g. changing
+  `INTRAHOUR_SWING_WINDOWS_MINUTES` or the target/tolerance), since those aren't things the automatic
+  job below ever rewrites.
+- **Automatic (nightly, unattended)**: `frequency_check_job.py` runs the same backtest once a day (see
+  Scheduling below) but does *not* wait for approval — for any indicator/window combination outside
+  target, it searches a new threshold itself (`threshold_search.search_threshold`, same
+  post-peak-side convention) and rewrites `intrahour_swing_thresholds.json` in place. The GitHub Actions
+  workflow then commits that file, opens a PR, and merges it — see Scheduling below for exactly how and
+  its limits. A Telegram report is sent every run either way, naming every one of the nine
+  indicator/window combinations and whether it was left unchanged or updated (old threshold/count ->
+  new threshold/count).
 
 Installing/updating deps: `pip install -r requirements.txt` (into `./venv`).
 
@@ -118,7 +133,11 @@ the value from two polls back instead of one).
   `docs/technical-analyst-us10y-log.md`) — there is no single 60-min window anymore; it was replaced by
   these three shorter windows so the same three price/rate indicators alert at multiple timescales.
   Current values were tuned with `frequency_test.py` (60-day lookback, the max yfinance serves for 5-min
-  bars) to each land at ~60 rising-edge events/60 days. Each Telegram message states the window, direction
+  bars) to each land at ~60 rising-edge events/60 days, and are kept there automatically:
+  `frequency_check_job.py` re-tunes any off-target value every night and
+  `.github/workflows/frequency_check.yml` merges the change (see Scheduling below), so the numbers above
+  are current as of the last successful nightly run, not necessarily what's in this file's git history.
+  Each Telegram message states the window, direction
   (up/down), the swing size, the threshold, and the current price; the `$` vs. no-unit formatting is
   picked per-name in `rules.py`, not hardcoded.
 - `check_sma_crossover` — 20/50-day SMA crossover on gold futures daily closes, no config threshold
@@ -161,11 +180,20 @@ pattern for `frequency_check_job.py` (daily instead of every 5 min — same reas
 `America/New_York`). Both workflows need their own cron-job.org job pointed at their
 `workflow_dispatch` endpoint — that setup lives in the cron-job.org account, not in this repo.
 `frequency_check_job.py` runs `frequency_test.py` against the live `INTRAHOUR_SWING_ALERT_THRESHOLD`
-values and sends a Telegram message every run: an all-clear summary (with each indicator/window
-combination's `FREQUENCY_TEST_LOOKBACK_DAYS`-day event count) if everything is within
-`FREQUENCY_TEST_TARGET +/- FREQUENCY_TEST_TOLERANCE`, or a drift alert naming the offending
-indicator/window combinations otherwise — either way it never changes a threshold itself (see the
-"Standing frequency test workflow" above).
+values, and for any indicator/window combination outside `FREQUENCY_TEST_TARGET +/-
+FREQUENCY_TEST_TOLERANCE` searches a new threshold (`threshold_search.search_threshold`) and rewrites
+`intrahour_swing_thresholds.json` with just the changed entries — see the "Automatic (nightly,
+unattended)" workflow above for how this differs from an interactive session's frequency test. A
+Telegram message is sent every run either way, listing all nine indicator/window combinations and
+whether each was left unchanged or updated (old threshold/count -> new threshold/count).
+`.github/workflows/frequency_check.yml` is what actually applies the change: after the script runs, if
+`intrahour_swing_thresholds.json` changed, the workflow commits it on a new branch, opens a PR, and
+merges it (`gh pr merge --squash`, no `--admin` bypass) — so on a `main` with branch protection
+requiring reviews or passing checks, that merge step simply fails and the PR sits open for a human to
+merge instead of silently forcing it through. Whether the default `GITHUB_TOKEN` is allowed to
+create/merge PRs at all, and whether this workflow's runs are exempted from `main`'s review
+requirement, are repository settings the owner configures directly in GitHub — not something this
+workflow file controls, same as the cron-job.org scheduling setup above.
 
 **Secrets arrive three different ways** depending on where the code runs:
 - Locally: `.env` file + `python-dotenv` (`load_dotenv()` in `data_fetcher.py`, `storage.py`, `notifier.py`)

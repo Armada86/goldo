@@ -1,5 +1,8 @@
 """Indicators to track and the rules that trigger an alert."""
 
+import json
+from pathlib import Path
+
 # yfinance tickers.
 INDICATORS = {
     "gold": "GC=F",
@@ -88,11 +91,18 @@ INTRAHOUR_SWING_WINDOWS_MINUTES = [15, 10, 5]
 
 # Absolute high-low swing over each trailing window in
 # INTRAHOUR_SWING_WINDOWS_MINUTES that triggers an alert, per indicator.
-INTRAHOUR_SWING_ALERT_THRESHOLD = {
-    "gld": {15: 1.65, 10: 1.42, 5: 1.08},
-    "dxy": {15: 0.102, 10: 0.084, 5: 0.064},
-    "us10y": {15: 0.0140, 10: 0.0123, 5: 0.0100},
-}
+# Lives in its own JSON file (not inline here) because frequency_check_job.py
+# rewrites it automatically overnight when a threshold drifts off target --
+# see docs/frequency-test-thresholds.md for how, and the "Standing frequency
+# test workflow" in CLAUDE.md.
+INTRAHOUR_SWING_THRESHOLDS_PATH = Path(__file__).parent / "intrahour_swing_thresholds.json"
+
+with open(INTRAHOUR_SWING_THRESHOLDS_PATH) as _f:
+    INTRAHOUR_SWING_ALERT_THRESHOLD = {
+        name: {int(window): value for window, value in by_window.items()}
+        for name, by_window in json.load(_f).items()
+    }
+del _f
 
 # Backtest lookback used by frequency_test.py -- the max yfinance allows for
 # 5-min bars (see frequency_test.py's docstring).

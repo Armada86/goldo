@@ -71,33 +71,41 @@ def find_events(
     return events
 
 
-def run_frequency_test() -> dict[str, dict[int, list[dict]]]:
-    """Returns {indicator: {window_minutes: [events]}}."""
+def fetch_series(name: str) -> tuple[list, list[float]]:
+    """(timestamps, prices) for `name` over LOOKBACK, from yfinance 5-min bars."""
+    symbol = INDICATORS[name]
+    history = yf.Ticker(symbol).history(period=LOOKBACK, interval=BAR_INTERVAL)
+    close = history["Close"].dropna()
+    return list(close.index), list(close.values)
+
+
+def run_frequency_test() -> dict[str, dict]:
+    """Returns {indicator: {"series": (timestamps, prices), "windows": {window_minutes: [events]}}}.
+    The raw series is included so callers (e.g. frequency_check_job.py) can
+    re-search a new threshold for an off-target window without re-fetching."""
     results = {}
     for name, thresholds_by_window in INTRAHOUR_SWING_ALERT_THRESHOLD.items():
-        symbol = INDICATORS.get(name)
-        if symbol is None:
+        if name not in INDICATORS:
             print(f"{name.upper()}: no yfinance symbol in config.INDICATORS, skipped")
             continue
 
-        history = yf.Ticker(symbol).history(period=LOOKBACK, interval=BAR_INTERVAL)
-        close = history["Close"].dropna()
-        timestamps = list(close.index)
-        prices = list(close.values)
+        timestamps, prices = fetch_series(name)
+        windows = {}
 
-        results[name] = {}
         unit = "$" if name == "gld" else ""
-        print(f"\n{name.upper()} -- {len(close)} bars, {timestamps[0]} to {timestamps[-1]}")
+        print(f"\n{name.upper()} -- {len(prices)} bars, {timestamps[0]} to {timestamps[-1]}")
         for window in INTRAHOUR_SWING_WINDOWS_MINUTES:
             threshold = thresholds_by_window.get(window)
             if threshold is None:
                 continue
             events = find_events(timestamps, prices, window, threshold)
-            results[name][window] = events
+            windows[window] = events
             print(f"  {window}-min window, threshold {unit}{threshold:.4f}: "
                   f"{len(events)} rising-edge events in the last {FREQUENCY_TEST_LOOKBACK_DAYS} days")
             for e in events:
                 print(f"    {e['timestamp']}  moved {e['direction']:>4s} {unit}{e['swing']:.4f}")
+
+        results[name] = {"series": (timestamps, prices), "windows": windows}
 
     return results
 
