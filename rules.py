@@ -5,6 +5,7 @@ from datetime import timedelta
 from config import (
     ABS_CHANGE_ALERT_THRESHOLD,
     INTRAHOUR_SWING_ALERT_THRESHOLD,
+    INTRAHOUR_SWING_WINDOWS_MINUTES,
     PCT_CHANGE_ALERT_THRESHOLD,
     RSI_OVERBOUGHT_THRESHOLD,
     RSI_OVERSOLD_THRESHOLD,
@@ -83,34 +84,45 @@ def check_abs_change_alerts(prices: dict[str, float]) -> list[str]:
 
 
 def check_intrahour_swing_alerts(prices: dict[str, float]) -> list[str]:
-    """Alert once when the trailing-60-min high-low range crosses above its
-    threshold — a rising-edge check (current window over threshold, the
+    """Alert once per window when its trailing high-low range crosses above
+    its threshold — a rising-edge check (current window over threshold, the
     window as of one poll ago wasn't) so a sustained swing alerts once
-    instead of every 5 minutes for the rest of the hour."""
+    instead of every 5 minutes for the rest of the window. Each indicator is
+    checked independently against every window in
+    INTRAHOUR_SWING_WINDOWS_MINUTES (15/10/5 min), each with its own
+    threshold, so a single poll can produce up to one alert per window."""
     alerts = []
-    for name, threshold in INTRAHOUR_SWING_ALERT_THRESHOLD.items():
+    max_window = max(INTRAHOUR_SWING_WINDOWS_MINUTES)
+    for name, thresholds_by_window in INTRAHOUR_SWING_ALERT_THRESHOLD.items():
         if name not in prices:
             continue
-        readings = get_recent_readings(name, minutes=65)
+        readings = get_recent_readings(name, minutes=max_window + 5)
         if len(readings) < 2:
             continue
-
         now_ts = readings[-1][0]
-        current_window = [p for ts, p in readings if ts >= now_ts - timedelta(minutes=60)]
-        previous_window = [
-            p for ts, p in readings
-            if now_ts - timedelta(minutes=65) <= ts <= now_ts - timedelta(minutes=5)
-        ]
-        current_swing = max(current_window) - min(current_window) if current_window else 0.0
-        previous_swing = max(previous_window) - min(previous_window) if previous_window else 0.0
 
-        if current_swing >= threshold and previous_swing < threshold:
-            direction = "up" if current_window[-1] >= current_window[0] else "down"
-            unit = "$" if name == "gld" else ""
-            alerts.append(
-                f"{name.upper()} moved {direction} {unit}{current_swing:.2f} in the last hour "
-                f"(threshold {unit}{threshold:.2f}, now {unit}{prices[name]:.2f})"
-            )
+        for window in INTRAHOUR_SWING_WINDOWS_MINUTES:
+            threshold = thresholds_by_window.get(window)
+            if threshold is None:
+                continue
+
+            current_window = [p for ts, p in readings if ts >= now_ts - timedelta(minutes=window)]
+            previous_window = [
+                p for ts, p in readings
+                if now_ts - timedelta(minutes=window + 5) <= ts <= now_ts - timedelta(minutes=5)
+            ]
+            current_swing = max(current_window) - min(current_window) if current_window else 0.0
+            previous_swing = max(previous_window) - min(previous_window) if previous_window else 0.0
+
+            if current_swing >= threshold and previous_swing < threshold:
+                direction = "up" if current_window[-1] >= current_window[0] else "down"
+                unit = "$" if name == "gld" else ""
+                decimals = 2 if name == "gld" else 4
+                alerts.append(
+                    f"{name.upper()} moved {direction} {unit}{current_swing:.{decimals}f} in the "
+                    f"last {window} min (threshold {unit}{threshold:.{decimals}f}, "
+                    f"now {unit}{prices[name]:.2f})"
+                )
     return alerts
 
 
