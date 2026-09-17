@@ -24,14 +24,17 @@ jobs:
       - run: pip install -r requirements.txt
 
       # frequency_check_job.py rewrites intrahour_swing_thresholds.json in
-      # place when a threshold has drifted off target, and always sends the
-      # Telegram report either way (unchanged vs. updated, per combo).
+      # place when a threshold has drifted off target, always sends the
+      # Telegram report either way (unchanged vs. updated, per combo), and
+      # always appends a row to the "Threshold history" table in
+      # docs/frequency-test-thresholds.md -- that file changes every night,
+      # even when no threshold did, since it's a daily log.
       - run: python frequency_check_job.py
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
 
-      # If (and only if) that rewrote the thresholds file, commit it on a new
+      # Commit whichever of the two files above actually changed, on a new
       # branch, open a PR, and merge it -- this is the "updated
       # automatically" half of the workflow; the Telegram message above is
       # the audit trail of what changed and why. This does NOT force past
@@ -42,13 +45,23 @@ jobs:
       # this workflow's actor as an allowed bypasser), not something to force
       # from this file -- same as the cron-job.org scheduling setup in
       # CLAUDE.md, that configuration lives outside this repo.
-      - name: Open and merge a PR if thresholds changed
+      - name: Open and merge a PR for whatever changed
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if git diff --quiet -- intrahour_swing_thresholds.json; then
-            echo "No threshold changes, nothing to commit."
+          changed_files=""
+          thresholds_changed=false
+          if ! git diff --quiet -- intrahour_swing_thresholds.json; then
+            changed_files="$changed_files intrahour_swing_thresholds.json"
+            thresholds_changed=true
+          fi
+          if ! git diff --quiet -- docs/frequency-test-thresholds.md; then
+            changed_files="$changed_files docs/frequency-test-thresholds.md"
+          fi
+
+          if [ -z "$changed_files" ]; then
+            echo "Nothing changed, nothing to commit."
             exit 0
           fi
 
@@ -57,13 +70,18 @@ jobs:
 
           branch="frequency-check/$(date -u +%Y-%m-%d)-${{ github.run_number }}"
           git checkout -b "$branch"
-          git add intrahour_swing_thresholds.json
-          git commit -m "Auto-update intrahour-swing thresholds ($(date -u +%Y-%m-%d))"
+          git add $changed_files
+          if [ "$thresholds_changed" = true ]; then
+            commit_msg="Auto-update intrahour-swing thresholds ($(date -u +%Y-%m-%d))"
+          else
+            commit_msg="Log nightly frequency-check thresholds ($(date -u +%Y-%m-%d))"
+          fi
+          git commit -m "$commit_msg"
           git push origin "$branch"
 
           pr_url=$(gh pr create \
-            --title "Auto-update intrahour-swing thresholds ($(date -u +%Y-%m-%d))" \
-            --body "Automated nightly frequency-check threshold update -- see the Telegram report from this run for the per-indicator/window before/after." \
+            --title "$commit_msg" \
+            --body "Automated nightly frequency-check run -- see the Telegram report from this run for the per-indicator/window before/after." \
             --base main --head "$branch")
 
           gh pr merge "$pr_url" --squash --delete-branch

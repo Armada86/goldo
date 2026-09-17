@@ -19,6 +19,9 @@ Run: python frequency_check_job.py
 """
 
 import json
+from pathlib import Path
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from config import (
     FREQUENCY_TEST_LOOKBACK_DAYS,
@@ -30,6 +33,40 @@ from config import (
 from frequency_test import run_frequency_test
 from notifier import send_telegram_message
 from threshold_search import search_threshold
+
+# "Threshold history" table in this doc -- one row appended per night's run,
+# every night, whether or not any threshold changed.
+HISTORY_DOC_PATH = Path(__file__).parent / "docs" / "frequency-test-thresholds.md"
+HISTORY_HEADER = (
+    "| Date | GLD 15min | GLD 10min | GLD 5min | DXY 15min | DXY 10min | DXY 5min "
+    "| US10Y 15min | US10Y 10min | US10Y 5min |"
+)
+HISTORY_ROW_ORDER = [("gld", 15), ("gld", 10), ("gld", 5), ("dxy", 15), ("dxy", 10),
+                     ("dxy", 5), ("us10y", 15), ("us10y", 10), ("us10y", 5)]
+
+
+def _format_threshold(name: str, value: float) -> str:
+    unit = "$" if name == "gld" else ""
+    decimals = 2 if name == "gld" else 4
+    return f"{unit}{value:.{decimals}f}"
+
+
+def append_history_row(thresholds: dict[str, dict[int, float]]) -> None:
+    """Append one row -- today's date (America/New_York) plus the final value
+    of all nine indicator/window combinations -- to the "Threshold history"
+    table in docs/frequency-test-thresholds.md. Runs every night regardless
+    of whether check() changed anything, so the table is a complete daily log."""
+    date_str = datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
+    cells = [date_str] + [_format_threshold(name, thresholds[name][window]) for name, window in HISTORY_ROW_ORDER]
+    row = "| " + " | ".join(cells) + " |"
+
+    lines = HISTORY_DOC_PATH.read_text().splitlines()
+    header_idx = lines.index(HISTORY_HEADER)
+    insert_idx = header_idx + 2  # header line, then the "|---|...|" separator line
+    while insert_idx < len(lines) and lines[insert_idx].startswith("|"):
+        insert_idx += 1
+    lines.insert(insert_idx, row)
+    HISTORY_DOC_PATH.write_text("\n".join(lines) + "\n")
 
 
 def check() -> None:
@@ -89,6 +126,8 @@ def check() -> None:
     message = "\n".join([header] + lines)
     print(message)
     send_telegram_message(message)
+
+    append_history_row(updated_thresholds)
 
 
 if __name__ == "__main__":
