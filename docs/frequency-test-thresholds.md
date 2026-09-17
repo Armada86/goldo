@@ -78,3 +78,16 @@ new threshold/count). Unlike the interactive workflow above, this path never ask
 that trade-off (nightly drift correction with no human gate, vs. a threshold that can go stale between
 manual runs) was a deliberate choice; see CLAUDE.md's "Automatic (nightly, unattended)" workflow
 section for the reasoning.
+
+Every night's run also appends one row to the "Threshold history" table below — the date and that
+night's final value for all nine combinations, whether or not any of them changed. It's the audit
+trail for "what was the threshold on day X", independent of the Telegram message history.
+
+## Threshold history
+
+One row per night's run (`frequency_check_job.py`), regardless of whether anything changed that night.
+Dates are America/New_York (the job's own schedule, see CLAUDE.md's "Scheduling").
+
+| Date | GLD 15min | GLD 10min | GLD 5min | DXY 15min | DXY 10min | DXY 5min | US10Y 15min | US10Y 10min | US10Y 5min |
+|---|---|---|---|---|---|---|---|---|---|
+| 2026-09-17 | $1.65 | $1.42 | $1.08 | 0.1020 | 0.0840 | 0.0640 | 0.0140 | 0.0123 | 0.0100 |
