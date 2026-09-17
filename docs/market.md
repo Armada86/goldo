@@ -50,6 +50,9 @@ Not every indicator uses the same alert logic — see `rules.py` / `CLAUDE.md` f
 - `financial_stress`, `interest_rate`, and the ten scheduled macro reports above — any change at all
   since the previous poll (`VALUE_CHANGE_ALERT_NAMES`), since each one is flat between releases and any
   change means a new report just printed
+- The ten scheduled macro reports are polled, logged, and alerted like everything else, but excluded
+  from the dashboard for now (`config.DASHBOARD_INDICATOR_NAMES` vs. `ALL_INDICATOR_NAMES`) — eleven
+  more series at wildly different scales/frequencies would clutter the one shared price chart
 - `gold` also has a separate 20/50-day SMA crossover check on daily closes, independent of any threshold
 - `gold`'s RSI(14) (15-min candles) alerts once when it crosses into overbought (`RSI_OVERBOUGHT_THRESHOLD`,
   70) or oversold (`RSI_OVERSOLD_THRESHOLD`, 30) territory — a crossing check like the SMA crossover, not a

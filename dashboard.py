@@ -18,7 +18,7 @@ for _key in ("DATABASE_URL", "TWELVE_DATA_API_KEY"):
     if _key not in os.environ and _key in st.secrets:
         os.environ[_key] = st.secrets[_key]
 
-from config import ALL_INDICATOR_NAMES
+from config import DASHBOARD_INDICATOR_NAMES
 from data_fetcher import compute_rsi
 from data_fetcher import fetch_gold_candles as _fetch_gold_candles
 from storage import get_connection
@@ -83,8 +83,8 @@ except Exception as e:
 if readings.empty:
     st.info("No data yet — start main.py to begin polling.")
 else:
-    cols = st.columns(len(ALL_INDICATOR_NAMES))
-    for col, name in zip(cols, ALL_INDICATOR_NAMES):
+    cols = st.columns(len(DASHBOARD_INDICATOR_NAMES))
+    for col, name in zip(cols, DASHBOARD_INDICATOR_NAMES):
         series = readings[readings["name"] == name].sort_values("ts")
         if series.empty:
             continue
@@ -98,7 +98,7 @@ else:
         "Pan/zoom on any panel moves all of them together."
     )
 
-    other_names = [name for name in ALL_INDICATOR_NAMES if name != "gold"]
+    other_names = [name for name in DASHBOARD_INDICATOR_NAMES if name != "gold"]
     other_series = {}
     for name in other_names:
         series = readings[readings["name"] == name].sort_values("ts").set_index("ts")["price"]

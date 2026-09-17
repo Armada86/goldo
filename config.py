@@ -55,9 +55,31 @@ FRED_SERIES = {
     "ppi": "PPIFIS",  # PPI by Commodity: Final Demand, monthly
 }
 
+# The scheduled-macro-report subset of FRED_SERIES above — kept out of the
+# dashboard for now (see DASHBOARD_INDICATOR_NAMES below): 11 more series with
+# wildly different scales/frequencies would clutter the one shared price
+# chart. They're still polled, logged, and alerted on same as everything else.
+MACRO_REPORT_NAMES = [
+    "empire_state_manufacturing",
+    "retail_sales",
+    "industrial_production",
+    "capacity_utilization",
+    "housing_starts",
+    "adp_employment",
+    "nonfarm_payrolls",
+    "unemployment_rate",
+    "initial_jobless_claims",
+    "cpi",
+    "ppi",
+]
+
 # Every tracked indicator name, across all data sources (yfinance, Twelve
-# Data, FRED) — used by the poll loop and the dashboard.
+# Data, FRED) — used by the poll loop, storage, and alerting.
 ALL_INDICATOR_NAMES = list(INDICATORS) + list(FRED_SERIES)
+
+# Subset of ALL_INDICATOR_NAMES shown on the dashboard (tiles + chart) —
+# excludes MACRO_REPORT_NAMES for now, see the comment there.
+DASHBOARD_INDICATOR_NAMES = [name for name in ALL_INDICATOR_NAMES if name not in MACRO_REPORT_NAMES]
 
 # How often to poll, in minutes. yfinance has no official rate limit but
 # polling faster than this risks temporary IP blocks.
