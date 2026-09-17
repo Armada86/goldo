@@ -65,8 +65,22 @@ it needs its own alert threshold.
 
 **Standing "new indicator" workflow**: whenever a new indicator/price is added to the project (a new
 entry in `INDICATORS` or `FRED_SERIES`, or any other tracked price), also add a row for it to the table
-in `docs/market.md` — its type (price / index / indicator), update frequency, and its typical
-relationship (same direction / opposite / mixed) to the gold price.
+in `docs/market.md` — its type (price / index / indicator), data source, update frequency, its typical
+relationship (same direction / opposite / mixed) to the gold price, and which mechanism (if any) sends
+it to Telegram.
+
+**Standing "indicator change" workflow**: this cuts the other way too — whenever an *existing*
+indicator's config changes (its alert threshold, which alert mechanism it's wired into, whether/how it
+alerts to Telegram at all, its data source, its FRED series ID, or its name/key), update that
+indicator's row in the `docs/market.md` table in the same change, not just `config.py`. Concretely: a
+threshold edit updates the `Telegram alert?`/`In frequency_test.py?` cell text that quotes the old
+number; moving an indicator between `PCT_CHANGE_ALERT_THRESHOLD`/`ABS_CHANGE_ALERT_THRESHOLD`/
+`VALUE_CHANGE_ALERT_NAMES`/`INTRAHOUR_SWING_ALERT_THRESHOLD` updates both the `Telegram alert?` cell and
+the "Alert mechanisms in play" bullets below the table; a data-source change (e.g. switching a series
+off FRED) updates the `Data source` cell; removing an indicator removes its row. If an indicator is
+excluded from the dashboard (`config.DASHBOARD_INDICATOR_NAMES`), reflect that in the row/prose too. The
+goal is that `docs/market.md` never lags `config.py` — treat a config change without the matching doc
+update as an incomplete change, the same way a code change without its test would be.
 
 **Every external call is wrapped in `retry.with_retries()`** (Twelve Data, FRED, yfinance, and the
 Postgres connection in `storage.get_connection()`) — exponential backoff, re-raises after exhausting
