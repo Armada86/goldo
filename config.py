@@ -26,11 +26,15 @@ GOLD_SPOT_SYMBOL = "XAU/USD"
 # weekly composite of market stress (~0 = average, positive = more stress,
 # negative = calmer than average) — oscillates around zero, so it's tracked
 # but deliberately left out of PCT_CHANGE_ALERT_THRESHOLD below (a % change
-# near zero is meaningless/explosive). Free API key:
+# near zero is meaningless/explosive). DFF = Daily Federal Funds Rate, the
+# Fed's policy rate — flat for weeks/months at a time and only moves in
+# discrete steps on FOMC decision days, so like STLFSI4 it's tracked via
+# VALUE_CHANGE_ALERT_NAMES below rather than a % threshold. Free API key:
 # https://fredaccount.stlouisfed.org/apikeys
 FRED_SERIES = {
     "inflation": "T10YIE",
     "financial_stress": "STLFSI4",
+    "interest_rate": "DFF",
 }
 
 # Every tracked indicator name, across all data sources (yfinance, Twelve
@@ -54,9 +58,10 @@ ABS_CHANGE_ALERT_THRESHOLD = {
 }
 
 # Indicators that alert on ANY change from the previous poll, instead of a
-# percentage threshold (used for financial_stress, which oscillates around
-# zero and updates weekly — any change at all is noteworthy).
-VALUE_CHANGE_ALERT_NAMES = ["financial_stress"]
+# percentage threshold. financial_stress oscillates around zero and updates
+# weekly, so any change at all is noteworthy; interest_rate is flat between
+# FOMC meetings, so any change is a rate decision, not noise.
+VALUE_CHANGE_ALERT_NAMES = ["financial_stress", "interest_rate"]
 
 # Absolute high-low swing over the trailing 60 minutes (from our own 5-min
 # polled readings, not a separate data source) that triggers an alert —

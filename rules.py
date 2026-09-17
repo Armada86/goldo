@@ -18,6 +18,10 @@ from storage import get_previous_reading, get_recent_readings
 
 
 def check_value_change_alerts(prices: dict[str, float]) -> list[str]:
+    """Alert on any change since the previous poll (used for indicators
+    where a % threshold breaks down, e.g. financial_stress oscillating near
+    zero). The relative % change is included too where it's meaningful
+    (skipped when previous is 0, since a % change off zero is undefined)."""
     alerts = []
     for name in VALUE_CHANGE_ALERT_NAMES:
         if name not in prices:
@@ -25,7 +29,15 @@ def check_value_change_alerts(prices: dict[str, float]) -> list[str]:
         price = prices[name]
         previous = get_previous_reading(name)
         if previous is not None and price != previous:
-            alerts.append(f"{name.upper()} changed: {previous:+.4f} -> {price:+.4f}")
+            direction = "up" if price > previous else "down"
+            if previous != 0:
+                pct_change = (price - previous) / previous * 100
+                alerts.append(
+                    f"{name.upper()} changed {direction} {pct_change:+.2f}%: "
+                    f"{previous:+.4f} -> {price:+.4f}"
+                )
+            else:
+                alerts.append(f"{name.upper()} changed: {previous:+.4f} -> {price:+.4f}")
     return alerts
 
 

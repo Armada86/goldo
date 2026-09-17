@@ -12,15 +12,16 @@ description; see `docs/technical-analyst-*-log.md` for the frequency-tuning anal
 | **US10Y** (`us10y`, 10-Year Treasury yield, `^TNX`) | Indicator (yield) | Continuous (intraday, market hours) | Opposite direction — gold pays no yield, so rising yields raise the opportunity cost of holding it, typically pressuring price down | Yes — `INTRAHOUR_SWING_ALERT_THRESHOLD["us10y"]` = 0.021 yield points |
 | **Inflation expectations** (`inflation`, FRED `T10YIE`, 10Y breakeven) | Indicator (rate) | Daily | Same direction — gold is a traditional inflation hedge, so rising breakeven inflation expectations tend to support gold prices | No — uses `PCT_CHANGE_ALERT_THRESHOLD` (1.0%), not the intrahour-swing mechanism the frequency test covers |
 | **Financial stress index** (`financial_stress`, FRED `STLFSI4`) | Index | Weekly | Same direction, but noisier — rising stress (risk-off, flight to safety) usually supports gold, though acute stress can also spike dollar demand and cause gold to be sold for liquidity, muddying the relationship | No — uses `VALUE_CHANGE_ALERT_NAMES` (alerts on any change), not the intrahour-swing mechanism the frequency test covers |
+| **Interest rate** (`interest_rate`, FRED `DFF`, Daily Federal Funds Rate) | Indicator (rate) | Daily (but flat between FOMC decisions) | Opposite direction — a higher policy rate raises the opportunity cost of holding non-yielding gold and tends to pressure price down; rate cuts typically support gold | No — uses `VALUE_CHANGE_ALERT_NAMES` (alerts on any change), not the intrahour-swing mechanism the frequency test covers |
 | **RSI(14) on gold spot** (derived, Twelve Data 15-min candles) | Indicator (oscillator) | Continuous (recomputed every 5-min poll from a fresh candle fetch) | Not a price series — momentum on `gold` itself: high RSI (overbought) suggests gold is due to cool off, low RSI (oversold) suggests it's due to bounce | No — a crossing check (`RSI_OVERBOUGHT_THRESHOLD`/`RSI_OVERSOLD_THRESHOLD`), not the intrahour-swing mechanism the frequency test covers |
 
 ## Notes on frequency
 
 - "Continuous" indicators are only as fresh as the poll loop (`config.POLL_INTERVAL_MINUTES = 5`) and
   only move during their underlying market's trading hours — they don't update overnight/weekends.
-- `inflation` and `financial_stress` come from FRED and update on their own daily/weekly schedule
-  regardless of how often this project polls; polling more frequently than the source updates doesn't
-  add signal for those two.
+- `inflation`, `financial_stress`, and `interest_rate` come from FRED and update on their own
+  daily/weekly schedule regardless of how often this project polls; polling more frequently than the
+  source updates doesn't add signal for those three.
 
 ## Alert mechanisms in play
 
@@ -29,7 +30,7 @@ Not every indicator uses the same alert logic — see `rules.py` / `CLAUDE.md` f
 - `gld`, `dxy`, `us10y` — trailing 60-minute high/low swing (`INTRAHOUR_SWING_ALERT_THRESHOLD`)
 - `gold` — absolute $ move since the previous poll (`ABS_CHANGE_ALERT_THRESHOLD`)
 - `inflation` — % move since the previous poll (`PCT_CHANGE_ALERT_THRESHOLD`)
-- `financial_stress` — any change at all since the previous poll (`VALUE_CHANGE_ALERT_NAMES`)
+- `financial_stress`, `interest_rate` — any change at all since the previous poll (`VALUE_CHANGE_ALERT_NAMES`)
 - `gold` also has a separate 20/50-day SMA crossover check on daily closes, independent of any threshold
 - `gold`'s RSI(14) (15-min candles) alerts once when it crosses into overbought (`RSI_OVERBOUGHT_THRESHOLD`,
   70) or oversold (`RSI_OVERSOLD_THRESHOLD`, 30) territory — a crossing check like the SMA crossover, not a
