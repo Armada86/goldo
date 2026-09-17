@@ -35,6 +35,24 @@ FRED_SERIES = {
     "inflation": "T10YIE",
     "financial_stress": "STLFSI4",
     "interest_rate": "DFF",
+    # Scheduled macro releases, added for report alerting/logging rather than
+    # continuous tracking. Each one is flat between releases and jumps once
+    # when the new report prints, so they're wired into
+    # VALUE_CHANGE_ALERT_NAMES below (same "alert on any change" mechanism
+    # as interest_rate/financial_stress) rather than a %/abs poll-to-poll
+    # threshold. Series IDs below are FRED's headline/most-cited vintage of
+    # each report, all seasonally adjusted:
+    "empire_state_manufacturing": "GACDISA066MSFRBNY",  # NY Fed Empire State Mfg Survey, general business conditions, monthly
+    "retail_sales": "RSAFS",  # Advance Retail Sales: Retail Trade and Food Services, monthly
+    "industrial_production": "INDPRO",  # Industrial Production: Total Index, monthly
+    "capacity_utilization": "TCU",  # Capacity Utilization: Total Industry, monthly
+    "housing_starts": "HOUST",  # Housing Starts: Total New Privately Owned Units, monthly
+    "adp_employment": "ADPMNUSNERSA",  # ADP Total Nonfarm Private Payroll Employment, monthly
+    "nonfarm_payrolls": "PAYEMS",  # All Employees, Total Nonfarm (NFP), monthly
+    "unemployment_rate": "UNRATE",  # Unemployment Rate, monthly
+    "initial_jobless_claims": "ICSA",  # Initial Jobless Claims (IJC), weekly
+    "cpi": "CPIAUCSL",  # CPI for All Urban Consumers: All Items, monthly
+    "ppi": "PPIFIS",  # PPI by Commodity: Final Demand, monthly
 }
 
 # Every tracked indicator name, across all data sources (yfinance, Twelve
@@ -60,8 +78,24 @@ ABS_CHANGE_ALERT_THRESHOLD = {
 # Indicators that alert on ANY change from the previous poll, instead of a
 # percentage threshold. financial_stress oscillates around zero and updates
 # weekly, so any change at all is noteworthy; interest_rate is flat between
-# FOMC meetings, so any change is a rate decision, not noise.
-VALUE_CHANGE_ALERT_NAMES = ["financial_stress", "interest_rate"]
+# FOMC meetings, so any change is a rate decision, not noise. The scheduled
+# macro reports below are the same shape: flat between releases, so any
+# change is a new report printing, not a threshold to size.
+VALUE_CHANGE_ALERT_NAMES = [
+    "financial_stress",
+    "interest_rate",
+    "empire_state_manufacturing",
+    "retail_sales",
+    "industrial_production",
+    "capacity_utilization",
+    "housing_starts",
+    "adp_employment",
+    "nonfarm_payrolls",
+    "unemployment_rate",
+    "initial_jobless_claims",
+    "cpi",
+    "ppi",
+]
 
 # Absolute high-low swing over the trailing 60 minutes (from our own 5-min
 # polled readings, not a separate data source) that triggers an alert —
