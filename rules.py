@@ -6,11 +6,14 @@ from config import (
     ABS_CHANGE_ALERT_THRESHOLD,
     INTRAHOUR_SWING_ALERT_THRESHOLD,
     PCT_CHANGE_ALERT_THRESHOLD,
+    RSI_OVERBOUGHT_THRESHOLD,
+    RSI_OVERSOLD_THRESHOLD,
+    RSI_PERIOD,
     SMA_LONG,
     SMA_SHORT,
     VALUE_CHANGE_ALERT_NAMES,
 )
-from data_fetcher import fetch_daily_history
+from data_fetcher import compute_rsi, fetch_daily_history, fetch_gold_candles
 from storage import get_previous_reading, get_recent_readings
 
 
@@ -116,3 +119,28 @@ def check_sma_crossover() -> list[str]:
     if prev_diff >= 0 > curr_diff:
         return [f"GOLD: {SMA_SHORT}-day SMA crossed below {SMA_LONG}-day SMA (bearish)"]
     return []
+
+
+def check_rsi_alerts() -> list[str]:
+    """RSI(14) on gold spot only (15-min candles from Twelve Data). Like
+    check_sma_crossover, this is a crossing check — it compares the two most
+    recent RSI values so it fires once when RSI crosses into overbought/
+    oversold territory, not on every poll spent past the threshold."""
+    candles = fetch_gold_candles()
+    rsi = compute_rsi(candles["close"], period=RSI_PERIOD).dropna()
+    if len(rsi) < 2:
+        return []
+
+    prev_rsi, curr_rsi = rsi.iloc[-2], rsi.iloc[-1]
+    alerts = []
+    if prev_rsi < RSI_OVERBOUGHT_THRESHOLD <= curr_rsi:
+        alerts.append(
+            f"GOLD: RSI({RSI_PERIOD}) entered overbought territory: {curr_rsi:.1f} "
+            f"(>= {RSI_OVERBOUGHT_THRESHOLD})"
+        )
+    if prev_rsi > RSI_OVERSOLD_THRESHOLD >= curr_rsi:
+        alerts.append(
+            f"GOLD: RSI({RSI_PERIOD}) entered oversold territory: {curr_rsi:.1f} "
+            f"(<= {RSI_OVERSOLD_THRESHOLD})"
+        )
+    return alerts

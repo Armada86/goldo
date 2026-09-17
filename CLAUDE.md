@@ -80,7 +80,7 @@ the current price has already been saved as the most recent one. Reordering this
 fix — doing it the other way around caused every real change to be alerted on twice (compared against
 the value from two polls back instead of one).
 
-**Five alert mechanisms in `rules.py`**, each suited to a different kind of signal:
+**Six alert mechanisms in `rules.py`**, each suited to a different kind of signal:
 - `check_pct_change_alerts` — % move since the *previous poll only* (`PCT_CHANGE_ALERT_THRESHOLD`) —
   inflation
 - `check_abs_change_alerts` — same previous-poll comparison, but a fixed move
@@ -102,16 +102,29 @@ the value from two polls back instead of one).
   direction (up/down), the swing size, the threshold, and the current price; the `$` vs. no-unit
   formatting is picked per-name in `rules.py`, not hardcoded.
 - `check_sma_crossover` — 20/50-day SMA crossover on gold futures daily closes, no config threshold
+- `check_rsi_alerts` — RSI(14) on gold spot only (`RSI_PERIOD`), computed from Twelve Data 15-min
+  candles via `data_fetcher.fetch_gold_candles()`/`compute_rsi()` (Wilder's formula, the same helpers
+  the dashboard's RSI panel uses). Like `check_sma_crossover`, this is a crossing check (compares the
+  two most recent RSI values), not a poll-to-poll or rising-edge-window comparison, so it fires once
+  when RSI crosses above `RSI_OVERBOUGHT_THRESHOLD` (70) or below `RSI_OVERSOLD_THRESHOLD` (30), not on
+  every poll spent past the threshold. The Telegram message states the RSI value and which threshold it
+  crossed.
+
+**`data_fetcher.fetch_gold_candles()`/`compute_rsi()`** are shared by two callers: `rules.check_rsi_alerts()`
+(uncached, called every poll) and `dashboard.py`'s own `fetch_gold_candles()` wrapper, which adds
+`st.cache_data(ttl=300)` on top for the dashboard's RSI/ADX panels — the underlying Twelve Data fetch
+and retry logic lives in one place either way.
 
 **Dashboard charting (`dashboard.py`)**: gold's live price panel uses real OHLC candles from Twelve
 Data's `/time_series` endpoint (`fetch_gold_candles()`, cached 5 min via `st.cache_data`) rather than
 the point-in-time readings in Postgres, since those are single prices per poll, not bars. All series —
-the gold candlestick, the other indicators, and the RSI(14)/ADX(14) panels (computed locally with
-Wilder's formulas from the same cached candles, zero extra API cost) — live in ONE hand-built Plotly
-figure, not `make_subplots`: that helper only supports one secondary y-axis per row, but the price
-panel alone overlays up to 6 series on independent y-axes (gold ~4300 vs inflation ~2.3 need separate
-scales). Every panel is a vertical `domain` slice of a single shared x-axis instead of a subplot row,
-which is what lets panning/zooming any one panel move all of them together.
+the gold candlestick, the other indicators, and the RSI(14)/ADX(14) panels (RSI shared with
+`rules.check_rsi_alerts`, ADX computed locally — both Wilder's formulas from the same cached candles,
+zero extra API cost) — live in ONE hand-built Plotly figure, not `make_subplots`: that helper only
+supports one secondary y-axis per row, but the price panel alone overlays up to 6 series on independent
+y-axes (gold ~4300 vs inflation ~2.3 need separate scales). Every panel is a vertical `domain` slice of
+a single shared x-axis instead of a subplot row, which is what lets panning/zooming any one panel move
+all of them together.
 
 **Storage is Postgres (Neon), not SQLite** — despite `market_data.db` and `streamlit.log` still sitting
 in the repo root (gitignored, unused leftovers from an earlier local-SQLite version). `storage.py` and
