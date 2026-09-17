@@ -4,14 +4,14 @@ What this project tracks, how often each one actually updates, and how it typica
 the gold price. See `config.py` for the exact tickers/series and `CLAUDE.md` for the full data-flow
 description; see `docs/technical-analyst-*-log.md` for the frequency-tuning analyses referenced below.
 
-| Indicator | Update frequency | Relationship to gold price |
-|---|---|---|
-| **Gold spot** (`gold`, Twelve Data `XAU/USD`) | Continuous (intraday, polled every 5 min) | — (this *is* the tracked price) |
-| **GLD** (`gld`, SPDR Gold Shares ETF) | Continuous (intraday, market hours) | Same direction — GLD holds physical gold (~1/10 oz/share) and tracks spot closely, minus a small expense-ratio drag over time |
-| **DXY** (`dxy`, US Dollar Index) | Continuous (intraday, market hours) | Opposite direction — gold is dollar-denominated, so a stronger dollar tends to push gold down and vice versa. Real-world correlation is directionally consistent but not clean-cut hour-by-hour (see `docs/technical-analyst-dxy-log.md`) |
-| **US10Y** (`us10y`, 10-Year Treasury yield, `^TNX`) | Continuous (intraday, market hours) | Opposite direction — gold pays no yield, so rising yields raise the opportunity cost of holding it, typically pressuring price down |
-| **Inflation expectations** (`inflation`, FRED `T10YIE`, 10Y breakeven) | Daily | Same direction — gold is a traditional inflation hedge, so rising breakeven inflation expectations tend to support gold prices |
-| **Financial stress index** (`financial_stress`, FRED `STLFSI4`) | Weekly | Same direction, but noisier — rising stress (risk-off, flight to safety) usually supports gold, though acute stress can also spike dollar demand and cause gold to be sold for liquidity, muddying the relationship |
+| Indicator | Type | Update frequency | Relationship to gold price |
+|---|---|---|---|
+| **Gold spot** (`gold`, Twelve Data `XAU/USD`) | Price | Continuous (intraday, polled every 5 min) | — (this *is* the tracked price) |
+| **GLD** (`gld`, SPDR Gold Shares ETF) | Price | Continuous (intraday, market hours) | Same direction — GLD holds physical gold (~1/10 oz/share) and tracks spot closely, minus a small expense-ratio drag over time |
+| **DXY** (`dxy`, US Dollar Index) | Index | Continuous (intraday, market hours) | Opposite direction — gold is dollar-denominated, so a stronger dollar tends to push gold down and vice versa. Real-world correlation is directionally consistent but not clean-cut hour-by-hour (see `docs/technical-analyst-dxy-log.md`) |
+| **US10Y** (`us10y`, 10-Year Treasury yield, `^TNX`) | Indicator (yield) | Continuous (intraday, market hours) | Opposite direction — gold pays no yield, so rising yields raise the opportunity cost of holding it, typically pressuring price down |
+| **Inflation expectations** (`inflation`, FRED `T10YIE`, 10Y breakeven) | Indicator (rate) | Daily | Same direction — gold is a traditional inflation hedge, so rising breakeven inflation expectations tend to support gold prices |
+| **Financial stress index** (`financial_stress`, FRED `STLFSI4`) | Index | Weekly | Same direction, but noisier — rising stress (risk-off, flight to safety) usually supports gold, though acute stress can also spike dollar demand and cause gold to be sold for liquidity, muddying the relationship |
 
 ## Notes on frequency
 

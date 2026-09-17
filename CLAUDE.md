@@ -65,8 +65,8 @@ it needs its own alert threshold.
 
 **Standing "new indicator" workflow**: whenever a new indicator/price is added to the project (a new
 entry in `INDICATORS` or `FRED_SERIES`, or any other tracked price), also add a row for it to the table
-in `docs/market.md` — update frequency and its typical relationship (same direction / opposite / mixed)
-to the gold price.
+in `docs/market.md` — its type (price / index / indicator), update frequency, and its typical
+relationship (same direction / opposite / mixed) to the gold price.
 
 **Every external call is wrapped in `retry.with_retries()`** (Twelve Data, FRED, yfinance, and the
 Postgres connection in `storage.get_connection()`) — exponential backoff, re-raises after exhausting
