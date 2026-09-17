@@ -1,8 +1,9 @@
 """Scheduled job (daily, 8 PM ET, via cron-job.org -> workflow_dispatch,
 same pattern as poll_job.py): run frequency_test.py against the *current*
-INTRAHOUR_SWING_ALERT_THRESHOLD values and send a Telegram alert if any
-indicator's actual 30-day rising-edge event count has drifted outside the
-target band (config.FREQUENCY_TEST_TARGET +/- config.FREQUENCY_TEST_TOLERANCE).
+INTRAHOUR_SWING_ALERT_THRESHOLD values and send a Telegram message either
+way -- an all-clear summary if every indicator's actual 30-day rising-edge
+event count is within target (config.FREQUENCY_TEST_TARGET +/-
+config.FREQUENCY_TEST_TOLERANCE), or a drift alert naming the offenders.
 
 This only alerts -- it never changes a threshold. Per CLAUDE.md's "Standing
 frequency test workflow," picking and applying a new threshold is a human
@@ -28,7 +29,12 @@ def check() -> None:
     ]
 
     if not offenders:
-        print(f"Frequency check: all indicators within {lo}-{hi} events/30 days")
+        lines = [f"Frequency check: all indicators within {lo}-{hi} events/30 days"]
+        for name, events in results.items():
+            lines.append(f"  {name.upper()}: {len(events)} events (threshold {INTRAHOUR_SWING_ALERT_THRESHOLD[name]})")
+        message = "\n".join(lines)
+        print(message)
+        send_telegram_message(message)
         return
 
     lines = [
