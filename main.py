@@ -4,6 +4,7 @@ import logging  # logging library like print but with levels and timestamps
 
 from apscheduler.schedulers.blocking import BlockingScheduler   #runs in the foreground and blocks execution until the job finishes
 
+from broker import check_broker_trades
 from config import POLL_INTERVAL_MINUTES #goes to config page and gets the value of POLL_INTERVAL_MINUTES
 from data_fetcher import fetch_latest_prices
 from notifier import send_telegram_message
@@ -44,6 +45,10 @@ def poll_once() -> None:
         log.info("ALERT: %s", alert)
         save_alert(alert)
         send_telegram_message(alert)
+
+    # Runs after alerts are saved: check_broker_trades() looks for its entry signal in the alerts
+    # table this same cycle's swing alerts just landed in.
+    check_broker_trades(prices)
 
 
 def main() -> None:

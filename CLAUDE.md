@@ -149,6 +149,46 @@ the value from two polls back instead of one).
   every poll spent past the threshold. The Telegram message states the RSI value and which threshold it
   crossed.
 
+**Broker automated paper-trading (`broker.py`)**: `check_broker_trades()`, called from
+`main.poll_once()` right after this cycle's alerts are saved, is a fully automated imaginary
+buy/sell engine layered on top of the alert mechanisms above — see `.claude/agents/broker.md`'s
+"Rules" section for the human-readable spec (kept in sync with this code by hand, the same convention
+as `docs/market.md` vs. `config.py`). Currently two mirror-image rules: buy 1 troy oz of gold spot when
+GLD/DXY/US10Y intrahour-swing alerts (any window) land in the `alerts` table within a trailing 15
+minutes in the directions GLD up/DXY down/US10Y down (sell on the exact opposite); close at $10
+unrealized profit or loss either way. Trade state lives in a new Postgres `trades` table (mirrors
+`readings`/`alerts` — required since `poll_job.py` is a stateless one-shot run each cloud poll, so
+in-memory state can't survive between polls); only one trade open at a time, and a fresh entry only
+considers alerts newer than the last trade's open time so a stale alert can't retrigger. Every
+open/close sends a Telegram message (`notifier.send_telegram_message`). Deliberately no
+markdown/doc log of trades — the `trades` table (`id`, `rule_name`, `trade_type`, `entry_price`,
+`open_ts`, `triggering_alerts`, `exit_price`, `close_ts`, `pnl`, `status`) is the only record, so a
+trade never requires a repo commit; `poll.yml` doesn't need write access to the repo for this reason.
+
+**NFP fundamental-analysis data (`nfp_reports` table)**: `docs/fundamental-analyst-nfp-log.md` used to
+hold a hand-maintained markdown table of Non-Farm Payrolls release data (previous/expected/actual
+figures plus gold spot's reaction at +5/10/30min/1h/2h) — that raw data now lives in Postgres instead,
+in a `nfp_reports` table (`release_ts`, `data_month`, `previous_value`/`expected_value`/`actual_value`,
+`gold_at_release`, `gold_5min`/`gold_10min`/`gold_30min`/`gold_1h`/`gold_2h`, `notes`), same reasoning
+as the Broker's `trades` table: a routine update (a new release's figures) shouldn't need a code change
+or a repo commit. `storage.insert_nfp_report()`/`get_nfp_reports()` are the write/read paths; nothing
+in the poll loop touches this table automatically — unlike `readings`/`alerts`/`trades`, there's no
+existing automated source for NFP consensus ("expected") figures or precise post-release candle
+reactions, so a new row is still added the same way the original 12 were compiled (a one-off research
+session), just written to Postgres instead of appended to the doc. The doc itself is kept for
+descriptive/methodology content (what NFP is, sourcing method, shutdown-disruption caveats, narrative
+findings) — see its own text for the current split. `backfill_nfp_reports.py` was a one-time migration
+of the 12 releases that used to be the doc's table; it no-ops if the table already has rows.
+
+**Nightly threshold audit trail (`threshold_history` table)**: same move as the two tables above —
+`docs/frequency-test-thresholds.md` used to have a "Threshold history" table that
+`frequency_check_job.py` appended one row to every night (the date plus that night's final value for
+all nine GLD/DXY/US10Y 15/10/5-min thresholds, whether or not any changed); that now goes straight to
+a `threshold_history` table in Postgres (`storage.insert_threshold_history_row()`/
+`get_threshold_history()`) instead, so the nightly log entry doesn't need a repo commit — `poll.yml`
+and `frequency_check.yml`'s automated commits are both now purely "when a value actually changed", not
+"every scheduled run". `backfill_threshold_history.py` migrated the doc's one existing row.
+
 **`data_fetcher.fetch_gold_candles()`/`compute_rsi()`** are shared by two callers: `rules.check_rsi_alerts()`
 (uncached, called every poll) and `dashboard.py`'s own `fetch_gold_candles()` wrapper, which adds
 `st.cache_data(ttl=300)` on top for the dashboard's RSI/ADX panels — the underlying Twelve Data fetch
@@ -193,7 +233,10 @@ requiring reviews or passing checks, that merge step simply fails and the PR sit
 merge instead of silently forcing it through. Whether the default `GITHUB_TOKEN` is allowed to
 create/merge PRs at all, and whether this workflow's runs are exempted from `main`'s review
 requirement, are repository settings the owner configures directly in GitHub — not something this
-workflow file controls, same as the cron-job.org scheduling setup above.
+workflow file controls, same as the cron-job.org scheduling setup above. `poll.yml` itself never
+commits anything back to the repo — `check_broker_trades()`'s trades go straight to the `trades` table
+in Postgres, not to a file, so `poll.yml` only needs the read/query secrets it already had
+(`DATABASE_URL` etc.), not repo write access.
 
 **Secrets arrive three different ways** depending on where the code runs:
 - Locally: `.env` file + `python-dotenv` (`load_dotenv()` in `data_fetcher.py`, `storage.py`, `notifier.py`)
@@ -217,3 +260,14 @@ clarifying questions, plan any recommended change, and explicitly request permis
 implementation — it cannot self-edit code even if asked to. Note: `.claude/agents/` files are only
 loaded at session start, so a newly-added or edited agent definition won't be callable until the next
 session.
+
+`.claude/agents/broker.md` defines the **Broker** subagent — unlike the other three mechanisms above,
+its actual trading logic is NOT this subagent; it's the fully automated `broker.py` (see the
+"Broker automated paper-trading" entry above), which runs every poll with no human/session involved.
+The subagent itself is **read-only** (`Read`, `Grep`, `Glob`, `Bash` — no `Edit`/`Write`, same as
+`technical-analyst`): it explains rules, explains why a specific trade in the Postgres `trades` table
+fired, and analyzes performance by rule, querying the `trades`/`alerts` tables directly (there is no
+markdown trade log to read instead). Its own "Rules" section is the human-readable spec for what
+`broker.py` implements — the two are kept in sync by hand — but the subagent never edits either one; a
+proposed rule change is drafted in prose and handed off for the user or a coding session to apply to
+both files together. It's invoked on demand like `technical-analyst`.
