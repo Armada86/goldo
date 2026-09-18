@@ -65,7 +65,7 @@ def _pnl(trade: dict, current_price: float) -> float:
 
 def _open_message(trade_type: str, rule_name: str, price: float, triggering_text: str) -> str:
     return (
-        f"BROKER: opened {trade_type} 1 oz gold spot @ ${price:.2f} (rule {rule_name}).\n"
+        f"BROKER: opened {trade_type} 1 oz XAU/USD @ ${price:.2f} (rule {rule_name}).\n"
         f"Trigger: {triggering_text}"
     )
 
@@ -73,7 +73,7 @@ def _open_message(trade_type: str, rule_name: str, price: float, triggering_text
 def _close_message(trade: dict, exit_price: float, pnl: float) -> str:
     result = "profit" if pnl >= 0 else "loss"
     return (
-        f"BROKER: closed {trade['trade_type']} 1 oz gold spot @ ${exit_price:.2f} "
+        f"BROKER: closed {trade['trade_type']} 1 oz XAU/USD @ ${exit_price:.2f} "
         f"(opened @ ${trade['entry_price']:.2f}, rule {trade['rule_name']}) -- "
         f"{result} of ${abs(pnl):.2f}"
     )
