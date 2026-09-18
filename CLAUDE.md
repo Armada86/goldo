@@ -180,6 +180,15 @@ descriptive/methodology content (what NFP is, sourcing method, shutdown-disrupti
 findings) — see its own text for the current split. `backfill_nfp_reports.py` was a one-time migration
 of the 12 releases that used to be the doc's table; it no-ops if the table already has rows.
 
+**Nightly threshold audit trail (`threshold_history` table)**: same move as the two tables above —
+`docs/frequency-test-thresholds.md` used to have a "Threshold history" table that
+`frequency_check_job.py` appended one row to every night (the date plus that night's final value for
+all nine GLD/DXY/US10Y 15/10/5-min thresholds, whether or not any changed); that now goes straight to
+a `threshold_history` table in Postgres (`storage.insert_threshold_history_row()`/
+`get_threshold_history()`) instead, so the nightly log entry doesn't need a repo commit — `poll.yml`
+and `frequency_check.yml`'s automated commits are both now purely "when a value actually changed", not
+"every scheduled run". `backfill_threshold_history.py` migrated the doc's one existing row.
+
 **`data_fetcher.fetch_gold_candles()`/`compute_rsi()`** are shared by two callers: `rules.check_rsi_alerts()`
 (uncached, called every poll) and `dashboard.py`'s own `fetch_gold_candles()` wrapper, which adds
 `st.cache_data(ttl=300)` on top for the dashboard's RSI/ADX panels — the underlying Twelve Data fetch

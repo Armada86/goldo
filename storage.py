@@ -1,7 +1,7 @@
 """Postgres time-series store for polled prices (shared by the cloud poll job and dashboard)."""
 
 import os
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 import psycopg2
 from dotenv import load_dotenv
@@ -50,6 +50,23 @@ def init_db() -> None:
                 close_ts TIMESTAMPTZ,
                 pnl DOUBLE PRECISION,
                 status TEXT NOT NULL DEFAULT 'Open'
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS threshold_history (
+                id SERIAL PRIMARY KEY,
+                date DATE NOT NULL,
+                gld_15min DOUBLE PRECISION NOT NULL,
+                gld_10min DOUBLE PRECISION NOT NULL,
+                gld_5min DOUBLE PRECISION NOT NULL,
+                dxy_15min DOUBLE PRECISION NOT NULL,
+                dxy_10min DOUBLE PRECISION NOT NULL,
+                dxy_5min DOUBLE PRECISION NOT NULL,
+                us10y_15min DOUBLE PRECISION NOT NULL,
+                us10y_10min DOUBLE PRECISION NOT NULL,
+                us10y_5min DOUBLE PRECISION NOT NULL
             )
             """
         )
@@ -254,6 +271,54 @@ def get_nfp_reports() -> list[dict]:
             "gold_1h": r[9],
             "gold_2h": r[10],
             "notes": r[11],
+        }
+        for r in rows
+    ]
+
+
+def insert_threshold_history_row(row_date: date, thresholds: dict[str, dict[int, float]]) -> None:
+    """One row per night's frequency_check_job.py run -- `row_date` (America/New_York) plus that
+    night's final value for all nine GLD/DXY/US10Y 15/10/5-min intrahour-swing thresholds, whether or
+    not any of them changed that night. Replaces the old "Threshold history" table that used to live
+    in docs/frequency-test-thresholds.md, same reasoning as the Broker's `trades` table: a nightly log
+    entry shouldn't need a repo commit."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO threshold_history (
+                date, gld_15min, gld_10min, gld_5min, dxy_15min, dxy_10min, dxy_5min,
+                us10y_15min, us10y_10min, us10y_5min
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                row_date,
+                thresholds["gld"][15], thresholds["gld"][10], thresholds["gld"][5],
+                thresholds["dxy"][15], thresholds["dxy"][10], thresholds["dxy"][5],
+                thresholds["us10y"][15], thresholds["us10y"][10], thresholds["us10y"][5],
+            ),
+        )
+
+
+def get_threshold_history() -> list[dict]:
+    """Every logged night's thresholds, oldest first."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT date, gld_15min, gld_10min, gld_5min, dxy_15min, dxy_10min, dxy_5min, "
+            "us10y_15min, us10y_10min, us10y_5min FROM threshold_history ORDER BY date"
+        )
+        rows = cur.fetchall()
+    return [
+        {
+            "date": r[0],
+            "gld_15min": r[1],
+            "gld_10min": r[2],
+            "gld_5min": r[3],
+            "dxy_15min": r[4],
+            "dxy_10min": r[5],
+            "dxy_5min": r[6],
+            "us10y_15min": r[7],
+            "us10y_10min": r[8],
+            "us10y_5min": r[9],
         }
         for r in rows
     ]
