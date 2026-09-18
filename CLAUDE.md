@@ -149,6 +149,22 @@ the value from two polls back instead of one).
   every poll spent past the threshold. The Telegram message states the RSI value and which threshold it
   crossed.
 
+**Broker automated paper-trading (`broker.py`)**: `check_broker_trades()`, called from
+`main.poll_once()` right after this cycle's alerts are saved, is a fully automated imaginary
+buy/sell engine layered on top of the alert mechanisms above — see `.claude/agents/broker.md`'s
+"Rules" section for the human-readable spec (kept in sync with this code by hand, the same convention
+as `docs/market.md` vs. `config.py`). Currently two mirror-image rules: buy 1 troy oz of gold spot when
+GLD/DXY/US10Y intrahour-swing alerts (any window) land in the `alerts` table within a trailing 15
+minutes in the directions GLD up/DXY down/US10Y down (sell on the exact opposite); close at $10
+unrealized profit or loss either way. Trade state lives in a new Postgres `trades` table (mirrors
+`readings`/`alerts` — required since `poll_job.py` is a stateless one-shot run each cloud poll, so
+in-memory state can't survive between polls); only one trade open at a time, and a fresh entry only
+considers alerts newer than the last trade's open time so a stale alert can't retrigger. Every
+open/close sends a Telegram message (`notifier.send_telegram_message`) and rewrites `docs/trades.md`'s
+Trades table wholesale from the `trades` table (`broker._sync_trades_doc()` — never row-patched in
+place, so a doc left stale by an unmerged previous run can't desync from the DB). See Scheduling below
+for how that file's changes actually get committed in the cloud.
+
 **`data_fetcher.fetch_gold_candles()`/`compute_rsi()`** are shared by two callers: `rules.check_rsi_alerts()`
 (uncached, called every poll) and `dashboard.py`'s own `fetch_gold_candles()` wrapper, which adds
 `st.cache_data(ttl=300)` on top for the dashboard's RSI/ADX panels — the underlying Twelve Data fetch
@@ -195,6 +211,13 @@ create/merge PRs at all, and whether this workflow's runs are exempted from `mai
 requirement, are repository settings the owner configures directly in GitHub — not something this
 workflow file controls, same as the cron-job.org scheduling setup above.
 
+`.github/workflows/poll.yml` follows the same commit-PR-merge pattern as a third case: if
+`check_broker_trades()` opened or closed a trade this cycle, `docs/trades.md` changes, and the
+workflow commits it (branch `broker-trade/<timestamp>-<run>`), opens a PR, and squash-merges it —
+same `git diff --quiet` no-op guard, same no-`--admin`-bypass limitation as `frequency_check.yml`. This
+is a no-op on the large majority of polls, since a trade only opens/closes when its rule's condition
+is actually met.
+
 **Secrets arrive three different ways** depending on where the code runs:
 - Locally: `.env` file + `python-dotenv` (`load_dotenv()` in `data_fetcher.py`, `storage.py`, `notifier.py`)
 - GitHub Actions: repo secrets injected as env vars in `poll.yml`
@@ -218,17 +241,13 @@ implementation — it cannot self-edit code even if asked to. Note: `.claude/age
 loaded at session start, so a newly-added or edited agent definition won't be callable until the next
 session.
 
-`.claude/agents/broker.md` defines the **Broker** subagent: a paper-trading agent that watches the
-Postgres `alerts` table (the same alert strings `rules.py` sends to Telegram, saved by
-`storage.save_alert()`) and, per the trading rules defined in its own "Rules" section, opens/closes
-imaginary buy/sell positions on gold spot price (Twelve Data, same source as the live alerts — not
-yfinance's `GC=F` futures). The rules themselves live in `.claude/agents/broker.md` only (currently: two mirror-image rules,
-`GLD-DXY-US10Y-buy`/`-sell`, keyed off GLD/DXY/US10Y intrahour-swing alerts co-firing within 60 seconds
-in matching directions, 1 oz position size, $10 take-profit/stop-loss exit) — the agent
-must not trade on an undefined rule — deliberately kept separate from
-`docs/trades.md`, which is the trade log only: every open/closed trade with its entry/exit price, P/L,
-and (last column) which named rule(s) drove it, for later comparing rules against each other. Unlike
-`technical-analyst`, Broker does have `Edit`/`Write` access, but its only write target is
-`docs/trades.md`'s trades table — it reads its own Rules section but never rewrites it, even if asked
-to tune the strategy. It's invoked on demand like `technical-analyst`, with no automatic/scheduled
-trigger yet.
+`.claude/agents/broker.md` defines the **Broker** subagent — unlike the other three mechanisms above,
+its actual trading logic is NOT this subagent; it's the fully automated `broker.py` (see the
+"Broker automated paper-trading" entry above), which runs every poll with no human/session involved.
+The subagent itself is **read-only** (`Read`, `Grep`, `Glob`, `Bash` — no `Edit`/`Write`, same as
+`technical-analyst`): it explains rules, explains why a specific trade in `docs/trades.md` fired,
+and analyzes performance by rule, using the `trades`/`alerts` tables and `docs/trades.md`. Its own
+"Rules" section is the human-readable spec for what `broker.py` implements — the two are kept in sync
+by hand — but the subagent never edits either one; a proposed rule change is drafted in prose and
+handed off for the user or a coding session to apply to both files together. It's invoked on demand
+like `technical-analyst`.
