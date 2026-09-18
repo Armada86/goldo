@@ -220,10 +220,13 @@ session.
 
 `.claude/agents/broker.md` defines the **Broker** subagent: a paper-trading agent that watches the
 Postgres `alerts` table (the same alert strings `rules.py` sends to Telegram, saved by
-`storage.save_alert()`) and, per user-defined rules, opens/closes imaginary buy/sell positions on gold
-spot price (Twelve Data, same source as the live alerts — not yfinance's `GC=F` futures). The trading
-rules themselves, and every open/closed trade with its entry/exit price and P/L, live in
-`docs/trades.md`, not in this file — the agent must not trade while that doc's "Rules" section is
-still unfilled. Unlike `technical-analyst`, it does have `Edit`/`Write` access, but scoped in practice
-to `docs/trades.md` only; it's invoked on demand like `technical-analyst`, with no automatic/scheduled
+`storage.save_alert()`) and, per the trading rules defined in its own "Rules" section, opens/closes
+imaginary buy/sell positions on gold spot price (Twelve Data, same source as the live alerts — not
+yfinance's `GC=F` futures). The rules themselves live in `.claude/agents/broker.md` only — the agent
+must not trade while that section is still unfilled/"Pending" — deliberately kept separate from
+`docs/trades.md`, which is the trade log only: every open/closed trade with its entry/exit price, P/L,
+and (last column) which named rule(s) drove it, for later comparing rules against each other. Unlike
+`technical-analyst`, Broker does have `Edit`/`Write` access, but its only write target is
+`docs/trades.md`'s trades table — it reads its own Rules section but never rewrites it, even if asked
+to tune the strategy. It's invoked on demand like `technical-analyst`, with no automatic/scheduled
 trigger yet.
