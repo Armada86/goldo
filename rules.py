@@ -76,8 +76,9 @@ def check_abs_change_alerts(prices: dict[str, float]) -> list[str]:
         if abs(change) >= threshold:
             direction = "up" if change > 0 else "down"
             unit = "$" if name == "gold" else ""
+            label = "XAU/USD" if name == "gold" else name.upper()
             alerts.append(
-                f"{name.upper()} moved {direction} {unit}{abs(change):.2f} "
+                f"{label} moved {direction} {unit}{abs(change):.2f} "
                 f"(now {price:.2f})"
             )
     return alerts
@@ -139,9 +140,9 @@ def check_sma_crossover() -> list[str]:
     curr_diff = sma_short.iloc[-1] - sma_long.iloc[-1]
 
     if prev_diff <= 0 < curr_diff:
-        return [f"GOLD: {SMA_SHORT}-day SMA crossed above {SMA_LONG}-day SMA (bullish)"]
+        return [f"XAU/USD: {SMA_SHORT}-day SMA crossed above {SMA_LONG}-day SMA (bullish)"]
     if prev_diff >= 0 > curr_diff:
-        return [f"GOLD: {SMA_SHORT}-day SMA crossed below {SMA_LONG}-day SMA (bearish)"]
+        return [f"XAU/USD: {SMA_SHORT}-day SMA crossed below {SMA_LONG}-day SMA (bearish)"]
     return []
 
 
@@ -159,12 +160,12 @@ def check_rsi_alerts() -> list[str]:
     alerts = []
     if prev_rsi < RSI_OVERBOUGHT_THRESHOLD <= curr_rsi:
         alerts.append(
-            f"GOLD: RSI({RSI_PERIOD}) entered overbought territory: {curr_rsi:.1f} "
+            f"XAU/USD: RSI({RSI_PERIOD}) entered overbought territory: {curr_rsi:.1f} "
             f"(>= {RSI_OVERBOUGHT_THRESHOLD})"
         )
     if prev_rsi > RSI_OVERSOLD_THRESHOLD >= curr_rsi:
         alerts.append(
-            f"GOLD: RSI({RSI_PERIOD}) entered oversold territory: {curr_rsi:.1f} "
+            f"XAU/USD: RSI({RSI_PERIOD}) entered oversold territory: {curr_rsi:.1f} "
             f"(<= {RSI_OVERSOLD_THRESHOLD})"
         )
     return alerts
