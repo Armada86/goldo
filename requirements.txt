@@ -5,4 +5,3 @@ requests>=2.31
 python-dotenv>=1.0
 streamlit>=1.38
 psycopg2-binary>=2.9
-plotly>=5.24

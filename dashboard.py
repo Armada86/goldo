@@ -1,10 +1,10 @@
 """Streamlit dashboard reading the same Postgres DB that the poll job populates."""
 
 import os
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
 from dotenv import load_dotenv
 
@@ -14,48 +14,50 @@ load_dotenv()  # local runs: .env into os.environ. No-op on Streamlit Cloud (no 
 # file — mirror them into os.environ before storage.py/this module read them
 # at import time. Only reached for keys load_dotenv() above didn't already
 # set, so a missing secrets.toml (e.g. any local run) never gets checked.
-for _key in ("DATABASE_URL", "TWELVE_DATA_API_KEY"):
-    if _key not in os.environ and _key in st.secrets:
-        os.environ[_key] = st.secrets[_key]
+if "DATABASE_URL" not in os.environ and "DATABASE_URL" in st.secrets:
+    os.environ["DATABASE_URL"] = st.secrets["DATABASE_URL"]
 
 from config import DASHBOARD_INDICATOR_NAMES
-from data_fetcher import compute_rsi
-from data_fetcher import fetch_gold_candles as _fetch_gold_candles
 from storage import get_connection
-
-TWELVE_DATA_API_KEY = os.environ.get("TWELVE_DATA_API_KEY")
 
 st.set_page_config(page_title="Goldo", layout="wide")
 st.markdown('<meta http-equiv="refresh" content="60">', unsafe_allow_html=True)
 
+# Compact layout/fonts so every symbol's row fits on one phone screen
+# (tuned against a Samsung S24 Ultra viewport) without scrolling.
+st.markdown(
+    """
+    <style>
+    .block-container { padding-top: 1.5rem; padding-bottom: 1rem; }
+    .goldo-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 9px; }
+    .goldo-table th, .goldo-table td {
+        padding: 2px 1px; text-align: right; overflow-wrap: break-word; line-height: 1.15;
+    }
+    .goldo-table th:first-child, .goldo-table td:first-child { text-align: left; }
+    .goldo-table th { font-size: 8px; color: #888; font-weight: 600; }
+    .goldo-table td.symbol { font-weight: 700; font-size: 10px; }
+    .goldo-table td.price { font-weight: 700; font-size: 9.5px; }
+    .goldo-table td.change span { display: block; }
+    .goldo-table td.change span.pct { font-size: 8px; opacity: 0.85; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# Readings/alerts are stored as UTC (storage.py uses datetime.now(timezone.utc))
+# regardless of where the poll job or dashboard happen to run — this is the one
+# place that converts to a human timezone for display.
+DISPLAY_TZ = ZoneInfo("America/New_York")
+
 st.title("Goldo")
-st.caption(f"Page refreshes every 60s · last loaded {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+now_local = datetime.now(timezone.utc).astimezone(DISPLAY_TZ)
+st.caption(f"Page refreshes every 60s · last loaded {now_local.strftime('%Y-%m-%d %H:%M:%S %Z')}")
 
+# (name, minutes) columns shown next to each symbol's current price.
+CHANGE_WINDOWS = [("5m", 5), ("10m", 10), ("15m", 15), ("30m", 30), ("1h", 60)]
 
-@st.cache_data(ttl=300)  # matches the 5-min poll interval; keeps Twelve Data usage bounded
-def fetch_gold_candles(interval: str = "15min", outputsize: int = 96) -> pd.DataFrame:
-    """Real OHLC candles for gold spot — fetch/retry logic lives in
-    data_fetcher (shared with rules.check_rsi_alerts), this just adds
-    Streamlit's caching on top."""
-    return _fetch_gold_candles(interval, outputsize)
-
-
-def compute_adx(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> pd.Series:
-    """Wilder's ADX (trend strength, 0-100; conventionally >25 = trending)."""
-    up_move = high.diff()
-    down_move = -low.diff()
-    plus_dm = ((up_move > down_move) & (up_move > 0)) * up_move
-    minus_dm = ((down_move > up_move) & (down_move > 0)) * down_move
-    prev_close = close.shift(1)
-    tr = pd.concat(
-        [high - low, (high - prev_close).abs(), (low - prev_close).abs()], axis=1
-    ).max(axis=1)
-
-    atr = tr.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
-    plus_di = 100 * plus_dm.ewm(alpha=1 / period, min_periods=period, adjust=False).mean() / atr
-    minus_di = 100 * minus_dm.ewm(alpha=1 / period, min_periods=period, adjust=False).mean() / atr
-    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di)
-    return dx.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+# Indicators whose values are dollar-denominated (matches rules.py's convention).
+DOLLAR_UNIT_NAMES = {"gold", "gld"}
 
 
 def load_readings() -> pd.DataFrame:
@@ -74,6 +76,32 @@ def load_alerts() -> pd.DataFrame:
         )
 
 
+def change_over(series: pd.DataFrame, minutes: int) -> tuple[float, float] | None:
+    """(delta, pct) between the latest reading and the last reading at or
+    before `minutes` ago, or None if there's no reading that far back yet."""
+    latest_ts = series["ts"].iloc[-1]
+    latest_price = series["price"].iloc[-1]
+    past = series[series["ts"] <= latest_ts - pd.Timedelta(minutes=minutes)]
+    if past.empty:
+        return None
+    past_price = past["price"].iloc[-1]
+    if past_price == 0:
+        return None
+    delta = latest_price - past_price
+    return delta, delta / past_price * 100
+
+
+def format_change_cell(change: tuple[float, float] | None, unit: str) -> str:
+    if change is None:
+        return '<td class="change">—</td>'
+    delta, pct = change
+    color = "#1a7f37" if delta > 0 else ("#cf222e" if delta < 0 else "#888")
+    return (
+        f'<td class="change" style="color:{color}">'
+        f'<span>{unit}{delta:+.2f}</span><span class="pct">{pct:+.1f}%</span></td>'
+    )
+
+
 try:
     readings = load_readings()
 except Exception as e:
@@ -83,145 +111,32 @@ except Exception as e:
 if readings.empty:
     st.info("No data yet — start main.py to begin polling.")
 else:
-    cols = st.columns(len(DASHBOARD_INDICATOR_NAMES))
-    for col, name in zip(cols, DASHBOARD_INDICATOR_NAMES):
+    header_cells = "".join(f"<th>{label}</th>" for label, _ in CHANGE_WINDOWS)
+    rows_html = []
+    for name in DASHBOARD_INDICATOR_NAMES:
         series = readings[readings["name"] == name].sort_values("ts")
         if series.empty:
             continue
+        unit = "$" if name in DOLLAR_UNIT_NAMES else ""
         latest = series["price"].iloc[-1]
-        delta = series["price"].iloc[-1] - series["price"].iloc[-2] if len(series) > 1 else None
-        col.metric(name.upper(), f"{latest:,.2f}", f"{delta:+.2f}" if delta is not None else None)
-
-    st.subheader("Chart")
-    st.caption(
-        "Click a name in the legend to toggle it on/off; double-click to isolate one. "
-        "Pan/zoom on any panel moves all of them together."
-    )
-
-    other_names = [name for name in DASHBOARD_INDICATOR_NAMES if name != "gold"]
-    other_series = {}
-    for name in other_names:
-        series = readings[readings["name"] == name].sort_values("ts").set_index("ts")["price"]
-        if not series.empty:
-            other_series[name] = series
-
-    try:
-        candles = fetch_gold_candles()
-        gold_ok = True
-    except Exception as e:
-        st.error(f"Could not load gold candles: {e}")
-        gold_ok = False
-
-    row_names = (["gold"] if gold_ok else []) + list(other_series)
-    if row_names:
-        # Everything below — the overlaid price panel and the RSI/ADX
-        # panels — lives on ONE shared x-axis (time), so panning or
-        # zooming anywhere moves all of them together. This can't use
-        # plotly's make_subplots helper: that only gives one secondary
-        # y-axis per row, but the price panel alone overlays up to 6 series
-        # (gold ~4300 vs inflation ~2.3 need independent y-axes so they
-        # don't flatten each other out) — so the layout is built by hand:
-        # every axis anchors to the same default x-axis, and each panel is
-        # just a vertical `domain` slice of the figure instead of a
-        # separate subplot row.
-        has_ta = gold_ok  # RSI/ADX need the same OHLC candles as the price panel
-        price_domain = [0.44, 1.0] if has_ta else [0.0, 1.0]
-
-        fig = go.Figure()
-        layout_updates = {}
-        for i, name in enumerate(row_names):
-            axis_id = "y" if i == 0 else f"y{i + 1}"
-            if name == "gold":
-                fig.add_trace(
-                    go.Candlestick(
-                        x=candles["datetime"],
-                        open=candles["open"],
-                        high=candles["high"],
-                        low=candles["low"],
-                        close=candles["close"],
-                        name="GOLD",
-                        yaxis=axis_id,
-                    )
-                )
-            else:
-                series = other_series[name]
-                fig.add_trace(
-                    go.Scatter(
-                        x=series.index,
-                        y=series.values,
-                        mode="lines",
-                        name=name.upper(),
-                        yaxis=axis_id,
-                    )
-                )
-            axis_key = "yaxis" if i == 0 else f"yaxis{i + 1}"
-            if i == 0:
-                layout_updates[axis_key] = dict(
-                    autorange=True, fixedrange=False, title=name.upper(), domain=price_domain
-                )
-            else:
-                layout_updates[axis_key] = dict(
-                    overlaying="y", side="right", visible=False, autorange=True, domain=price_domain
-                )
-
-        shapes = []
-        if has_ta:
-            rsi_domain = [0.24, 0.40]
-            adx_domain = [0.0, 0.20]
-            next_axis_num = len(row_names) + 1  # continue numbering past the price panel's axes
-            # Two different naming conventions in Plotly: a trace's `yaxis`
-            # and a shape's `yref` both use the short form ("y7"), but the
-            # layout dict key for that same axis is the long form ("yaxis7").
-            rsi_yref, adx_yref = f"y{next_axis_num}", f"y{next_axis_num + 1}"
-            rsi_axis_key, adx_axis_key = f"yaxis{next_axis_num}", f"yaxis{next_axis_num + 1}"
-
-            rsi = compute_rsi(candles["close"])
-            adx = compute_adx(candles["high"], candles["low"], candles["close"])
-
-            fig.add_trace(
-                go.Scatter(
-                    x=candles["datetime"], y=rsi, mode="lines", name="RSI",
-                    yaxis=rsi_yref, showlegend=False,
-                )
-            )
-            layout_updates[rsi_axis_key] = dict(range=[0, 100], domain=rsi_domain, anchor="x")
-            for level in (70, 30):
-                shapes.append(
-                    dict(type="line", xref="paper", x0=0, x1=1, yref=rsi_yref,
-                         y0=level, y1=level, line=dict(color="gray", dash="dash", width=1))
-                )
-
-            fig.add_trace(
-                go.Scatter(
-                    x=candles["datetime"], y=adx, mode="lines", name="ADX",
-                    yaxis=adx_yref, showlegend=False,
-                )
-            )
-            layout_updates[adx_axis_key] = dict(range=[0, 100], domain=adx_domain, anchor="x")
-            shapes.append(
-                dict(type="line", xref="paper", x0=0, x1=1, yref=adx_yref,
-                     y0=25, y1=25, line=dict(color="gray", dash="dash", width=1))
-            )
-
-            annotations = [
-                dict(text="RSI (14)", xref="paper", yref="paper", x=0, y=rsi_domain[1],
-                     showarrow=False, xanchor="left", yanchor="bottom", font=dict(size=12)),
-                dict(text="ADX (14)", xref="paper", yref="paper", x=0, y=adx_domain[1],
-                     showarrow=False, xanchor="left", yanchor="bottom", font=dict(size=12)),
-            ]
-        else:
-            annotations = []
-
-        fig.update_layout(
-            **layout_updates,
-            xaxis=dict(rangeslider_visible=False),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
-            margin=dict(l=0, r=0, t=40, b=0),
-            height=850 if has_ta else 550,
-            shapes=shapes,
-            annotations=annotations,
+        cells = "".join(
+            format_change_cell(change_over(series, minutes), unit) for _, minutes in CHANGE_WINDOWS
         )
-        st.plotly_chart(fig, width='stretch')
+        rows_html.append(
+            f'<tr><td class="symbol">{name.upper()}</td>'
+            f'<td class="price">{unit}{latest:,.2f}</td>{cells}</tr>'
+        )
+
+    colgroup = (
+        '<colgroup><col style="width:15%"><col style="width:17%">'
+        + '<col style="width:13.6%">' * len(CHANGE_WINDOWS)
+        + '</colgroup>'
+    )
+    table_html = (
+        f'<table class="goldo-table">{colgroup}<thead><tr><th>Symbol</th><th>Price</th>'
+        f'{header_cells}</tr></thead><tbody>{"".join(rows_html)}</tbody></table>'
+    )
+    st.markdown(table_html, unsafe_allow_html=True)
 
 st.subheader("Recent Alerts")
 try:
@@ -229,6 +144,12 @@ try:
 except Exception as e:
     st.error(f"Could not load alerts: {e}")
     alerts = pd.DataFrame(columns=["ts", "message"])
+
+if not alerts.empty:
+    ts = alerts["ts"]
+    if ts.dt.tz is None:  # TIMESTAMPTZ should come back tz-aware; localize just in case
+        ts = ts.dt.tz_localize("UTC")
+    alerts["ts"] = ts.dt.tz_convert(DISPLAY_TZ).dt.strftime("%Y-%m-%d %H:%M:%S %Z")
 
 if alerts.empty:
     st.write("No alerts recorded yet.")

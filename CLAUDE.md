@@ -189,21 +189,28 @@ a `threshold_history` table in Postgres (`storage.insert_threshold_history_row()
 and `frequency_check.yml`'s automated commits are both now purely "when a value actually changed", not
 "every scheduled run". `backfill_threshold_history.py` migrated the doc's one existing row.
 
-**`data_fetcher.fetch_gold_candles()`/`compute_rsi()`** are shared by two callers: `rules.check_rsi_alerts()`
-(uncached, called every poll) and `dashboard.py`'s own `fetch_gold_candles()` wrapper, which adds
-`st.cache_data(ttl=300)` on top for the dashboard's RSI/ADX panels — the underlying Twelve Data fetch
-and retry logic lives in one place either way.
+**`data_fetcher.fetch_gold_candles()`/`compute_rsi()`** are now only called by `rules.check_rsi_alerts()`
+(uncached, called every poll) — `dashboard.py` no longer fetches candles or renders RSI/ADX itself (see
+"Dashboard layout" below), so the Twelve Data fetch/retry logic that helper wraps has a single caller.
 
-**Dashboard charting (`dashboard.py`)**: gold's live price panel uses real OHLC candles from Twelve
-Data's `/time_series` endpoint (`fetch_gold_candles()`, cached 5 min via `st.cache_data`) rather than
-the point-in-time readings in Postgres, since those are single prices per poll, not bars. All series —
-the gold candlestick, the other indicators, and the RSI(14)/ADX(14) panels (RSI shared with
-`rules.check_rsi_alerts`, ADX computed locally — both Wilder's formulas from the same cached candles,
-zero extra API cost) — live in ONE hand-built Plotly figure, not `make_subplots`: that helper only
-supports one secondary y-axis per row, but the price panel alone overlays up to 6 series on independent
-y-axes (gold ~4300 vs inflation ~2.3 need separate scales). Every panel is a vertical `domain` slice of
-a single shared x-axis instead of a subplot row, which is what lets panning/zooming any one panel move
-all of them together.
+**Dashboard layout (`dashboard.py`)**: no charts — the dashboard is a single compact HTML table (built
+by hand and rendered via `st.markdown(..., unsafe_allow_html=True)`, not `st.dataframe`/`st.metric`, for
+tight control over font size and column widths) with one row per `DASHBOARD_INDICATOR_NAMES` entry and
+a column each for the current price and the price/percentage change over five trailing windows —
+5/10/15/30/60 min (`CHANGE_WINDOWS`) — computed from the same `readings` rows the poll job writes
+(`change_over()`: latest reading vs. the last reading at or before N minutes ago; `None`/`—` if that
+much history doesn't exist yet, e.g. right after a fresh deploy). Deliberately sized for a phone screen
+(tuned against a Samsung S24 Ultra viewport) so every row is visible without scrolling — small fonts, a
+fixed `<colgroup>` so columns can't overflow the viewport width, kept in the CSS block at the top of the
+file rather than per-element `style=` (the per-cell `style=` that remains is just the red/green
+up/down color, computed from the sign of each change). The `$` unit shown on price/change cells is
+picked per-name (`DOLLAR_UNIT_NAMES`) the same way `rules.py` picks it for alert messages. `readings`/
+`alerts` timestamps are stored as UTC (`storage.py`'s `datetime.now(timezone.utc)`) regardless of where
+the poll job or dashboard happen to run — `dashboard.py`'s "last loaded" caption and the Recent Alerts
+table are the only places that convert to a human timezone for display, both to `DISPLAY_TZ`
+(`America/New_York`, matching the project's existing scheduling convention — see "Scheduling" below).
+The `readings` timestamps behind the change-window table stay in UTC internally; that's fine since
+`change_over()` only ever compares two of them to each other, never renders one directly.
 
 **Storage is Postgres (Neon), not SQLite** — despite `market_data.db` and `streamlit.log` still sitting
 in the repo root (gitignored, unused leftovers from an earlier local-SQLite version). `storage.py` and
