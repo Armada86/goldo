@@ -165,6 +165,21 @@ markdown/doc log of trades — the `trades` table (`id`, `rule_name`, `trade_typ
 `open_ts`, `triggering_alerts`, `exit_price`, `close_ts`, `pnl`, `status`) is the only record, so a
 trade never requires a repo commit; `poll.yml` doesn't need write access to the repo for this reason.
 
+**NFP fundamental-analysis data (`nfp_reports` table)**: `docs/fundamental-analyst-nfp-log.md` used to
+hold a hand-maintained markdown table of Non-Farm Payrolls release data (previous/expected/actual
+figures plus gold spot's reaction at +5/10/30min/1h/2h) — that raw data now lives in Postgres instead,
+in a `nfp_reports` table (`release_ts`, `data_month`, `previous_value`/`expected_value`/`actual_value`,
+`gold_at_release`, `gold_5min`/`gold_10min`/`gold_30min`/`gold_1h`/`gold_2h`, `notes`), same reasoning
+as the Broker's `trades` table: a routine update (a new release's figures) shouldn't need a code change
+or a repo commit. `storage.insert_nfp_report()`/`get_nfp_reports()` are the write/read paths; nothing
+in the poll loop touches this table automatically — unlike `readings`/`alerts`/`trades`, there's no
+existing automated source for NFP consensus ("expected") figures or precise post-release candle
+reactions, so a new row is still added the same way the original 12 were compiled (a one-off research
+session), just written to Postgres instead of appended to the doc. The doc itself is kept for
+descriptive/methodology content (what NFP is, sourcing method, shutdown-disruption caveats, narrative
+findings) — see its own text for the current split. `backfill_nfp_reports.py` was a one-time migration
+of the 12 releases that used to be the doc's table; it no-ops if the table already has rows.
+
 **`data_fetcher.fetch_gold_candles()`/`compute_rsi()`** are shared by two callers: `rules.check_rsi_alerts()`
 (uncached, called every poll) and `dashboard.py`'s own `fetch_gold_candles()` wrapper, which adds
 `st.cache_data(ttl=300)` on top for the dashboard's RSI/ADX panels — the underlying Twelve Data fetch

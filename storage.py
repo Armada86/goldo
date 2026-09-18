@@ -53,6 +53,25 @@ def init_db() -> None:
             )
             """
         )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS nfp_reports (
+                id SERIAL PRIMARY KEY,
+                release_ts TIMESTAMPTZ NOT NULL,
+                data_month TEXT NOT NULL,
+                previous_value TEXT,
+                expected_value TEXT,
+                actual_value TEXT,
+                gold_at_release DOUBLE PRECISION,
+                gold_5min DOUBLE PRECISION,
+                gold_10min DOUBLE PRECISION,
+                gold_30min DOUBLE PRECISION,
+                gold_1h DOUBLE PRECISION,
+                gold_2h DOUBLE PRECISION,
+                notes TEXT
+            )
+            """
+        )
 
 
 def save_readings(prices: dict[str, float]) -> None:
@@ -177,3 +196,64 @@ def close_trade_row(trade_id: int, exit_price: float, close_ts: datetime, pnl: f
             "UPDATE trades SET exit_price = %s, close_ts = %s, pnl = %s, status = 'Closed' WHERE id = %s",
             (exit_price, close_ts, pnl, trade_id),
         )
+
+
+def insert_nfp_report(
+    release_ts: datetime,
+    data_month: str,
+    previous_value: str | None,
+    expected_value: str | None,
+    actual_value: str | None,
+    gold_at_release: float | None,
+    gold_5min: float | None,
+    gold_10min: float | None,
+    gold_30min: float | None,
+    gold_1h: float | None,
+    gold_2h: float | None,
+    notes: str | None = None,
+) -> None:
+    """Records one Non-Farm Payrolls release's figures and gold spot's reaction -- see
+    docs/fundamental-analyst-nfp-log.md for what this replaces (a hand-maintained markdown table) and
+    why (a routine update here no longer needs a repo commit). Dollar/percentage deltas vs.
+    gold_at_release aren't stored -- derive them from the raw prices when reading."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO nfp_reports (
+                release_ts, data_month, previous_value, expected_value, actual_value,
+                gold_at_release, gold_5min, gold_10min, gold_30min, gold_1h, gold_2h, notes
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                release_ts, data_month, previous_value, expected_value, actual_value,
+                gold_at_release, gold_5min, gold_10min, gold_30min, gold_1h, gold_2h, notes,
+            ),
+        )
+
+
+def get_nfp_reports() -> list[dict]:
+    """Every recorded NFP release, oldest first."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT release_ts, data_month, previous_value, expected_value, actual_value, "
+            "gold_at_release, gold_5min, gold_10min, gold_30min, gold_1h, gold_2h, notes "
+            "FROM nfp_reports ORDER BY release_ts"
+        )
+        rows = cur.fetchall()
+    return [
+        {
+            "release_ts": r[0],
+            "data_month": r[1],
+            "previous_value": r[2],
+            "expected_value": r[3],
+            "actual_value": r[4],
+            "gold_at_release": r[5],
+            "gold_5min": r[6],
+            "gold_10min": r[7],
+            "gold_30min": r[8],
+            "gold_1h": r[9],
+            "gold_2h": r[10],
+            "notes": r[11],
+        }
+        for r in rows
+    ]
