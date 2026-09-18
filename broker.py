@@ -4,15 +4,16 @@ This is the code implementation of the rules documented in `.claude/agents/broke
 section -- that file is the human-readable spec, this module is what actually executes it every poll.
 The two must be kept in sync by hand when the rules change (same convention as `docs/market.md` vs.
 `config.py`): a rule change here without the matching prose update there is an incomplete change.
+
+Every trade lives only in the `trades` table in Postgres (see storage.py) -- there is deliberately no
+markdown/doc mirror to keep in sync, so a trade never requires a repo commit.
 """
 
 from datetime import datetime, timezone
-from pathlib import Path
 
 from notifier import send_telegram_message
 from storage import (
     close_trade_row,
-    get_all_trades,
     get_last_trade_open_ts,
     get_open_trade,
     get_recent_alerts,
@@ -23,9 +24,6 @@ from storage import (
 # .claude/agents/broker.md.
 CORRELATION_WINDOW_MINUTES = 15
 EXIT_THRESHOLD = 10.0  # take-profit and stop-loss, symmetric, $ per troy ounce
-
-TRADES_DOC_PATH = Path(__file__).parent / "docs" / "trades.md"
-TRADES_TABLE_MARKER = "## Trades\n\n"
 
 
 def _has_alert(alerts: list[tuple[datetime, str]], name: str, direction: str) -> bool:
@@ -81,41 +79,6 @@ def _close_message(trade: dict, exit_price: float, pnl: float) -> str:
     )
 
 
-def _format_trades_table(trades: list[dict]) -> str:
-    header = (
-        "| Open date | Open time (UTC) | Type | Entry price | Triggering alert | Close date | "
-        "Close time (UTC) | Exit price | P/L | Status | Rule(s) applied |"
-    )
-    sep = "|---|---|---|---|---|---|---|---|---|---|---|"
-    rows = [header, sep]
-    for t in trades:
-        open_date = t["open_ts"].strftime("%Y-%m-%d")
-        open_time = t["open_ts"].strftime("%H:%M")
-        if t["close_ts"] is not None:
-            close_date = t["close_ts"].strftime("%Y-%m-%d")
-            close_time = t["close_ts"].strftime("%H:%M")
-            exit_price = f"{t['exit_price']:.2f}"
-            pnl = f"{t['pnl']:+.2f}"
-        else:
-            close_date = close_time = exit_price = pnl = ""
-        rows.append(
-            f"| {open_date} | {open_time} | {t['trade_type']} | {t['entry_price']:.2f} | "
-            f"{t['triggering_alerts']} | {close_date} | {close_time} | {exit_price} | {pnl} | "
-            f"{t['status']} | {t['rule_name']} |"
-        )
-    return "\n".join(rows)
-
-
-def _sync_trades_doc() -> None:
-    """Regenerates docs/trades.md's Trades table wholesale from the `trades` table in Postgres (the
-    source of truth) rather than patching individual rows in place -- that way a doc left stale by a
-    previous run whose auto-merge didn't go through can never drift out of sync with the DB."""
-    text = TRADES_DOC_PATH.read_text()
-    marker_idx = text.index(TRADES_TABLE_MARKER) + len(TRADES_TABLE_MARKER)
-    prefix = text[:marker_idx]
-    TRADES_DOC_PATH.write_text(prefix + _format_trades_table(get_all_trades()) + "\n")
-
-
 def check_broker_trades(prices: dict[str, float]) -> None:
     """Runs once per poll, after this cycle's alerts are saved. Closes the open trade (if any) the
     moment its unrealized P/L reaches the $10 take-profit/stop-loss, then looks for a fresh
@@ -147,5 +110,3 @@ def check_broker_trades(prices: dict[str, float]) -> None:
             triggering_text = _triggering_text(alerts, trade_type)
             insert_trade(rule_name, trade_type, gold_price, now, triggering_text)
             send_telegram_message(_open_message(trade_type, rule_name, gold_price, triggering_text))
-
-    _sync_trades_doc()

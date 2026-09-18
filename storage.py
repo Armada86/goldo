@@ -136,7 +136,8 @@ def get_last_trade_open_ts() -> datetime | None:
 
 
 def get_all_trades() -> list[dict]:
-    """Every trade, oldest first -- the source of truth docs/trades.md's table is regenerated from."""
+    """Every trade, oldest first -- for ad hoc querying/analysis (e.g. by the Broker subagent); not
+    used by broker.py's own trading logic, which only needs the single open trade."""
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT rule_name, trade_type, entry_price, open_ts, triggering_alerts, "

@@ -160,10 +160,10 @@ unrealized profit or loss either way. Trade state lives in a new Postgres `trade
 `readings`/`alerts` — required since `poll_job.py` is a stateless one-shot run each cloud poll, so
 in-memory state can't survive between polls); only one trade open at a time, and a fresh entry only
 considers alerts newer than the last trade's open time so a stale alert can't retrigger. Every
-open/close sends a Telegram message (`notifier.send_telegram_message`) and rewrites `docs/trades.md`'s
-Trades table wholesale from the `trades` table (`broker._sync_trades_doc()` — never row-patched in
-place, so a doc left stale by an unmerged previous run can't desync from the DB). See Scheduling below
-for how that file's changes actually get committed in the cloud.
+open/close sends a Telegram message (`notifier.send_telegram_message`). Deliberately no
+markdown/doc log of trades — the `trades` table (`id`, `rule_name`, `trade_type`, `entry_price`,
+`open_ts`, `triggering_alerts`, `exit_price`, `close_ts`, `pnl`, `status`) is the only record, so a
+trade never requires a repo commit; `poll.yml` doesn't need write access to the repo for this reason.
 
 **`data_fetcher.fetch_gold_candles()`/`compute_rsi()`** are shared by two callers: `rules.check_rsi_alerts()`
 (uncached, called every poll) and `dashboard.py`'s own `fetch_gold_candles()` wrapper, which adds
@@ -209,14 +209,10 @@ requiring reviews or passing checks, that merge step simply fails and the PR sit
 merge instead of silently forcing it through. Whether the default `GITHUB_TOKEN` is allowed to
 create/merge PRs at all, and whether this workflow's runs are exempted from `main`'s review
 requirement, are repository settings the owner configures directly in GitHub — not something this
-workflow file controls, same as the cron-job.org scheduling setup above.
-
-`.github/workflows/poll.yml` follows the same commit-PR-merge pattern as a third case: if
-`check_broker_trades()` opened or closed a trade this cycle, `docs/trades.md` changes, and the
-workflow commits it (branch `broker-trade/<timestamp>-<run>`), opens a PR, and squash-merges it —
-same `git diff --quiet` no-op guard, same no-`--admin`-bypass limitation as `frequency_check.yml`. This
-is a no-op on the large majority of polls, since a trade only opens/closes when its rule's condition
-is actually met.
+workflow file controls, same as the cron-job.org scheduling setup above. `poll.yml` itself never
+commits anything back to the repo — `check_broker_trades()`'s trades go straight to the `trades` table
+in Postgres, not to a file, so `poll.yml` only needs the read/query secrets it already had
+(`DATABASE_URL` etc.), not repo write access.
 
 **Secrets arrive three different ways** depending on where the code runs:
 - Locally: `.env` file + `python-dotenv` (`load_dotenv()` in `data_fetcher.py`, `storage.py`, `notifier.py`)
@@ -245,9 +241,9 @@ session.
 its actual trading logic is NOT this subagent; it's the fully automated `broker.py` (see the
 "Broker automated paper-trading" entry above), which runs every poll with no human/session involved.
 The subagent itself is **read-only** (`Read`, `Grep`, `Glob`, `Bash` — no `Edit`/`Write`, same as
-`technical-analyst`): it explains rules, explains why a specific trade in `docs/trades.md` fired,
-and analyzes performance by rule, using the `trades`/`alerts` tables and `docs/trades.md`. Its own
-"Rules" section is the human-readable spec for what `broker.py` implements — the two are kept in sync
-by hand — but the subagent never edits either one; a proposed rule change is drafted in prose and
-handed off for the user or a coding session to apply to both files together. It's invoked on demand
-like `technical-analyst`.
+`technical-analyst`): it explains rules, explains why a specific trade in the Postgres `trades` table
+fired, and analyzes performance by rule, querying the `trades`/`alerts` tables directly (there is no
+markdown trade log to read instead). Its own "Rules" section is the human-readable spec for what
+`broker.py` implements — the two are kept in sync by hand — but the subagent never edits either one; a
+proposed rule change is drafted in prose and handed off for the user or a coding session to apply to
+both files together. It's invoked on demand like `technical-analyst`.
