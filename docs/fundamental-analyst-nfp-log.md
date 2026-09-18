@@ -1,12 +1,15 @@
-# Fundamental analyst — Non-Farm Payrolls findings log
+# Fundamental analyst — Non-Farm Payrolls description & analysis
 
-A running record of Non-Farm Payrolls (NFP)-specific analyses done for this project. Kept narrow — the
-question asked, the method, and descriptive/methodology notes — not full writeups (those stay in
-whatever conversation produced them) and, as of the change described below, not the raw per-release
-data either. `nonfarm_payrolls` (FRED series `PAYEMS`) is tracked in `config.FRED_SERIES` and alerts via
+Description and running analysis log for Non-Farm Payrolls (NFP), a supporting doc for the
+`fundamental-analyst` subagent. Kept narrow — the question asked, the method, and descriptive/
+methodology notes — not full writeups (those stay in whatever conversation produced them) and not the
+raw per-release data (see below — that lives in Postgres, not markdown tables). Files starting with
+`fundamental-analyst-` (this one, and others to come for other scheduled releases) are what the
+`fundamental-analyst` subagent reads for context; see also `docs/technical-analyst-gld-log.md`/
+`-dxy-log.md`/`-us10y-log.md`, the equivalent supporting docs for the `technical-analyst` subagent.
+`nonfarm_payrolls` (FRED series `PAYEMS`) is tracked in `config.FRED_SERIES` and alerts via
 `VALUE_CHANGE_ALERT_NAMES` (any change from the previous poll) — see `docs/market.md` and `CLAUDE.md`'s
-architecture section. See also `docs/technical-analyst-gld-log.md`/`-dxy-log.md`/`-us10y-log.md` for the
-equivalent technical-analysis logs.
+architecture section.
 
 **Report-by-report data now lives in Postgres, not in this file.** The `nfp_reports` table (see
 `storage.py`) holds one row per NFP release: `release_ts` (the exact 8:30am ET release moment),

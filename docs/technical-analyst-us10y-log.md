@@ -1,12 +1,25 @@
-# Technical analyst — US10Y findings log
+# Technical analyst — US10Y description & analysis
 
-A running record of us10y (10-year Treasury yield) move analyses done for this project. Kept narrow —
-the question asked, the method, and the concrete numbers found — not full writeups (those stay in
-whatever conversation produced them). Newest entries at the bottom. See also
+Description and running analysis log for us10y (10-year Treasury yield), a supporting doc for the
+`technical-analyst` subagent. Kept narrow — the question asked, the method, and the findings that
+matter — not full writeups (those stay in whatever conversation produced them) and not raw data tables
+(superseded by nightly auto-tuning, see below). Newest entries at the bottom. See also
 `docs/technical-analyst-gld-log.md` and `docs/technical-analyst-dxy-log.md` for GLD/DXY-specific
-analyses.
+analyses, and `docs/market.md` for the full indicator reference table.
 
 All figures are in **points** (percentage points of yield, e.g. 0.081 = 8.1 basis points), not bp.
+
+## Description
+
+US10Y (`us10y` in `config.INDICATORS`, ticker `^TNX` via yfinance) tracks the 10-year US Treasury note
+yield. Gold pays no yield, so rising Treasury yields raise the opportunity cost of holding gold instead
+of interest-bearing bonds — us10y typically moves **opposite** to gold, same reasoning as DXY but via
+the rates channel rather than the currency channel. US10Y updates continuously during market hours and
+is polled every 5 minutes like the other intraday indicators. It alerts via
+`rules.check_intrahour_swing_alerts` — trailing 15/10/5-minute high-low swing, each window
+independently thresholded (`INTRAHOUR_SWING_ALERT_THRESHOLD["us10y"]`, stored in
+`intrahour_swing_thresholds.json`, re-tuned automatically every night by `frequency_check_job.py` — see
+`CLAUDE.md`'s Scheduling section for exactly how).
 
 ---
 
@@ -24,58 +37,31 @@ and took high−low across bars in that window — 783 overlapping windows total
 **Bar High/Low** (true intrahour extremes, primary) and **Close-only** (single price per bar, comparable
 to how this project's DB stores one reading per poll).
 
-**Maximum 1-hour fluctuation**:
+**Maximum 1-hour fluctuation**: the largest Bar High/Low swing was **0.081 points** on 2026-09-11,
+08:05–09:05 ET (high 4.985 at the 08:20 bar, low 4.904 at the 08:50 bar); the same window measured
+close-only was a smaller 0.047 points. The runner-up (Bar High/Low) was 0.069 points on 2026-08-07 at
+the 08:20 bar. Context: a fast spike-and-reversal, not a grind — yield jumped to the 08:20 high then
+reversed hard to the 08:50 low, landing squarely in the 8:30am ET scheduled macro-data release window.
+Both the max and runner-up cluster at the same clock slot on different Fridays.
 
-| | Window (ET) | High | Low | Swing (points) |
-|---|---|---|---|---|
-| Bar High/Low (largest) | 2026-09-11, 08:05–09:05 | 4.985 (08:20 bar) | 4.904 (08:50 bar) | **0.081** |
-| Close-only (same window) | 2026-09-11, 08:05–09:05 | 4.955 (close) | 4.908 (close) | 0.047 |
-| Runner-up (Bar High/Low) | 2026-08-07, 08:20 bar | 4.672 | 4.603 | 0.069 |
-
-Context: fast spike-and-reversal, not a grind — yield jumped to the 08:20 high then reversed hard to the
-08:50 low, landing squarely in the 8:30am ET scheduled macro-data release window. Both the max and
-runner-up cluster at the same clock slot on different Fridays.
-
-**Average 1-hour fluctuation** (783 windows, 30-day sample):
-
-| Method | Mean | Median | Std dev | Range |
-|---|---|---|---|---|
-| Bar High/Low (primary) | **0.0167** | 0.0140 | 0.0106 | 0.002–0.081 |
-| Close-only (secondary) | 0.0086 | 0.0080 | — | 0.000–0.047 |
-
-**Distribution (Bar High/Low, points)**:
-
-| Range | Count | % of sample |
-|---|---|---|
-| 0.00–0.01 | 194 | 24.8% |
-| 0.01–0.02 | 395 | 50.4% |
-| 0.02–0.03 | 128 | 16.3% |
-| 0.03–0.04 | 37 | 4.7% |
-| 0.04–0.06 | 20 | 2.6% |
-| 0.06–0.08 | 7 | 0.9% |
-| 0.08+ | 2 | 0.3% |
-
-90th/95th/99th percentiles: 0.028 / 0.036 / 0.064 points. The sample is tightly clustered — 75% of all
-trailing-60-min windows sit at ≤0.02 points — with a long right-skewed tail. The max (0.081) sits above
-the 99th percentile and is ~4.8x the mean (0.0167), confirming that event was a genuine tail move, not
-typical intrahour noise.
+**Average 1-hour fluctuation** (783 windows, 30-day sample): Bar High/Low (primary) averaged **0.0167**
+points (median 0.0140, std dev 0.0106, range 0.002–0.081); Close-only (secondary) averaged 0.0086
+points (median 0.0080, range 0.000–0.047). The Bar High/Low distribution is tightly clustered — 75.2% of
+all trailing-60-min windows sit at or under 0.02 points (24.8% under 0.01, 50.4% between 0.01–0.02),
+with a long right-skewed tail: 16.3% land 0.02–0.03, 4.7% land 0.03–0.04, and only 0.9%/0.3% exceed
+0.06/0.08 respectively. The 90th/95th/99th percentiles are 0.028/0.036/0.064 points — the max (0.081)
+sits above the 99th percentile and is ~4.8x the mean (0.0167), confirming that event was a genuine tail
+move, not typical intrahour noise.
 
 **Cross-check against gold** (GC=F futures — Twelve Data spot unavailable in-session, so this is COMEX
-futures, not true XAU/USD spot) over the same max-swing window, 2026-09-11 08:05–09:05 ET:
-
-| | Time (ET) | Price |
-|---|---|---|
-| Open | 08:05 | $4,371.10 |
-| Low | 08:30 | $4,333.00 |
-| High | 09:05 | $4,436.40 |
-| Close | 09:05 | $4,424.80 |
-
-Net move +$53.70 (+1.23%), full range $103.40 (2.37%). A single 1-minute bar (08:30–08:31 ET) carried a
-~$66 plunge-and-recovery (verified on 1-min data, not a bad tick), then gold climbed steadily to the
-09:05 high. The inverse relationship with us10y held tightly through both legs: yields spiking up
-(~08:20–08:30) lined up with gold's plunge, and yields reversing down (~08:50–09:05) lined up with
-gold's rally — both instruments show the same spike-then-reversal shape at the same clock-minute,
-pointing to one shared macro data release rather than coincidence.
+futures, not true XAU/USD spot) over the same max-swing window, 2026-09-11 08:05–09:05 ET: gold opened
+at $4,371.10, dropped to a low of $4,333.00 at 08:30, then rallied to a high of $4,436.40 by 09:05
+(close $4,424.80) — a net move of +$53.70 (+1.23%) but a full range of $103.40 (2.37%). A single
+1-minute bar (08:30–08:31 ET) carried a ~$66 plunge-and-recovery (verified on 1-min data, not a bad
+tick), then gold climbed steadily to the 09:05 high. The inverse relationship with us10y held tightly
+through both legs: yields spiking up (~08:20–08:30) lined up with gold's plunge, and yields reversing
+down (~08:50–09:05) lined up with gold's rally — both instruments show the same spike-then-reversal
+shape at the same clock-minute, pointing to one shared macro data release rather than coincidence.
 
 **Outcome**: changed the us10y alert to a fixed amount threshold of **0.02 points**. `us10y` moved from
 `PCT_CHANGE_ALERT_THRESHOLD` to `ABS_CHANGE_ALERT_THRESHOLD` in `config.py` (`check_abs_change_alerts`
@@ -96,42 +82,17 @@ a comparable alert frequency to gld ($3, ~21 events/30 days) and dxy (0.2 pts, ~
 1,735 bars). Rolling 60-minute high-low range (12 bars), rising-edge event count at various thresholds
 — same method as the DXY analysis.
 
-| Threshold (yield points) | Distinct rising-edge events / 30 days |
-|---|---|
-| 0.015 | 60 |
-| 0.02 (previous poll-to-poll threshold) | 41 |
-| 0.025 | 24 |
-| 0.03 | 16 |
-| **0.035** | **13** |
-| 0.04 | 10 |
-| 0.05 | 8 |
+**Results**: scanning thresholds from 0.015 to 0.05 points, rising-edge event count fell from 60/30 days
+at 0.015, to 41 at 0.02 (the previous poll-to-poll threshold), 24 at 0.025, 16 at 0.03, 13 at 0.035, 10
+at 0.04, and 8 at 0.05.
 
 **0.035 chosen** — matches DXY's 13-events/30-days frequency exactly, landing in the same "frequent
-enough to matter, not noise" band as gld/dxy.
-
-**All 13 hourly events, ≥ 0.035-pt threshold, 30-day sample** (local/exchange time as returned by
-yfinance):
-
-| Timestamp | Swing (yield pts) | High | Low |
-|---|---|---|---|
-| 2026-08-19 07:30 | 0.055 | 4.682 | 4.653 |
-| 2026-08-20 07:20 | 0.051 | 4.704 | 4.704 |
-| 2026-08-24 07:20 | 0.036 | 4.704 | 4.704 |
-| 2026-08-25 07:20 | 0.036 | 4.668 | 4.668 |
-| 2026-08-28 09:20 | 0.038 | 4.700 | 4.662 |
-| 2026-08-28 10:25 | 0.036 | 4.702 | 4.666 |
-| 2026-09-03 07:35 | 0.044 | 4.766 | 4.754 |
-| 2026-09-04 07:30 | 0.046 | 4.796 | 4.750 |
-| 2026-09-09 10:05 | 0.041 | 4.839 | 4.798 |
-| 2026-09-10 07:20 | 0.048 | 4.881 | 4.881 |
-| 2026-09-11 07:55 | 0.037 | 4.955 | 4.918 |
-| 2026-09-14 10:25 | 0.039 | 5.008 | 4.965 |
-| 2026-09-15 07:20 | 0.059 | 5.014 | 5.014 |
-
-Several rows show identical High/Low — an artifact of ^TNX's intraday data being sparse right around
-the early-morning window (only one real print inside the trailing-60-min lookback at that point), not
-a data error. Worth re-checking once the project's own 5-min polled readings (denser, from a live poll
-loop) have accumulated 30+ days, rather than relying on yfinance's intraday bars for this indicator.
+enough to matter, not noise" band as gld/dxy. Several of the 13 events at this threshold showed
+identical High/Low readings within their hour — an artifact of `^TNX`'s intraday data being sparse
+right around the early-morning window (only one real print inside the trailing-60-min lookback at that
+point), not a data error; worth re-checking once the project's own 5-min polled readings (denser, from
+a live poll loop) have accumulated 30+ days, rather than relying on yfinance's intraday bars for this
+indicator.
 
 **Data source**: pulled directly from yfinance, not the project's Neon Postgres `readings` table — per
 standing instruction, the technical-analyst never queries the DB for this kind of price analysis.
@@ -152,11 +113,10 @@ high-low range exceed a few candidate thresholds over the last 30 days?
 
 **Method**: yfinance hourly bars (`^TNX`, `interval="1h"`), 153 bars, 2026-08-17 to 2026-09-16.
 
-| Threshold (yield points) | Hourly bars exceeded / 153 |
-|---|---|
-| 0.02 | 57 (~37%) |
-| **0.025** | **33 (~22%)** |
-| 0.035 (previous config value) | ~13 (rolling-window method, not directly comparable) |
+**Results**: a threshold of 0.02 points was exceeded in 57 of 153 hourly bars (~37%); 0.025 points was
+exceeded in 33 bars (~22%) — a looser/more frequent threshold than the previous 0.035 value, which had
+produced ~13 events/30 days under the rolling-window method above (not directly comparable, since it's
+a different counting method).
 
 **Outcome**: `us10y`'s `INTRAHOUR_SWING_ALERT_THRESHOLD` changed from `0.035` to **`0.025`**, requested
 directly (not re-derived from a target event-rate the way 0.035 was) — roughly 33 events/30 days at
@@ -176,12 +136,8 @@ gave 20 rising-edge events here vs. 33 raw hourly-bar exceedances above). Thresh
 non-monotonic (rises to a peak around 0.012, then falls); used the higher-threshold (post-peak) side,
 consistent with prior "meaningful move" threshold choices.
 
-| Threshold | Events/30 days |
-|---|---|
-| 0.020 | 32 |
-| **0.021** | **31** |
-| 0.0215 | 31 |
-| 0.022 | 28 |
+**Results**: scanning the post-peak side, 0.020 produced 32 events/30 days, 0.021 produced 31, 0.0215
+produced 31, and 0.022 produced 28.
 
 **Outcome**: `INTRAHOUR_SWING_ALERT_THRESHOLD["us10y"]` changed from `0.025` to **`0.021`** — confirmed
 with a fresh `frequency_test.py` run: 31 events/30 days, within the +/-2 target band.
