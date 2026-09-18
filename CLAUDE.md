@@ -204,7 +204,13 @@ much history doesn't exist yet, e.g. right after a fresh deploy). Deliberately s
 fixed `<colgroup>` so columns can't overflow the viewport width, kept in the CSS block at the top of the
 file rather than per-element `style=` (the per-cell `style=` that remains is just the red/green
 up/down color, computed from the sign of each change). The `$` unit shown on price/change cells is
-picked per-name (`DOLLAR_UNIT_NAMES`) the same way `rules.py` picks it for alert messages.
+picked per-name (`DOLLAR_UNIT_NAMES`) the same way `rules.py` picks it for alert messages. `readings`/
+`alerts` timestamps are stored as UTC (`storage.py`'s `datetime.now(timezone.utc)`) regardless of where
+the poll job or dashboard happen to run — `dashboard.py`'s "last loaded" caption and the Recent Alerts
+table are the only places that convert to a human timezone for display, both to `DISPLAY_TZ`
+(`America/New_York`, matching the project's existing scheduling convention — see "Scheduling" below).
+The `readings` timestamps behind the change-window table stay in UTC internally; that's fine since
+`change_over()` only ever compares two of them to each other, never renders one directly.
 
 **Storage is Postgres (Neon), not SQLite** — despite `market_data.db` and `streamlit.log` still sitting
 in the repo root (gitignored, unused leftovers from an earlier local-SQLite version). `storage.py` and

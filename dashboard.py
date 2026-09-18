@@ -1,7 +1,8 @@
 """Streamlit dashboard reading the same Postgres DB that the poll job populates."""
 
 import os
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import streamlit as st
@@ -43,8 +44,14 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# Readings/alerts are stored as UTC (storage.py uses datetime.now(timezone.utc))
+# regardless of where the poll job or dashboard happen to run — this is the one
+# place that converts to a human timezone for display.
+DISPLAY_TZ = ZoneInfo("America/New_York")
+
 st.title("Goldo")
-st.caption(f"Page refreshes every 60s · last loaded {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+now_local = datetime.now(timezone.utc).astimezone(DISPLAY_TZ)
+st.caption(f"Page refreshes every 60s · last loaded {now_local.strftime('%Y-%m-%d %H:%M:%S %Z')}")
 
 # (name, minutes) columns shown next to each symbol's current price.
 CHANGE_WINDOWS = [("5m", 5), ("10m", 10), ("15m", 15), ("30m", 30), ("1h", 60)]
@@ -137,6 +144,12 @@ try:
 except Exception as e:
     st.error(f"Could not load alerts: {e}")
     alerts = pd.DataFrame(columns=["ts", "message"])
+
+if not alerts.empty:
+    ts = alerts["ts"]
+    if ts.dt.tz is None:  # TIMESTAMPTZ should come back tz-aware; localize just in case
+        ts = ts.dt.tz_localize("UTC")
+    alerts["ts"] = ts.dt.tz_convert(DISPLAY_TZ).dt.strftime("%Y-%m-%d %H:%M:%S %Z")
 
 if alerts.empty:
     st.write("No alerts recorded yet.")
