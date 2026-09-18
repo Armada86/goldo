@@ -222,8 +222,10 @@ session.
 Postgres `alerts` table (the same alert strings `rules.py` sends to Telegram, saved by
 `storage.save_alert()`) and, per the trading rules defined in its own "Rules" section, opens/closes
 imaginary buy/sell positions on gold spot price (Twelve Data, same source as the live alerts — not
-yfinance's `GC=F` futures). The rules themselves live in `.claude/agents/broker.md` only — the agent
-must not trade while that section is still unfilled/"Pending" — deliberately kept separate from
+yfinance's `GC=F` futures). The rules themselves live in `.claude/agents/broker.md` only (currently: two mirror-image rules,
+`GLD-DXY-US10Y-buy`/`-sell`, keyed off GLD/DXY/US10Y intrahour-swing alerts co-firing within 60 seconds
+in matching directions, 1 oz position size, $10 take-profit/stop-loss exit) — the agent
+must not trade on an undefined rule — deliberately kept separate from
 `docs/trades.md`, which is the trade log only: every open/closed trade with its entry/exit price, P/L,
 and (last column) which named rule(s) drove it, for later comparing rules against each other. Unlike
 `technical-analyst`, Broker does have `Edit`/`Write` access, but its only write target is
