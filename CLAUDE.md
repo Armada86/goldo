@@ -271,3 +271,13 @@ markdown trade log to read instead). Its own "Rules" section is the human-readab
 `broker.py` implements — the two are kept in sync by hand — but the subagent never edits either one; a
 proposed rule change is drafted in prose and handed off for the user or a coding session to apply to
 both files together. It's invoked on demand like `technical-analyst`.
+
+`.claude/agents/fundamental-analyst.md` defines a **read-only** subagent (no `Edit`/`Write` tools,
+same restriction as `technical-analyst` and `broker`) for analyzing scheduled macro data releases (NFP,
+CPI, PPI, retail sales, jobless claims, etc.) and how they move gold. Unlike `technical-analyst`, it
+*is* meant to query Postgres — release-by-release data (e.g. the `nfp_reports` table) lives there, not
+in markdown, per the "NFP fundamental-analysis data" entry above. It reads `docs/fundamental-analyst-*.md`
+for context/methodology (currently just `docs/fundamental-analyst-nfp-log.md`; more will be added the
+same way as other releases get their own research), the same way `technical-analyst` reads
+`docs/technical-analyst-*-log.md`. Like the other two subagents, it plans and explicitly asks for
+permission before any code/DB change and never edits or writes anything itself.
