@@ -83,8 +83,9 @@ it needs its own alert threshold.
 **Standing "new indicator" workflow**: whenever a new indicator/price is added to the project (a new
 entry in `INDICATORS` or `FRED_SERIES`, or any other tracked price), also add a row for it to the table
 in `docs/market.md` — its type (price / index / indicator), data source, update frequency, its typical
-relationship (same direction / opposite / mixed) to the gold price, and which mechanism (if any) sends
-it to Telegram.
+relationship (same direction / opposite / mixed) to the gold price, which mechanism (if any) sends it to
+Telegram, and its `Agent` cell (`Technical`, `Fundamental`, or `NA` — see the table's intro prose for
+which subagent, if any, treats it as its territory).
 
 **Standing "indicator change" workflow**: this cuts the other way too — whenever an *existing*
 indicator's config changes (its alert threshold, which alert mechanism it's wired into, whether/how it
