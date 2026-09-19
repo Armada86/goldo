@@ -149,6 +149,19 @@ the value from two polls back instead of one).
   every poll spent past the threshold. The Telegram message states the RSI value and which threshold it
   crossed.
 
+**Weekly market open/close notification (`market_hours.py`)**: `check_market_hours_alert()`, called
+from `main.poll_once()` before the price fetch (so it still fires even if prices are briefly
+unavailable right at the boundary), sends a one-off Telegram message when the market closes for the
+week (Friday 5:00 PM ET) and reopens (Sunday 6:00 PM ET) — the standard weekly schedule shared by
+XAU/USD and the other intraday indicators (gld/dxy/us10y), i.e. the daily 5-6 PM ET settlement break
+that simply doesn't reopen until Sunday evening on the week's final session. "ET" here is
+`America/New_York`, the same zone the rest of the project already uses (`dashboard.py`'s `DISPLAY_TZ`,
+`frequency_check_job.py`) — equivalent to Toronto time, since both share the same UTC offset and DST
+transition dates year-round. Checked every poll rather than via a separate cron-job.org-triggered
+workflow, so it needs no extra external scheduling setup: the existing 5-minute `poll.yml` cadence
+already visits the boundary each side of these two weekly instants, and a `minute < 5` window keeps
+each notification firing exactly once.
+
 **Broker automated paper-trading (`broker.py`)**: `check_broker_trades()`, called from
 `main.poll_once()` right after this cycle's alerts are saved, is a fully automated imaginary
 buy/sell engine layered on top of the alert mechanisms above — see `.claude/agents/broker.md`'s
