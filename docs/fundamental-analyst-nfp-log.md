@@ -26,6 +26,16 @@ this repository at all. The 12 releases originally logged in this file's table w
 table by `backfill_nfp_reports.py` (a one-time script, safe to re-run — it skips if the table already
 has rows).
 
+**Live recommendation on a fresh release**: when the `fundamental-analyst` subagent is asked to react to
+an NFP release right as it prints, its "New-release recommendation workflow" (see
+`.claude/agents/fundamental-analyst.md`) is a pre-approved exception to its usual read-only/plan-then-ask
+rule — it sends one Telegram message with a short 5/10/15-minute directional read and records the
+release's figures in `nfp_reports` itself (`gold_at_release` only at first; the later
+`gold_5min`/`gold_10min`/`gold_30min`/`gold_1h`/`gold_2h` columns get filled in afterward via
+`storage.update_nfp_report_reaction()` once those windows have actually happened). Nothing else about
+how releases get analyzed changes — everything below this point is retrospective research, not the live
+workflow.
+
 ---
 
 ## 2026-09-17 — Last 12 NFP reports vs. gold spot's reaction

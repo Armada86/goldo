@@ -26,3 +26,5 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          ROUTINE_FIRE_URL: ${{ secrets.ROUTINE_FIRE_URL }}
+          ROUTINE_FIRE_TOKEN: ${{ secrets.ROUTINE_FIRE_TOKEN }}

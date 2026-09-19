@@ -76,6 +76,23 @@ def load_alerts() -> pd.DataFrame:
         )
 
 
+def load_trades() -> pd.DataFrame:
+    with get_connection() as conn:
+        return pd.read_sql(
+            "SELECT rule_name, trade_type, entry_price, open_ts, triggering_alerts, "
+            "exit_price, close_ts, pnl, status FROM trades ORDER BY open_ts DESC LIMIT 20",
+            conn,
+            parse_dates=["open_ts", "close_ts"],
+        )
+
+
+def to_display_str(ts: pd.Series) -> pd.Series:
+    """UTC (or tz-naive, just in case) timestamp column -> DISPLAY_TZ string; NaT stays NaN."""
+    if ts.dt.tz is None:
+        ts = ts.dt.tz_localize("UTC")
+    return ts.dt.tz_convert(DISPLAY_TZ).dt.strftime("%Y-%m-%d %H:%M:%S %Z")
+
+
 def change_over(series: pd.DataFrame, minutes: int) -> tuple[float, float] | None:
     """(delta, pct) between the latest reading and the last reading at or
     before `minutes` ago, or None if there's no reading that far back yet."""
@@ -138,6 +155,34 @@ else:
     )
     st.markdown(table_html, unsafe_allow_html=True)
 
+st.subheader("Recent Trades")
+try:
+    trades = load_trades()
+except Exception as e:
+    st.error(f"Could not load trades: {e}")
+    trades = pd.DataFrame(
+        columns=["rule_name", "trade_type", "entry_price", "open_ts", "triggering_alerts",
+                 "exit_price", "close_ts", "pnl", "status"]
+    )
+
+if not trades.empty:
+    trades["open_ts"] = to_display_str(trades["open_ts"])
+    trades["close_ts"] = to_display_str(trades["close_ts"])
+    for col in ("entry_price", "exit_price"):
+        trades[col] = trades[col].map(lambda v: f"${v:,.2f}" if pd.notna(v) else "—")
+    trades["pnl"] = trades["pnl"].map(lambda v: f"${v:+,.2f}" if pd.notna(v) else "—")
+    trades["close_ts"] = trades["close_ts"].fillna("—")
+    trades = trades.rename(columns={
+        "rule_name": "Rule", "trade_type": "Type", "entry_price": "Entry",
+        "open_ts": "Opened", "triggering_alerts": "Trigger", "exit_price": "Exit",
+        "close_ts": "Closed", "pnl": "P&L", "status": "Status",
+    })
+
+if trades.empty:
+    st.write("No trades recorded yet.")
+else:
+    st.dataframe(trades, width='stretch')
+
 st.subheader("Recent Alerts")
 try:
     alerts = load_alerts()
@@ -146,10 +191,7 @@ except Exception as e:
     alerts = pd.DataFrame(columns=["ts", "message"])
 
 if not alerts.empty:
-    ts = alerts["ts"]
-    if ts.dt.tz is None:  # TIMESTAMPTZ should come back tz-aware; localize just in case
-        ts = ts.dt.tz_localize("UTC")
-    alerts["ts"] = ts.dt.tz_convert(DISPLAY_TZ).dt.strftime("%Y-%m-%d %H:%M:%S %Z")
+    alerts["ts"] = to_display_str(alerts["ts"])
 
 if alerts.empty:
     st.write("No alerts recorded yet.")

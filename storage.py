@@ -89,6 +89,25 @@ def init_db() -> None:
             )
             """
         )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS adp_reports (
+                id SERIAL PRIMARY KEY,
+                release_ts TIMESTAMPTZ NOT NULL,
+                data_month TEXT NOT NULL,
+                previous_value TEXT,
+                expected_value TEXT,
+                actual_value TEXT,
+                gold_at_release DOUBLE PRECISION,
+                gold_5min DOUBLE PRECISION,
+                gold_10min DOUBLE PRECISION,
+                gold_30min DOUBLE PRECISION,
+                gold_1h DOUBLE PRECISION,
+                gold_2h DOUBLE PRECISION,
+                notes TEXT
+            )
+            """
+        )
 
 
 def save_readings(prices: dict[str, float]) -> None:
@@ -274,6 +293,125 @@ def get_nfp_reports() -> list[dict]:
         }
         for r in rows
     ]
+
+
+def update_nfp_report_reaction(
+    release_ts: datetime,
+    gold_5min: float | None = None,
+    gold_10min: float | None = None,
+    gold_30min: float | None = None,
+    gold_1h: float | None = None,
+    gold_2h: float | None = None,
+) -> None:
+    """Fills in gold spot's reaction windows for a release already recorded by insert_nfp_report() --
+    for the fundamental-analyst subagent's new-release workflow, where actual/previous/expected and
+    gold_at_release are known and inserted immediately, but the later reaction windows aren't observable
+    yet. Only columns passed a non-None value are updated; matches the row by release_ts."""
+    updates = {
+        "gold_5min": gold_5min,
+        "gold_10min": gold_10min,
+        "gold_30min": gold_30min,
+        "gold_1h": gold_1h,
+        "gold_2h": gold_2h,
+    }
+    updates = {col: value for col, value in updates.items() if value is not None}
+    if not updates:
+        return
+    set_clause = ", ".join(f"{col} = %s" for col in updates)
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            f"UPDATE nfp_reports SET {set_clause} WHERE release_ts = %s",
+            (*updates.values(), release_ts),
+        )
+
+
+def insert_adp_report(
+    release_ts: datetime,
+    data_month: str,
+    previous_value: str | None,
+    expected_value: str | None,
+    actual_value: str | None,
+    gold_at_release: float | None,
+    gold_5min: float | None,
+    gold_10min: float | None,
+    gold_30min: float | None,
+    gold_1h: float | None,
+    gold_2h: float | None,
+    notes: str | None = None,
+) -> None:
+    """Records one ADP National Employment Change release's figures and gold spot's reaction --
+    same shape as insert_nfp_report(), see docs/fundamental-analyst-adp-log.md. Dollar/percentage
+    deltas vs. gold_at_release aren't stored -- derive them from the raw prices when reading."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO adp_reports (
+                release_ts, data_month, previous_value, expected_value, actual_value,
+                gold_at_release, gold_5min, gold_10min, gold_30min, gold_1h, gold_2h, notes
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                release_ts, data_month, previous_value, expected_value, actual_value,
+                gold_at_release, gold_5min, gold_10min, gold_30min, gold_1h, gold_2h, notes,
+            ),
+        )
+
+
+def get_adp_reports() -> list[dict]:
+    """Every recorded ADP NEC release, oldest first."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT release_ts, data_month, previous_value, expected_value, actual_value, "
+            "gold_at_release, gold_5min, gold_10min, gold_30min, gold_1h, gold_2h, notes "
+            "FROM adp_reports ORDER BY release_ts"
+        )
+        rows = cur.fetchall()
+    return [
+        {
+            "release_ts": r[0],
+            "data_month": r[1],
+            "previous_value": r[2],
+            "expected_value": r[3],
+            "actual_value": r[4],
+            "gold_at_release": r[5],
+            "gold_5min": r[6],
+            "gold_10min": r[7],
+            "gold_30min": r[8],
+            "gold_1h": r[9],
+            "gold_2h": r[10],
+            "notes": r[11],
+        }
+        for r in rows
+    ]
+
+
+def update_adp_report_reaction(
+    release_ts: datetime,
+    gold_5min: float | None = None,
+    gold_10min: float | None = None,
+    gold_30min: float | None = None,
+    gold_1h: float | None = None,
+    gold_2h: float | None = None,
+) -> None:
+    """Fills in gold spot's reaction windows for a release already recorded by insert_adp_report() --
+    only columns passed a non-None value are updated; matches the row by release_ts. Same pattern as
+    update_nfp_report_reaction()."""
+    updates = {
+        "gold_5min": gold_5min,
+        "gold_10min": gold_10min,
+        "gold_30min": gold_30min,
+        "gold_1h": gold_1h,
+        "gold_2h": gold_2h,
+    }
+    updates = {col: value for col, value in updates.items() if value is not None}
+    if not updates:
+        return
+    set_clause = ", ".join(f"{col} = %s" for col in updates)
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            f"UPDATE adp_reports SET {set_clause} WHERE release_ts = %s",
+            (*updates.values(), release_ts),
+        )
 
 
 def insert_threshold_history_row(row_date: date, thresholds: dict[str, dict[int, float]]) -> None:

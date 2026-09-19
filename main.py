@@ -9,6 +9,7 @@ from config import POLL_INTERVAL_MINUTES #goes to config page and gets the value
 from data_fetcher import fetch_latest_prices
 from market_hours import check_market_hours_alert
 from notifier import send_telegram_message
+from routine_trigger import RELEASE_TRIGGER_NAMES, trigger_release_analysis
 from rules import (
     check_abs_change_alerts,
     check_intrahour_swing_alerts,
@@ -50,6 +51,11 @@ def poll_once() -> None:
         log.info("ALERT: %s", alert)
         save_alert(alert)
         send_telegram_message(alert)
+        if any(alert.startswith(name.upper()) for name in RELEASE_TRIGGER_NAMES):
+            try:
+                trigger_release_analysis(alert)
+            except Exception:
+                log.exception("Failed to fire release-analysis Routine for: %s", alert)
 
     # Runs after alerts are saved: check_broker_trades() looks for its entry signal in the alerts
     # table this same cycle's swing alerts just landed in.

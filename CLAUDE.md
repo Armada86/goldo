@@ -83,8 +83,9 @@ it needs its own alert threshold.
 **Standing "new indicator" workflow**: whenever a new indicator/price is added to the project (a new
 entry in `INDICATORS` or `FRED_SERIES`, or any other tracked price), also add a row for it to the table
 in `docs/market.md` — its type (price / index / indicator), data source, update frequency, its typical
-relationship (same direction / opposite / mixed) to the gold price, and which mechanism (if any) sends
-it to Telegram.
+relationship (same direction / opposite / mixed) to the gold price, which mechanism (if any) sends it to
+Telegram, and its `Agent` cell (`Technical`, `Fundamental`, or `NA` — see the table's intro prose for
+which subagent, if any, treats it as its territory).
 
 **Standing "indicator change" workflow**: this cuts the other way too — whenever an *existing*
 indicator's config changes (its alert threshold, which alert mechanism it's wired into, whether/how it
@@ -188,10 +189,44 @@ or a repo commit. `storage.insert_nfp_report()`/`get_nfp_reports()` are the writ
 in the poll loop touches this table automatically — unlike `readings`/`alerts`/`trades`, there's no
 existing automated source for NFP consensus ("expected") figures or precise post-release candle
 reactions, so a new row is still added the same way the original 12 were compiled (a one-off research
-session), just written to Postgres instead of appended to the doc. The doc itself is kept for
-descriptive/methodology content (what NFP is, sourcing method, shutdown-disruption caveats, narrative
-findings) — see its own text for the current split. `backfill_nfp_reports.py` was a one-time migration
-of the 12 releases that used to be the doc's table; it no-ops if the table already has rows.
+session), just written to Postgres instead of appended to the doc. `storage.update_nfp_report_reaction()`
+fills in `gold_5min`/`gold_10min`/`gold_30min`/`gold_1h`/`gold_2h` on an already-inserted row (matched by
+`release_ts`) once those windows are observable, so recording a release the moment it prints doesn't
+require waiting on the later reaction columns first. The doc itself is kept for descriptive/methodology
+content (what NFP is, sourcing method, shutdown-disruption caveats, narrative findings) — see its own
+text for the current split. `backfill_nfp_reports.py` was a one-time migration of the 12 releases that
+used to be the doc's table; it no-ops if the table already has rows.
+
+**ADP NEC fundamental-analysis data (`adp_reports` table)**: same shape and reasoning as `nfp_reports`
+above, for the separate ADP National Employment Change report (`adp_employment`, FRED `ADPMNUSNERSA`,
+released a couple of days before BLS NFP each month at 8:15am ET rather than NFP's 8:30am ET — see
+`docs/market.md`'s intro note on not conflating the two). The `adp_reports` table has the identical
+column set (`release_ts`, `data_month`, `previous_value`/`expected_value`/`actual_value`,
+`gold_at_release`, `gold_5min`/`gold_10min`/`gold_30min`/`gold_1h`/`gold_2h`, `notes`), written/read via
+`storage.insert_adp_report()`/`get_adp_reports()`/`update_adp_report_reaction()`. `backfill_adp_reports.py`
+loaded the last 12 releases (Oct 2025 – Sep 2026 print dates) the same one-off-research way
+`backfill_nfp_reports.py` did; it no-ops if the table already has rows. `docs/fundamental-analyst-adp-log.md`
+holds the descriptive/methodology content and the retrospective analysis of those 12 releases, the same
+split `docs/fundamental-analyst-nfp-log.md` uses for NFP — see that doc for the finding worth noting
+here: ADP NEC's immediate (+5min) reaction tracks the beat/miss direction far more consistently than NFP's
+does (92% hit rate vs. NFP's roughly coin-flip record), but that edge decays to near-chance by +1h.
+
+**ADP/NFP release trigger (`routine_trigger.py`)**: the live analysis+Telegram+`notes` write for a fresh
+ADP/NFP release (the automated equivalent of `fundamental-analyst`'s New-release recommendation
+workflow) runs as a Claude Code Routine ("ADP/NFP release watcher"), not as project code — it's scheduled
+infrastructure outside this repo (see the "Subagents" section below), and on its own schedule alone it
+only rechecks FRED hourly. `routine_trigger.trigger_release_analysis()` closes that latency gap: in
+`main.poll_once()`, right after `check_value_change_alerts()`'s alert loop saves/sends each alert, any
+alert for `adp_employment`/`nonfarm_payrolls` (`routine_trigger.RELEASE_TRIGGER_NAMES`) also POSTs to
+that Routine's API-trigger endpoint (`ROUTINE_FIRE_URL`/`ROUTINE_FIRE_TOKEN`), so the Routine re-checks
+FRED and fires within the same ~5-minute poll cycle instead of waiting up to an hour. The Routine's own
+hourly schedule stays on as a fallback (harmless and non-duplicating, since the Routine's own logic
+already no-ops when the release it would record is already in `adp_reports`/`nfp_reports`) in case the
+API call itself fails. Both env vars are optional -- `routine_trigger.py` no-ops with a log line if
+either is unset, and `main.poll_once()` catches any exception from the fire call so a Routines-API
+hiccup never blocks the rest of that poll cycle (the remaining alerts and `check_broker_trades()` still
+run). This is the only place project code talks to the Routines API; the Routine itself is still
+never allowed to edit repository files when it fires, live-trigger or scheduled alike.
 
 **Nightly threshold audit trail (`threshold_history` table)**: same move as the two tables above —
 `docs/frequency-test-thresholds.md` used to have a "Threshold history" table that
@@ -217,13 +252,19 @@ much history doesn't exist yet, e.g. right after a fresh deploy). Deliberately s
 fixed `<colgroup>` so columns can't overflow the viewport width, kept in the CSS block at the top of the
 file rather than per-element `style=` (the per-cell `style=` that remains is just the red/green
 up/down color, computed from the sign of each change). The `$` unit shown on price/change cells is
-picked per-name (`DOLLAR_UNIT_NAMES`) the same way `rules.py` picks it for alert messages. `readings`/
-`alerts` timestamps are stored as UTC (`storage.py`'s `datetime.now(timezone.utc)`) regardless of where
-the poll job or dashboard happen to run — `dashboard.py`'s "last loaded" caption and the Recent Alerts
-table are the only places that convert to a human timezone for display, both to `DISPLAY_TZ`
-(`America/New_York`, matching the project's existing scheduling convention — see "Scheduling" below).
-The `readings` timestamps behind the change-window table stay in UTC internally; that's fine since
-`change_over()` only ever compares two of them to each other, never renders one directly.
+picked per-name (`DOLLAR_UNIT_NAMES`) the same way `rules.py` picks it for alert messages. Below the
+symbols table sit two more `st.dataframe` tables (not the hand-built HTML above — no per-cell layout
+control is needed here, so the plain Streamlit widget is enough): "Recent Trades" (`load_trades()`, the
+`trades` table Broker's `broker.py` writes — see "Broker automated paper-trading" above — most recent
+20 by `open_ts`, columns renamed for display and `$`-formatted; `exit_price`/`close_ts`/`pnl` are `—`
+for the still-open trade, if any) above "Recent Alerts" (`load_alerts()`, unchanged). `readings`/
+`alerts`/`trades` timestamps are all stored as UTC (`storage.py`'s `datetime.now(timezone.utc)`)
+regardless of where the poll job or dashboard happen to run — the "last loaded" caption and the Recent
+Trades/Recent Alerts tables are the only places that convert to a human timezone for display, all
+through the shared `to_display_str()` helper, to `DISPLAY_TZ` (`America/New_York`, matching the
+project's existing scheduling convention — see "Scheduling" below). The `readings` timestamps behind
+the change-window table stay in UTC internally; that's fine since `change_over()` only ever compares
+two of them to each other, never renders one directly.
 
 **Storage is Postgres (Neon), not SQLite** — despite `market_data.db` and `streamlit.log` still sitting
 in the repo root (gitignored, unused leftovers from an earlier local-SQLite version). `storage.py` and
@@ -292,12 +333,18 @@ markdown trade log to read instead). Its own "Rules" section is the human-readab
 proposed rule change is drafted in prose and handed off for the user or a coding session to apply to
 both files together. It's invoked on demand like `technical-analyst`.
 
-`.claude/agents/fundamental-analyst.md` defines a **read-only** subagent (no `Edit`/`Write` tools,
-same restriction as `technical-analyst` and `broker`) for analyzing scheduled macro data releases (NFP,
-CPI, PPI, retail sales, jobless claims, etc.) and how they move gold. Unlike `technical-analyst`, it
-*is* meant to query Postgres — release-by-release data (e.g. the `nfp_reports` table) lives there, not
-in markdown, per the "NFP fundamental-analysis data" entry above. It reads `docs/fundamental-analyst-*.md`
-for context/methodology (currently just `docs/fundamental-analyst-nfp-log.md`; more will be added the
-same way as other releases get their own research), the same way `technical-analyst` reads
-`docs/technical-analyst-*-log.md`. Like the other two subagents, it plans and explicitly asks for
-permission before any code/DB change and never edits or writes anything itself.
+`.claude/agents/fundamental-analyst.md` defines a subagent (no `Edit`/`Write` tools, same as
+`technical-analyst` and `broker`) for analyzing scheduled macro data releases (NFP, CPI, PPI, retail
+sales, jobless claims, etc.) and how they move gold. Unlike `technical-analyst`, it *is* meant to query
+Postgres — release-by-release data (e.g. the `nfp_reports` table) lives there, not in markdown, per the
+"NFP fundamental-analysis data" entry above. It reads `docs/fundamental-analyst-*.md` for
+context/methodology (currently just `docs/fundamental-analyst-nfp-log.md`; more will be added the same
+way as other releases get their own research), the same way `technical-analyst` reads
+`docs/technical-analyst-*-log.md`. It's read-only and plans-then-asks for everything **except** one
+pre-approved live action: when a release just printed, its "New-release recommendation workflow" lets it
+send exactly one Telegram message (`notifier.send_telegram_message()`) recommending gold's likely
+5/10/15-minute move, and record the release in `nfp_reports` via `storage.insert_nfp_report()`/
+`update_nfp_report_reaction()` — without stopping to ask first, since the user has already authorized
+that specific pairing of actions. It still never touches any other table, edits any file, or sends
+Telegram outside that one workflow; everything else (a threshold change, a new indicator, a dashboard
+tweak) is a plan handed back to the user or a coding session, same as the other two subagents.
