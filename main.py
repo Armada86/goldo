@@ -7,6 +7,7 @@ from apscheduler.schedulers.blocking import BlockingScheduler   #runs in the for
 from broker import check_broker_trades
 from config import POLL_INTERVAL_MINUTES #goes to config page and gets the value of POLL_INTERVAL_MINUTES
 from data_fetcher import fetch_latest_prices
+from market_hours import check_market_hours_alert
 from notifier import send_telegram_message
 from routine_trigger import RELEASE_TRIGGER_NAMES, trigger_release_analysis
 from rules import (
@@ -24,6 +25,10 @@ log = logging.getLogger("gold-monitor")
 
 
 def poll_once() -> None:
+    # Checked before the price fetch (and its early-return below) so the weekly open/close
+    # notification still fires even if prices are briefly unavailable right at the market boundary.
+    check_market_hours_alert()
+
     prices = fetch_latest_prices()
     if not prices:
         log.warning("No prices fetched this cycle")
