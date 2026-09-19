@@ -276,6 +276,36 @@ def get_nfp_reports() -> list[dict]:
     ]
 
 
+def update_nfp_report_reaction(
+    release_ts: datetime,
+    gold_5min: float | None = None,
+    gold_10min: float | None = None,
+    gold_30min: float | None = None,
+    gold_1h: float | None = None,
+    gold_2h: float | None = None,
+) -> None:
+    """Fills in gold spot's reaction windows for a release already recorded by insert_nfp_report() --
+    for the fundamental-analyst subagent's new-release workflow, where actual/previous/expected and
+    gold_at_release are known and inserted immediately, but the later reaction windows aren't observable
+    yet. Only columns passed a non-None value are updated; matches the row by release_ts."""
+    updates = {
+        "gold_5min": gold_5min,
+        "gold_10min": gold_10min,
+        "gold_30min": gold_30min,
+        "gold_1h": gold_1h,
+        "gold_2h": gold_2h,
+    }
+    updates = {col: value for col, value in updates.items() if value is not None}
+    if not updates:
+        return
+    set_clause = ", ".join(f"{col} = %s" for col in updates)
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            f"UPDATE nfp_reports SET {set_clause} WHERE release_ts = %s",
+            (*updates.values(), release_ts),
+        )
+
+
 def insert_threshold_history_row(row_date: date, thresholds: dict[str, dict[int, float]]) -> None:
     """One row per night's frequency_check_job.py run -- `row_date` (America/New_York) plus that
     night's final value for all nine GLD/DXY/US10Y 15/10/5-min intrahour-swing thresholds, whether or
