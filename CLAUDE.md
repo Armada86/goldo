@@ -83,8 +83,9 @@ it needs its own alert threshold.
 **Standing "new indicator" workflow**: whenever a new indicator/price is added to the project (a new
 entry in `INDICATORS` or `FRED_SERIES`, or any other tracked price), also add a row for it to the table
 in `docs/market.md` — its type (price / index / indicator), data source, update frequency, its typical
-relationship (same direction / opposite / mixed) to the gold price, and which mechanism (if any) sends
-it to Telegram.
+relationship (same direction / opposite / mixed) to the gold price, which mechanism (if any) sends it to
+Telegram, and its `Agent` cell (`Technical`, `Fundamental`, or `NA` — see the table's intro prose for
+which subagent, if any, treats it as its territory).
 
 **Standing "indicator change" workflow**: this cuts the other way too — whenever an *existing*
 indicator's config changes (its alert threshold, which alert mechanism it's wired into, whether/how it
@@ -175,10 +176,13 @@ or a repo commit. `storage.insert_nfp_report()`/`get_nfp_reports()` are the writ
 in the poll loop touches this table automatically — unlike `readings`/`alerts`/`trades`, there's no
 existing automated source for NFP consensus ("expected") figures or precise post-release candle
 reactions, so a new row is still added the same way the original 12 were compiled (a one-off research
-session), just written to Postgres instead of appended to the doc. The doc itself is kept for
-descriptive/methodology content (what NFP is, sourcing method, shutdown-disruption caveats, narrative
-findings) — see its own text for the current split. `backfill_nfp_reports.py` was a one-time migration
-of the 12 releases that used to be the doc's table; it no-ops if the table already has rows.
+session), just written to Postgres instead of appended to the doc. `storage.update_nfp_report_reaction()`
+fills in `gold_5min`/`gold_10min`/`gold_30min`/`gold_1h`/`gold_2h` on an already-inserted row (matched by
+`release_ts`) once those windows are observable, so recording a release the moment it prints doesn't
+require waiting on the later reaction columns first. The doc itself is kept for descriptive/methodology
+content (what NFP is, sourcing method, shutdown-disruption caveats, narrative findings) — see its own
+text for the current split. `backfill_nfp_reports.py` was a one-time migration of the 12 releases that
+used to be the doc's table; it no-ops if the table already has rows.
 
 **Nightly threshold audit trail (`threshold_history` table)**: same move as the two tables above —
 `docs/frequency-test-thresholds.md` used to have a "Threshold history" table that
@@ -285,12 +289,18 @@ markdown trade log to read instead). Its own "Rules" section is the human-readab
 proposed rule change is drafted in prose and handed off for the user or a coding session to apply to
 both files together. It's invoked on demand like `technical-analyst`.
 
-`.claude/agents/fundamental-analyst.md` defines a **read-only** subagent (no `Edit`/`Write` tools,
-same restriction as `technical-analyst` and `broker`) for analyzing scheduled macro data releases (NFP,
-CPI, PPI, retail sales, jobless claims, etc.) and how they move gold. Unlike `technical-analyst`, it
-*is* meant to query Postgres — release-by-release data (e.g. the `nfp_reports` table) lives there, not
-in markdown, per the "NFP fundamental-analysis data" entry above. It reads `docs/fundamental-analyst-*.md`
-for context/methodology (currently just `docs/fundamental-analyst-nfp-log.md`; more will be added the
-same way as other releases get their own research), the same way `technical-analyst` reads
-`docs/technical-analyst-*-log.md`. Like the other two subagents, it plans and explicitly asks for
-permission before any code/DB change and never edits or writes anything itself.
+`.claude/agents/fundamental-analyst.md` defines a subagent (no `Edit`/`Write` tools, same as
+`technical-analyst` and `broker`) for analyzing scheduled macro data releases (NFP, CPI, PPI, retail
+sales, jobless claims, etc.) and how they move gold. Unlike `technical-analyst`, it *is* meant to query
+Postgres — release-by-release data (e.g. the `nfp_reports` table) lives there, not in markdown, per the
+"NFP fundamental-analysis data" entry above. It reads `docs/fundamental-analyst-*.md` for
+context/methodology (currently just `docs/fundamental-analyst-nfp-log.md`; more will be added the same
+way as other releases get their own research), the same way `technical-analyst` reads
+`docs/technical-analyst-*-log.md`. It's read-only and plans-then-asks for everything **except** one
+pre-approved live action: when a release just printed, its "New-release recommendation workflow" lets it
+send exactly one Telegram message (`notifier.send_telegram_message()`) recommending gold's likely
+5/10/15-minute move, and record the release in `nfp_reports` via `storage.insert_nfp_report()`/
+`update_nfp_report_reaction()` — without stopping to ask first, since the user has already authorized
+that specific pairing of actions. It still never touches any other table, edits any file, or sends
+Telegram outside that one workflow; everything else (a threshold change, a new indicator, a dashboard
+tweak) is a plan handed back to the user or a coding session, same as the other two subagents.
