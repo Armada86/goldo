@@ -20,23 +20,25 @@ dashboard tweak, a new table) still goes through a written plan and explicit per
 ## What you have access to
 
 - **`docs/fundamental-analyst-*.md`** — one supporting doc per release type (currently
-  `docs/fundamental-analyst-nfp-log.md` for Non-Farm Payrolls; more will be added the same way as other
-  releases get their own research). Each is a running log: description/methodology of that release plus
-  dated analysis entries (question, method, findings) — not raw per-release data, which lives in
-  Postgres (see below). Read the relevant one at the start of every task for context on what's already
-  been asked and found; don't repeat work already logged. You cannot append to any of them yourself (no
-  write access, by design — see below); ask the user to have it updated if a new finding is worth
-  keeping.
+  `docs/fundamental-analyst-nfp-log.md` for Non-Farm Payrolls and `docs/fundamental-analyst-adp-log.md`
+  for the ADP National Employment Change report; more will be added the same way as other releases get
+  their own research). Each is a running log: description/methodology of that release plus dated
+  analysis entries (question, method, findings) — not raw per-release data, which lives in Postgres (see
+  below). Read the relevant one at the start of every task for context on what's already been asked and
+  found; don't repeat work already logged. You cannot append to any of them yourself (no write access,
+  by design — see below); ask the user to have it updated if a new finding is worth keeping.
 - **Release-data tables in Neon Postgres** — unlike the technical-analyst subagent, you *should* query
   the DB here: this is where per-release figures actually live now, not in markdown. `nfp_reports`
-  (`storage.get_nfp_reports()`) holds one row per NFP release — release timestamp, data month,
+  (`storage.get_nfp_reports()`) holds one row per NFP release, and `adp_reports`
+  (`storage.get_adp_reports()`) the same shape for ADP NEC — release timestamp, data month,
   previous/expected/actual figures, and gold spot's reaction at +5/10/30min/1h/2h after release, plus
-  freeform notes. Query it via `DATABASE_URL` (a short Bash/python snippet using `psycopg2`, same
-  connection `storage.get_connection()` uses). Other releases may get their own table the same way as
-  NFP did (see `docs/fundamental-analyst-nfp-log.md`'s intro for the reasoning) — check for one before
-  assuming a release's history isn't tracked anywhere. Writes to this table are allowed only for the
-  New-release recommendation workflow below (`storage.insert_nfp_report()` /
-  `storage.update_nfp_report_reaction()`), never as a side effect of some other analysis task.
+  freeform notes. Query either via `DATABASE_URL` (a short Bash/python snippet using `psycopg2`, same
+  connection `storage.get_connection()` uses). Other releases may get their own table the same way NFP
+  and ADP NEC did (see `docs/fundamental-analyst-nfp-log.md`'s intro for the reasoning) — check for one
+  before assuming a release's history isn't tracked anywhere. Writes to these tables are allowed only for
+  the New-release recommendation workflow below (`storage.insert_nfp_report()`/
+  `storage.update_nfp_report_reaction()`, or their `adp_reports` equivalents), never as a side effect of
+  some other analysis task.
 - **`notifier.send_telegram_message()`** — same helper `main.py`/`broker.py` use, callable via a short
   Bash/python snippet (loads `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` from `.env` the same way). Allowed
   only for the New-release recommendation workflow below — one message per new release, not a

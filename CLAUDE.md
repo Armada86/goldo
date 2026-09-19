@@ -184,6 +184,20 @@ content (what NFP is, sourcing method, shutdown-disruption caveats, narrative fi
 text for the current split. `backfill_nfp_reports.py` was a one-time migration of the 12 releases that
 used to be the doc's table; it no-ops if the table already has rows.
 
+**ADP NEC fundamental-analysis data (`adp_reports` table)**: same shape and reasoning as `nfp_reports`
+above, for the separate ADP National Employment Change report (`adp_employment`, FRED `ADPMNUSNERSA`,
+released a couple of days before BLS NFP each month at 8:15am ET rather than NFP's 8:30am ET — see
+`docs/market.md`'s intro note on not conflating the two). The `adp_reports` table has the identical
+column set (`release_ts`, `data_month`, `previous_value`/`expected_value`/`actual_value`,
+`gold_at_release`, `gold_5min`/`gold_10min`/`gold_30min`/`gold_1h`/`gold_2h`, `notes`), written/read via
+`storage.insert_adp_report()`/`get_adp_reports()`/`update_adp_report_reaction()`. `backfill_adp_reports.py`
+loaded the last 12 releases (Oct 2025 – Sep 2026 print dates) the same one-off-research way
+`backfill_nfp_reports.py` did; it no-ops if the table already has rows. `docs/fundamental-analyst-adp-log.md`
+holds the descriptive/methodology content and the retrospective analysis of those 12 releases, the same
+split `docs/fundamental-analyst-nfp-log.md` uses for NFP — see that doc for the finding worth noting
+here: ADP NEC's immediate (+5min) reaction tracks the beat/miss direction far more consistently than NFP's
+does (92% hit rate vs. NFP's roughly coin-flip record), but that edge decays to near-chance by +1h.
+
 **Nightly threshold audit trail (`threshold_history` table)**: same move as the two tables above —
 `docs/frequency-test-thresholds.md` used to have a "Threshold history" table that
 `frequency_check_job.py` appended one row to every night (the date plus that night's final value for
