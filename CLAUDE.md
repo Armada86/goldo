@@ -198,6 +198,23 @@ split `docs/fundamental-analyst-nfp-log.md` uses for NFP — see that doc for th
 here: ADP NEC's immediate (+5min) reaction tracks the beat/miss direction far more consistently than NFP's
 does (92% hit rate vs. NFP's roughly coin-flip record), but that edge decays to near-chance by +1h.
 
+**ADP/NFP release trigger (`routine_trigger.py`)**: the live analysis+Telegram+`notes` write for a fresh
+ADP/NFP release (the automated equivalent of `fundamental-analyst`'s New-release recommendation
+workflow) runs as a Claude Code Routine ("ADP/NFP release watcher"), not as project code — it's scheduled
+infrastructure outside this repo (see the "Subagents" section below), and on its own schedule alone it
+only rechecks FRED hourly. `routine_trigger.trigger_release_analysis()` closes that latency gap: in
+`main.poll_once()`, right after `check_value_change_alerts()`'s alert loop saves/sends each alert, any
+alert for `adp_employment`/`nonfarm_payrolls` (`routine_trigger.RELEASE_TRIGGER_NAMES`) also POSTs to
+that Routine's API-trigger endpoint (`ROUTINE_FIRE_URL`/`ROUTINE_FIRE_TOKEN`), so the Routine re-checks
+FRED and fires within the same ~5-minute poll cycle instead of waiting up to an hour. The Routine's own
+hourly schedule stays on as a fallback (harmless and non-duplicating, since the Routine's own logic
+already no-ops when the release it would record is already in `adp_reports`/`nfp_reports`) in case the
+API call itself fails. Both env vars are optional -- `routine_trigger.py` no-ops with a log line if
+either is unset, and `main.poll_once()` catches any exception from the fire call so a Routines-API
+hiccup never blocks the rest of that poll cycle (the remaining alerts and `check_broker_trades()` still
+run). This is the only place project code talks to the Routines API; the Routine itself is still
+never allowed to edit repository files when it fires, live-trigger or scheduled alike.
+
 **Nightly threshold audit trail (`threshold_history` table)**: same move as the two tables above —
 `docs/frequency-test-thresholds.md` used to have a "Threshold history" table that
 `frequency_check_job.py` appended one row to every night (the date plus that night's final value for
