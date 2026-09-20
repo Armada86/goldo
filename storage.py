@@ -66,7 +66,16 @@ def init_db() -> None:
                 dxy_5min DOUBLE PRECISION NOT NULL,
                 us10y_15min DOUBLE PRECISION NOT NULL,
                 us10y_10min DOUBLE PRECISION NOT NULL,
-                us10y_5min DOUBLE PRECISION NOT NULL
+                us10y_5min DOUBLE PRECISION NOT NULL,
+                iau_15min DOUBLE PRECISION,
+                iau_10min DOUBLE PRECISION,
+                iau_5min DOUBLE PRECISION,
+                gldm_15min DOUBLE PRECISION,
+                gldm_10min DOUBLE PRECISION,
+                gldm_5min DOUBLE PRECISION,
+                sgol_15min DOUBLE PRECISION,
+                sgol_10min DOUBLE PRECISION,
+                sgol_5min DOUBLE PRECISION
             )
             """
         )
@@ -414,49 +423,43 @@ def update_adp_report_reaction(
         )
 
 
+# Column order for threshold_history -- gld/dxy/us10y first (the original three, matching the
+# table's existing column order) then iau/gldm/sgol appended after, so existing rows/columns are
+# untouched by the newer indicators. Kept here (not read from config.INTRAHOUR_SWING_ALERT_THRESHOLD)
+# so this module doesn't need to import config just for one fixed column order.
+THRESHOLD_HISTORY_INDICATORS = ["gld", "dxy", "us10y", "iau", "gldm", "sgol"]
+THRESHOLD_HISTORY_WINDOWS = [15, 10, 5]
+
+
 def insert_threshold_history_row(row_date: date, thresholds: dict[str, dict[int, float]]) -> None:
     """One row per weekday's frequency_check_job.py run -- `row_date` (America/New_York) plus that
-    run's final value for all nine GLD/DXY/US10Y 15/10/5-min intrahour-swing thresholds, whether or
-    not any of them changed that run. Replaces the old "Threshold history" table that used to live
-    in docs/frequency-test-thresholds.md, same reasoning as the Broker's `trades` table: a routine log
-    entry shouldn't need a repo commit."""
+    run's final value for all eighteen GLD/DXY/US10Y/IAU/GLDM/SGOL 15/10/5-min intrahour-swing
+    thresholds, whether or not any of them changed that run. Replaces the old "Threshold history"
+    table that used to live in docs/frequency-test-thresholds.md, same reasoning as the Broker's
+    `trades` table: a routine log entry shouldn't need a repo commit."""
+    # Column names are built from THRESHOLD_HISTORY_INDICATORS/_WINDOWS above (fixed constants, never
+    # external input), so interpolating them into the query string is safe here.
+    columns = [f"{name}_{window}min" for name in THRESHOLD_HISTORY_INDICATORS for window in THRESHOLD_HISTORY_WINDOWS]
+    # .get() rather than direct indexing: tolerates a `thresholds` dict that doesn't cover every
+    # indicator (e.g. an older caller/backfill predating a newer indicator) by writing NULL instead
+    # of raising -- the nine newer columns above are nullable for exactly this reason.
+    values = [
+        thresholds.get(name, {}).get(window)
+        for name in THRESHOLD_HISTORY_INDICATORS
+        for window in THRESHOLD_HISTORY_WINDOWS
+    ]
+    placeholders = ", ".join(["%s"] * len(values))
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
-            """
-            INSERT INTO threshold_history (
-                date, gld_15min, gld_10min, gld_5min, dxy_15min, dxy_10min, dxy_5min,
-                us10y_15min, us10y_10min, us10y_5min
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                row_date,
-                thresholds["gld"][15], thresholds["gld"][10], thresholds["gld"][5],
-                thresholds["dxy"][15], thresholds["dxy"][10], thresholds["dxy"][5],
-                thresholds["us10y"][15], thresholds["us10y"][10], thresholds["us10y"][5],
-            ),
+            f"INSERT INTO threshold_history (date, {', '.join(columns)}) VALUES (%s, {placeholders})",
+            [row_date, *values],
         )
 
 
 def get_threshold_history() -> list[dict]:
-    """Every logged night's thresholds, oldest first."""
+    """Every logged run's thresholds, oldest first."""
+    columns = [f"{name}_{window}min" for name in THRESHOLD_HISTORY_INDICATORS for window in THRESHOLD_HISTORY_WINDOWS]
     with get_connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            "SELECT date, gld_15min, gld_10min, gld_5min, dxy_15min, dxy_10min, dxy_5min, "
-            "us10y_15min, us10y_10min, us10y_5min FROM threshold_history ORDER BY date"
-        )
+        cur.execute(f"SELECT date, {', '.join(columns)} FROM threshold_history ORDER BY date")
         rows = cur.fetchall()
-    return [
-        {
-            "date": r[0],
-            "gld_15min": r[1],
-            "gld_10min": r[2],
-            "gld_5min": r[3],
-            "dxy_15min": r[4],
-            "dxy_10min": r[5],
-            "dxy_5min": r[6],
-            "us10y_15min": r[7],
-            "us10y_10min": r[8],
-            "us10y_5min": r[9],
-        }
-        for r in rows
-    ]
+    return [{"date": r[0], **dict(zip(columns, r[1:]))} for r in rows]

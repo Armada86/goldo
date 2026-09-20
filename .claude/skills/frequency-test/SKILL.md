@@ -1,6 +1,6 @@
 ---
 name: frequency-test
-description: Run the interactive intrahour-swing threshold frequency test — backtest current INTRAHOUR_SWING_ALERT_THRESHOLD values against live yfinance history, report event counts per indicator/window, and propose new thresholds for any off-target combination. Use when a user asks to run a frequency test, check alert threshold tuning, or review how often GLD/DXY/US10Y intrahour-swing alerts would have fired. Never edits intrahour_swing_thresholds.json or commits without explicit user approval — this is the human-approved path, distinct from the automatic nightly frequency_check_job.py.
+description: Run the interactive intrahour-swing threshold frequency test — backtest current INTRAHOUR_SWING_ALERT_THRESHOLD values against live yfinance history, report event counts per indicator/window, and propose new thresholds for any off-target combination. Use when a user asks to run a frequency test, check alert threshold tuning, or review how often GLD/IAU/GLDM/SGOL/DXY/US10Y intrahour-swing alerts would have fired. Never edits intrahour_swing_thresholds.json or commits without explicit user approval — this is the human-approved path, distinct from the automatic nightly frequency_check_job.py.
 ---
 
 # Frequency test workflow
@@ -12,8 +12,8 @@ conflate the two.
 ## Steps
 
 1. Run `python frequency_test.py` against the *current* `INTRAHOUR_SWING_ALERT_THRESHOLD` values
-   (from `intrahour_swing_thresholds.json`). Report each of the nine indicator/window combinations
-   (GLD/DXY/US10Y × 15/10/5 min) and its actual rising-edge event count over the last
+   (from `intrahour_swing_thresholds.json`). Report each of the eighteen indicator/window combinations
+   (GLD/IAU/GLDM/SGOL/DXY/US10Y × 15/10/5 min) and its actual rising-edge event count over the last
    `FREQUENCY_TEST_LOOKBACK_DAYS` days (60 — the max 5-min-resolution history yfinance serves for
    intraday bars).
 
@@ -32,5 +32,6 @@ conflate the two.
 - Config: `config.py` (`INTRAHOUR_SWING_WINDOWS_MINUTES`, `FREQUENCY_TEST_TARGET`,
   `FREQUENCY_TEST_TOLERANCE`, `FREQUENCY_TEST_LOOKBACK_DAYS`)
 - Live thresholds: `intrahour_swing_thresholds.json`
-- Indicator description/usage: `docs/technical-analyst-gld-log.md`, `docs/technical-analyst-dxy-log.md`,
-  `docs/technical-analyst-us10y-log.md`
+- Indicator description/usage: `docs/technical-analyst-gld-log.md`, `docs/technical-analyst-iau-log.md`,
+  `docs/technical-analyst-gldm-log.md`, `docs/technical-analyst-sgol-log.md`,
+  `docs/technical-analyst-dxy-log.md`, `docs/technical-analyst-us10y-log.md`

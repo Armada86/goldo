@@ -1,9 +1,10 @@
 # Technical analyst — US10Y description & usage
 
 Description and operational-usage reference for us10y (10-year Treasury yield), a supporting doc for
-the `technical-analyst` subagent. See also `docs/technical-analyst-gld-log.md` and
-`docs/technical-analyst-dxy-log.md` for GLD/DXY, and `docs/market.md` for the full indicator reference
-table.
+the `technical-analyst` subagent. See also `docs/technical-analyst-gld-log.md`,
+`docs/technical-analyst-iau-log.md`, `docs/technical-analyst-gldm-log.md`,
+`docs/technical-analyst-sgol-log.md`, and `docs/technical-analyst-dxy-log.md` for the other tracked
+indicators, and `docs/market.md` for the full indicator reference table.
 
 All figures for this indicator are in **points** (percentage points of yield, e.g. 0.081 = 8.1 basis
 points), not bp.

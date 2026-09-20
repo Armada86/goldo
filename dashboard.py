@@ -17,7 +17,7 @@ load_dotenv()  # local runs: .env into os.environ. No-op on Streamlit Cloud (no 
 if "DATABASE_URL" not in os.environ and "DATABASE_URL" in st.secrets:
     os.environ["DATABASE_URL"] = st.secrets["DATABASE_URL"]
 
-from config import DASHBOARD_INDICATOR_NAMES
+from config import DASHBOARD_INDICATOR_NAMES, DOLLAR_UNIT_NAMES
 from storage import get_connection
 
 st.set_page_config(page_title="Goldo", layout="wide")
@@ -55,9 +55,6 @@ st.caption(f"Page refreshes every 60s · last loaded {now_local.strftime('%Y-%m-
 
 # (name, minutes) columns shown next to each symbol's current price.
 CHANGE_WINDOWS = [("5m", 5), ("10m", 10), ("15m", 15), ("30m", 30), ("1h", 60)]
-
-# Indicators whose values are dollar-denominated (matches rules.py's convention).
-DOLLAR_UNIT_NAMES = {"gold", "gld"}
 
 
 def load_readings() -> pd.DataFrame:

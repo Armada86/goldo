@@ -29,6 +29,7 @@ from datetime import timedelta
 import yfinance as yf
 
 from config import (
+    DOLLAR_UNIT_NAMES,
     FREQUENCY_TEST_LOOKBACK_DAYS,
     INDICATORS,
     INTRAHOUR_SWING_ALERT_THRESHOLD,
@@ -92,7 +93,7 @@ def run_frequency_test() -> dict[str, dict]:
         timestamps, prices = fetch_series(name)
         windows = {}
 
-        unit = "$" if name == "gld" else ""
+        unit = "$" if name in DOLLAR_UNIT_NAMES else ""
         print(f"\n{name.upper()} -- {len(prices)} bars, {timestamps[0]} to {timestamps[-1]}")
         for window in INTRAHOUR_SWING_WINDOWS_MINUTES:
             threshold = thresholds_by_window.get(window)

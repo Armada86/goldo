@@ -1,9 +1,10 @@
 # Technical analyst — GLD description & usage
 
 Description and operational-usage reference for GLD (SPDR Gold Shares ETF), a supporting doc for the
-`technical-analyst` subagent. See also `docs/technical-analyst-dxy-log.md` and
-`docs/technical-analyst-us10y-log.md` for DXY/US10Y, and `docs/market.md` for the full indicator
-reference table.
+`technical-analyst` subagent. See also `docs/technical-analyst-iau-log.md`,
+`docs/technical-analyst-gldm-log.md`, and `docs/technical-analyst-sgol-log.md` for the other tracked
+gold ETFs, `docs/technical-analyst-dxy-log.md` and `docs/technical-analyst-us10y-log.md` for DXY/US10Y,
+and `docs/market.md` for the full indicator reference table.
 
 ## Description
 
