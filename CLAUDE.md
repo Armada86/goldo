@@ -25,7 +25,7 @@ python frequency_check_job.py     # one-shot: frequency_test.py + auto-tune off-
 There is no test suite or linter configured in this repo. `frequency_test.py` is the closest thing to
 one — not a correctness test, but a historical backtest against live yfinance data (see its docstring)
 for tuning `INTRAHOUR_SWING_ALERT_THRESHOLD`, one indicator/window combination's worth of updates at a
-time (see `docs/technical-analyst-*-log.md` for what past runs found and which thresholds they led to).
+time (see `docs/technical-analyst-*-log.md` for what each indicator is and how it's used).
 `INTRAHOUR_SWING_ALERT_THRESHOLD` itself lives in `intrahour_swing_thresholds.json`, not inline in
 `config.py`, specifically so `frequency_check_job.py` can rewrite it programmatically (see below)
 without touching hand-maintained source.
@@ -40,8 +40,7 @@ conflate them:
   count over the last `FREQUENCY_TEST_LOOKBACK_DAYS` days (60 — the most 5-min-resolution history
   yfinance serves for intraday bars); (2) for any combination off-target, search for a new threshold
   that lands within `FREQUENCY_TEST_TARGET +/- FREQUENCY_TEST_TOLERANCE` rising-edge events (60 +/- 4 —
-  see the 2026-09-16 entries in `docs/technical-analyst-*-log.md` for the method: the
-  threshold-vs-event-count curve is non-monotonic, picks the higher-threshold/post-peak side) and
+  the threshold-vs-event-count curve is non-monotonic, so pick the higher-threshold/post-peak side) and
   propose it; (3) **do not edit `intrahour_swing_thresholds.json` or commit anything until the user
   approves the suggested thresholds** — report and wait. This is for a human explicitly asking in a
   session; it's the only path that touches `config.py` itself (e.g. changing

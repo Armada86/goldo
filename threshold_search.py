@@ -6,9 +6,8 @@ finds a threshold that lands the rising-edge event count (frequency_test.
 find_events) within [target_lo, target_hi]. Seeded from the current
 threshold and expanded outward into a bracket, then binary-searched.
 
-Mirrors the manual tuning convention documented in
-docs/technical-analyst-*-log.md and CLAUDE.md's "Standing frequency test
-workflow": the threshold-vs-event-count curve is non-monotonic (occasional
+Mirrors the manual tuning convention documented in CLAUDE.md's "Standing
+frequency test workflow": the threshold-vs-event-count curve is non-monotonic (occasional
 plateaus/cliffs), so among in-band candidates this always keeps pushing
 toward the higher-threshold/post-peak side rather than stopping at the first
 match.

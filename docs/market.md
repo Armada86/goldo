@@ -2,7 +2,8 @@
 
 What this project tracks, how often each one actually updates, and how it typically moves relative to
 the gold price. See `config.py` for the exact tickers/series and `CLAUDE.md` for the full data-flow
-description; see `docs/technical-analyst-*-log.md` for the frequency-tuning analyses referenced below.
+description; see `docs/technical-analyst-*-log.md` for a description and operational-usage reference on
+each of GLD/DXY/US10Y.
 
 Sorted by **Type** (second column), with `Price` kept on top (gold is the tracked price this whole project is
 built around).
@@ -95,8 +96,8 @@ Not every indicator uses the same alert logic — see `rules.py` / `CLAUDE.md` f
   one alert per window per poll, naming the window, direction, swing size, threshold, and current price.
   These nine thresholds are re-tuned automatically every weekday morning by `frequency_check_job.py`
   when one drifts off target (see `docs/frequency-test-thresholds.md` and CLAUDE.md's "Scheduling"), so
-  the exact numbers quoted in the table above and in `docs/technical-analyst-*-log.md` reflect the last
-  successful weekday run, not a value fixed at design time.
+  the exact numbers quoted in the table above reflect the last successful weekday run, not a value fixed
+  at design time.
 - `gold` — absolute $ move since the previous poll (`ABS_CHANGE_ALERT_THRESHOLD`)
 - `inflation` — % move since the previous poll (`PCT_CHANGE_ALERT_THRESHOLD`)
 - `financial_stress`, `interest_rate`, and the ten scheduled macro reports above — any change at all
