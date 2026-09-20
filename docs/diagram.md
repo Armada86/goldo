@@ -12,7 +12,7 @@ flowchart TD
     end
 
     Cron["cron-job.org\n(external scheduler)"] -->|every 5 min| Poll
-    Cron -->|nightly| FreqCheck["frequency_check_job.py"]
+    Cron -->|weekday 6am ET| FreqCheck["frequency_check_job.py"]
 
     Sources --> Fetcher["data_fetcher.py"]
     Fetcher --> Poll["poll_once()\n(main.py / poll_job.py)"]
@@ -34,8 +34,8 @@ flowchart TD
 
 1. **cron-job.org -> Poll (every 5 min)** — an external cron service is the real scheduler, since
    GitHub Actions' own `schedule:` trigger proved unreliable.
-2. **cron-job.org -> frequency_check_job.py (nightly)** — same external-cron pattern, once a day
-   instead of every 5 minutes.
+2. **cron-job.org -> frequency_check_job.py (weekday mornings)** — same external-cron pattern, once a
+   day on weekdays only (6 AM ET, Monday-Friday) instead of every 5 minutes.
 3. **Sources -> data_fetcher.py** — yfinance, Twelve Data, and FRED are three unrelated APIs, each
    wrapped the same way (`retry.with_retries()`).
 4. **data_fetcher.py -> poll_once()** — `main.py` (local, continuous loop) and `poll_job.py` (cloud,
@@ -52,8 +52,8 @@ flowchart TD
    Telegram.
 10. **Postgres -> dashboard.py** — the Streamlit dashboard reads the same tables independently, in a
     completely separate deployment, so it never touches the poll/alert path directly.
-11. **frequency_check_job.py -> intrahour_swing_thresholds.json** — nightly, off-target thresholds are
-    re-tuned and rewritten in place (a PR is opened and merged automatically).
+11. **frequency_check_job.py -> intrahour_swing_thresholds.json** — each weekday morning, off-target
+    thresholds are re-tuned and rewritten in place (a PR is opened and merged automatically).
 12. **frequency_check_job.py -> Telegram** — a report is sent every run either way, naming all nine
     indicator/window combinations and whether each changed.
 13. **intrahour_swing_thresholds.json -> rules.py** (dotted) — the next poll picks up whatever

@@ -8,9 +8,9 @@ window), each naming the indicator, the window, the threshold, the direction (up
 amount.
 
 **These nine thresholds are no longer a fixed, hand-picked table — they're re-tuned automatically every
-night.** The values below are the ones this backtest produced at the time this doc was written; the
-live values always live in `intrahour_swing_thresholds.json`, not here. See "Nightly auto-tuning"
-below for how and how often they actually move.
+weekday morning.** The values below are the ones this backtest produced at the time this doc was
+written; the live values always live in `intrahour_swing_thresholds.json`, not here. See "Weekday
+auto-tuning" below for how and how often they actually move.
 
 ## Thresholds (as of this backtest)
 
@@ -60,31 +60,31 @@ to Telegram — no window or indicator here is backtest-only. A poll can produce
 nine of these alerts (three windows x three indicators) in a single cycle, each rising-edge deduped per
 window so a sustained swing alerts once, not repeatedly for the rest of the window.
 
-## Nightly auto-tuning
+## Weekday auto-tuning
 
-`frequency_check_job.py` runs this same backtest every night (8 PM ET, see CLAUDE.md's "Scheduling")
-against the *live* thresholds in `intrahour_swing_thresholds.json`. For any of the nine
-indicator/window combinations that has drifted outside `FREQUENCY_TEST_TARGET +/-
-FREQUENCY_TEST_TOLERANCE` (60±4 events/60 days), it searches a new threshold itself
-(`threshold_search.search_threshold`, same higher-threshold/post-peak-side convention as the manual
-method above) and rewrites just that entry in the JSON file — combinations still on target are left
-untouched. `.github/workflows/frequency_check.yml` then commits the file, opens a PR, and merges it
-(`gh pr merge --squash`, no branch-protection bypass — a protected `main` requiring review will leave
-the PR open for a human instead of forcing it through).
+`frequency_check_job.py` runs this same backtest every weekday morning (6 AM ET, Monday–Friday —
+cron-job.org is configured to skip Saturday/Sunday, see CLAUDE.md's "Scheduling") against the *live*
+thresholds in `intrahour_swing_thresholds.json`. For any of the nine indicator/window combinations that
+has drifted outside `FREQUENCY_TEST_TARGET +/- FREQUENCY_TEST_TOLERANCE` (60±4 events/60 days), it
+searches a new threshold itself (`threshold_search.search_threshold`, same higher-threshold/post-peak-side
+convention as the manual method above) and rewrites just that entry in the JSON file — combinations
+still on target are left untouched. `.github/workflows/frequency_check.yml` then commits the file,
+opens a PR, and merges it (`gh pr merge --squash`, no branch-protection bypass — a protected `main`
+requiring review will leave the PR open for a human instead of forcing it through).
 
-A Telegram message is sent every night either way, listing all nine combinations and marking each one
-`unchanged` (with its threshold and current event count) or showing the change (old threshold/count ->
-new threshold/count). Unlike the interactive workflow above, this path never asks for approval first —
-that trade-off (nightly drift correction with no human gate, vs. a threshold that can go stale between
-manual runs) was a deliberate choice; see CLAUDE.md's "Automatic (nightly, unattended)" workflow
-section for the reasoning.
+A Telegram message is sent every weekday run either way, listing all nine combinations and marking each
+one `unchanged` (with its threshold and current event count) or showing the change (old threshold/count
+-> new threshold/count). Unlike the interactive workflow above, this path never asks for approval first
+— that trade-off (routine drift correction with no human gate, vs. a threshold that can go stale between
+manual runs) was a deliberate choice; see CLAUDE.md's "Automatic (weekday mornings, unattended)"
+workflow section for the reasoning.
 
-Every night's run also logs one row — the date and that night's final value for all nine
+Every weekday run also logs one row — the date and that run's final value for all nine
 combinations, whether or not any of them changed — to the `threshold_history` table in Postgres (see
 `storage.py`'s `insert_threshold_history_row()`/`get_threshold_history()`), **not** to a table in this
 file. It's the audit trail for "what was the threshold on day X", independent of the Telegram message
 history. This was originally a "Threshold history" table appended to at the bottom of this doc; it
-moved to Postgres so a nightly log entry doesn't need a repo commit, same reasoning as the Broker's
+moved to Postgres so a routine log entry doesn't need a repo commit, same reasoning as the Broker's
 `trades` table (see `CLAUDE.md`'s Broker entry). Columns: `date` (America/New_York, the job's own
 schedule) and `gld_15min`/`gld_10min`/`gld_5min`/`dxy_15min`/`dxy_10min`/`dxy_5min`/`us10y_15min`/
 `us10y_10min`/`us10y_5min`. The single row that used to be here (`2026-09-17`) was migrated by

@@ -1,5 +1,5 @@
 """Automatic threshold search used by frequency_check_job.py to re-tune an
-off-target intrahour-swing threshold overnight, with no human in the loop.
+off-target intrahour-swing threshold every weekday morning, with no human in the loop.
 
 Given a (timestamps, prices) series for one indicator and one window size,
 finds a threshold that lands the rising-edge event count (frequency_test.

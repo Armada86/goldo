@@ -1,9 +1,10 @@
 name: Frequency check
 
-# Triggered externally (once daily, 8 PM America/New_York) via
-# cron-job.org calling the GitHub API workflow_dispatch endpoint -- same
-# reason as poll.yml: GitHub's own `schedule:` cron is UTC-only (no DST
-# handling) and has been unreliable on this repo, so we don't rely on it.
+# Triggered externally (weekdays only, 6 AM America/New_York -- cron-job.org
+# is configured to skip Saturday/Sunday) via cron-job.org calling the GitHub
+# API workflow_dispatch endpoint -- same reason as poll.yml: GitHub's own
+# `schedule:` cron is UTC-only (no DST handling) and has been unreliable on
+# this repo, so we don't rely on it.
 on:
   workflow_dispatch: {}
 
@@ -37,8 +38,8 @@ jobs:
       # Commit intrahour_swing_thresholds.json if it changed, on a new
       # branch, open a PR, and merge it -- this is the "updated
       # automatically" half of the workflow; the Telegram message above is
-      # the audit trail of what changed and why. Most nights this is a no-op
-      # (nothing to commit), since a threshold only moves when it's drifted
+      # the audit trail of what changed and why. Most weekdays this is a
+      # no-op (nothing to commit), since a threshold only moves when it's drifted
       # off target. This does NOT force past branch protection (no --admin
       # bypass): if main requires reviews or passing checks, this merge step
       # fails and the PR is left open for a human to merge. Making it merge
@@ -69,7 +70,7 @@ jobs:
 
           pr_url=$(gh pr create \
             --title "$commit_msg" \
-            --body "Automated nightly frequency-check run -- see the Telegram report from this run for the per-indicator/window before/after." \
+            --body "Automated weekday frequency-check run -- see the Telegram report from this run for the per-indicator/window before/after." \
             --base main --head "$branch")
 
           gh pr merge "$pr_url" --squash --delete-branch

@@ -1,4 +1,4 @@
-"""Scheduled job (daily, 8 PM ET, via cron-job.org -> workflow_dispatch,
+"""Scheduled job (weekdays, 6 AM ET, via cron-job.org -> workflow_dispatch,
 same pattern as poll_job.py): run frequency_test.py against the *current*
 INTRAHOUR_SWING_ALERT_THRESHOLD values (nine indicator/window combinations --
 15/10/5 min for each of gld/dxy/us10y) and, for any combination whose
@@ -9,7 +9,7 @@ intrahour_swing_thresholds.json.
 
 Unlike the interactive "Standing frequency test workflow" in CLAUDE.md (which
 reports and waits for a human to approve a new threshold), this job applies
-the change itself: it's meant to run fully unattended every night, with the
+the change itself: it's meant to run fully unattended every weekday, with the
 GitHub Actions workflow (.github/workflows/frequency_check.yml) committing
 the updated JSON file, opening a PR, and merging it automatically when this
 script changes anything. A Telegram message is always sent, listing every
@@ -38,9 +38,9 @@ from threshold_search import search_threshold
 def append_history_row(thresholds: dict[str, dict[int, float]]) -> None:
     """Logs one row -- today's date (America/New_York) plus the final value of all nine
     indicator/window combinations -- to the `threshold_history` table in Postgres (see storage.py).
-    Runs every night regardless of whether check() changed anything, so the table is a complete daily
-    log. Replaces the old "Threshold history" table that used to live in
-    docs/frequency-test-thresholds.md -- a nightly log entry shouldn't need a repo commit."""
+    Runs every weekday regardless of whether check() changed anything, so the table is a complete
+    weekday log. Replaces the old "Threshold history" table that used to live in
+    docs/frequency-test-thresholds.md -- a routine log entry shouldn't need a repo commit."""
     today = datetime.now(ZoneInfo("America/New_York")).date()
     insert_threshold_history_row(today, thresholds)
 
