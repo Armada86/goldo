@@ -22,11 +22,12 @@ auto-tuning" below for how and how often they actually move.
 
 ## How these were picked
 
-Same method as the original 60-minute thresholds (`frequency_test.py`, see the 2026-09-16 entries in
-`docs/technical-analyst-*-log.md`): for each indicator/window combination, search the
-threshold-vs-event-count curve for a value landing within `FREQUENCY_TEST_TARGET +/-
-FREQUENCY_TEST_TOLERANCE` rising-edge events — same ~1 event/day rate as the original 30±2/30-day
-target, scaled to the new lookback (see below).
+Same method as the original 60-minute thresholds (`frequency_test.py`): for each indicator/window
+combination, search the threshold-vs-event-count curve for a value landing within
+`FREQUENCY_TEST_TARGET +/- FREQUENCY_TEST_TOLERANCE` rising-edge events — same ~1 event/day rate as the
+original 30±2/30-day target, scaled to the new lookback (see below). That curve is non-monotonic (it
+rises to a peak, then falls as the threshold keeps increasing), so the search always keeps pushing
+toward the higher-threshold/post-peak side rather than stopping at the first in-band match.
 
 **Lookback**: the request was to backtest against the last 6 months, but yfinance caps 5-minute-bar
 history at 60 days — a direct fetch for a longer range raises `$SYMBOL: 5m data not available ... range
