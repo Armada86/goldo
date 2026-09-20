@@ -415,10 +415,10 @@ def update_adp_report_reaction(
 
 
 def insert_threshold_history_row(row_date: date, thresholds: dict[str, dict[int, float]]) -> None:
-    """One row per night's frequency_check_job.py run -- `row_date` (America/New_York) plus that
-    night's final value for all nine GLD/DXY/US10Y 15/10/5-min intrahour-swing thresholds, whether or
-    not any of them changed that night. Replaces the old "Threshold history" table that used to live
-    in docs/frequency-test-thresholds.md, same reasoning as the Broker's `trades` table: a nightly log
+    """One row per weekday's frequency_check_job.py run -- `row_date` (America/New_York) plus that
+    run's final value for all nine GLD/DXY/US10Y 15/10/5-min intrahour-swing thresholds, whether or
+    not any of them changed that run. Replaces the old "Threshold history" table that used to live
+    in docs/frequency-test-thresholds.md, same reasoning as the Broker's `trades` table: a routine log
     entry shouldn't need a repo commit."""
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(

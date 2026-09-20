@@ -92,9 +92,9 @@ INTRAHOUR_SWING_WINDOWS_MINUTES = [15, 10, 5]
 # Absolute high-low swing over each trailing window in
 # INTRAHOUR_SWING_WINDOWS_MINUTES that triggers an alert, per indicator.
 # Lives in its own JSON file (not inline here) because frequency_check_job.py
-# rewrites it automatically overnight when a threshold drifts off target --
-# see docs/frequency-test-thresholds.md for how, and the "Standing frequency
-# test workflow" in CLAUDE.md.
+# rewrites it automatically every weekday morning when a threshold drifts off
+# target -- see docs/frequency-test-thresholds.md for how, and the "Standing
+# frequency test workflow" in CLAUDE.md.
 INTRAHOUR_SWING_THRESHOLDS_PATH = Path(__file__).parent / "intrahour_swing_thresholds.json"
 
 with open(INTRAHOUR_SWING_THRESHOLDS_PATH) as _f:

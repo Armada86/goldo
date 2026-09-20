@@ -3,7 +3,7 @@
 Description and running analysis log for DXY (US Dollar Index), a supporting doc for the
 `technical-analyst` subagent. Kept narrow — the question asked, the method, and the findings that
 matter — not full writeups (those stay in whatever conversation produced them) and not raw data tables
-(superseded by nightly auto-tuning, see below). Newest entries at the bottom. See also
+(superseded by weekday auto-tuning, see below). Newest entries at the bottom. See also
 `docs/technical-analyst-gld-log.md` and `docs/technical-analyst-us10y-log.md` for GLD/US10Y-specific
 analyses, and `docs/market.md` for the full indicator reference table.
 
@@ -17,7 +17,7 @@ directionally consistent but not clean-cut hour-by-hour (see the analyses below)
 continuously during market hours and is polled every 5 minutes like the other intraday indicators.
 It alerts via `rules.check_intrahour_swing_alerts` — trailing 15/10/5-minute high-low swing, each window
 independently thresholded (`INTRAHOUR_SWING_ALERT_THRESHOLD["dxy"]`, stored in
-`intrahour_swing_thresholds.json`, re-tuned automatically every night by `frequency_check_job.py` — see
+`intrahour_swing_thresholds.json`, re-tuned automatically every weekday morning by `frequency_check_job.py` — see
 `CLAUDE.md`'s Scheduling section for exactly how).
 
 ---

@@ -31,7 +31,8 @@ time (see `docs/technical-analyst-*-log.md` for what past runs found and which t
 without touching hand-maintained source.
 
 **Two separate frequency-test workflows now exist** — an interactive, human-approved one for ad hoc
-requests in a Claude Code session, and a fully automatic one that runs nightly. Don't conflate them:
+requests in a Claude Code session, and a fully automatic one that runs every weekday morning. Don't
+conflate them:
 
 - **Interactive ("Standing frequency test workflow")**: when a user asks *you* (in a Claude Code
   session) to run a frequency test, (1) run `frequency_test.py` against the *current*
@@ -46,8 +47,8 @@ requests in a Claude Code session, and a fully automatic one that runs nightly. 
   session; it's the only path that touches `config.py` itself (e.g. changing
   `INTRAHOUR_SWING_WINDOWS_MINUTES` or the target/tolerance), since those aren't things the automatic
   job below ever rewrites.
-- **Automatic (nightly, unattended)**: `frequency_check_job.py` runs the same backtest once a day (see
-  Scheduling below) but does *not* wait for approval — for any indicator/window combination outside
+- **Automatic (weekday mornings, unattended)**: `frequency_check_job.py` runs the same backtest each
+  weekday (see Scheduling below) but does *not* wait for approval — for any indicator/window combination outside
   target, it searches a new threshold itself (`threshold_search.search_threshold`, same
   post-peak-side convention) and rewrites `intrahour_swing_thresholds.json` in place. The GitHub Actions
   workflow then commits that file, opens a PR, and merges it — see Scheduling below for exactly how and
@@ -135,9 +136,9 @@ the value from two polls back instead of one).
   these three shorter windows so the same three price/rate indicators alert at multiple timescales.
   Current values were tuned with `frequency_test.py` (60-day lookback, the max yfinance serves for 5-min
   bars) to each land at ~60 rising-edge events/60 days, and are kept there automatically:
-  `frequency_check_job.py` re-tunes any off-target value every night and
+  `frequency_check_job.py` re-tunes any off-target value every weekday morning and
   `.github/workflows/frequency_check.yml` merges the change (see Scheduling below), so the numbers above
-  are current as of the last successful nightly run, not necessarily what's in this file's git history.
+  are current as of the last successful weekday run, not necessarily what's in this file's git history.
   Each Telegram message states the window, direction
   (up/down), the swing size, the threshold, and the current price; the `$` vs. no-unit formatting is
   picked per-name in `rules.py`, not hardcoded.
@@ -228,12 +229,12 @@ hiccup never blocks the rest of that poll cycle (the remaining alerts and `check
 run). This is the only place project code talks to the Routines API; the Routine itself is still
 never allowed to edit repository files when it fires, live-trigger or scheduled alike.
 
-**Nightly threshold audit trail (`threshold_history` table)**: same move as the two tables above —
+**Weekday threshold audit trail (`threshold_history` table)**: same move as the two tables above —
 `docs/frequency-test-thresholds.md` used to have a "Threshold history" table that
-`frequency_check_job.py` appended one row to every night (the date plus that night's final value for
+`frequency_check_job.py` appended one row to every weekday run (the date plus that run's final value for
 all nine GLD/DXY/US10Y 15/10/5-min thresholds, whether or not any changed); that now goes straight to
 a `threshold_history` table in Postgres (`storage.insert_threshold_history_row()`/
-`get_threshold_history()`) instead, so the nightly log entry doesn't need a repo commit — `poll.yml`
+`get_threshold_history()`) instead, so the log entry doesn't need a repo commit — `poll.yml`
 and `frequency_check.yml`'s automated commits are both now purely "when a value actually changed", not
 "every scheduled run". `backfill_threshold_history.py` migrated the doc's one existing row.
 
@@ -276,14 +277,16 @@ via the Actions API: it didn't fire at all for 90+ minutes on a 5-minute cron). 
 (`.github/workflows/poll.yml`) now only declares `workflow_dispatch`, and an external service
 (cron-job.org) calls the `POST /repos/.../actions/workflows/poll.yml/dispatches` API every 5 minutes to
 trigger it — this is the actual scheduler. `.github/workflows/frequency_check.yml` follows the same
-pattern for `frequency_check_job.py` (daily instead of every 5 min — same reasoning, plus GitHub's
-`schedule:` is UTC-only with no DST handling, and cron-job.org lets the trigger be set directly in
-`America/New_York`). Both workflows need their own cron-job.org job pointed at their
-`workflow_dispatch` endpoint — that setup lives in the cron-job.org account, not in this repo.
+pattern for `frequency_check_job.py`, but weekday mornings (6 AM America/New_York, Monday–Friday)
+instead of every 5 min — same reasoning for avoiding GitHub's own `schedule:` (UTC-only, no DST
+handling), plus cron-job.org lets both the specific time and the weekday-only restriction be set
+directly, in `America/New_York`, without any code in this repo. Both workflows need their own
+cron-job.org job pointed at their `workflow_dispatch` endpoint — that setup (including the weekday
+exclusion) lives in the cron-job.org account, not in this repo.
 `frequency_check_job.py` runs `frequency_test.py` against the live `INTRAHOUR_SWING_ALERT_THRESHOLD`
 values, and for any indicator/window combination outside `FREQUENCY_TEST_TARGET +/-
 FREQUENCY_TEST_TOLERANCE` searches a new threshold (`threshold_search.search_threshold`) and rewrites
-`intrahour_swing_thresholds.json` with just the changed entries — see the "Automatic (nightly,
+`intrahour_swing_thresholds.json` with just the changed entries — see the "Automatic (weekday mornings,
 unattended)" workflow above for how this differs from an interactive session's frequency test. A
 Telegram message is sent every run either way, listing all nine indicator/window combinations and
 whether each was left unchanged or updated (old threshold/count -> new threshold/count).
