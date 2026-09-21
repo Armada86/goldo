@@ -253,6 +253,26 @@ hiccup never blocks the rest of that poll cycle (the remaining alerts and `check
 run). This is the only place project code talks to the Routines API; the Routine itself is still
 never allowed to edit repository files when it fires, live-trigger or scheduled alike.
 
+**Same-minute release detection (`release_watch_job.py`)**: the mechanism above still ultimately
+depends on FRED having ingested the fresh ADP/NFP number, which can lag the real BLS/ADP release by
+anywhere from minutes to hours -- so `check_value_change_alerts`'s detection (and the Routine nudge it
+triggers) is "eventually," not "same-minute." `release_watch_job.py` is a separate, faster, purely
+additive path: triggered by cron-job.org (`.github/workflows/release_watch_adp.yml`/
+`release_watch_nfp.yml`) at 8:14am/8:29am ET weekdays -- a few minutes before ADP's 8:15am and NFP's
+8:30am ET scheduled releases -- it checks FMP's economic-calendar endpoint (`FMP_API_KEY`,
+`config`'s `docs/data-sources.md` has the source comparison) for today's matching release, and if one
+is scheduled, burst-polls that same endpoint every `BURST_POLL_INTERVAL_SECONDS` (15) for up to
+`BURST_POLL_MAX_MINUTES` (6) -- unlike every other job in this repo, this one is not a pure one-shot,
+since cron-job.org itself can't reliably schedule sub-minute triggers. The moment FMP's `actual` field
+goes from `null` to a real number, it sends a Telegram alert (prefixed 🟣, `RELEASE_ALERT_PREFIX`)
+immediately and exits. On the large majority of weekday mornings neither release is scheduled that
+day, so the job is a single FMP call and an immediate no-op. Deliberately does **not** write to
+`nfp_reports`/`adp_reports` or fire `routine_trigger.trigger_release_analysis()` itself -- the existing
+Routine still owns recording the release and sending its recommendation message, and its own no-op
+check keys off whether the release is already in those tables; writing the row here first would make
+the Routine think its job was already done and skip its recommendation entirely. This job only adds a
+faster "the number just printed" alert on top of that unchanged pipeline.
+
 **Weekday threshold audit trail (`threshold_history` table)**: same move as the two tables above —
 `docs/frequency-test-thresholds.md` used to have a "Threshold history" table that
 `frequency_check_job.py` appended one row to every weekday run (the date plus that run's final value for
@@ -305,9 +325,13 @@ trigger it — this is the actual scheduler. `.github/workflows/frequency_check.
 pattern for `frequency_check_job.py`, but weekday mornings (6 AM America/New_York, Monday–Friday)
 instead of every 5 min — same reasoning for avoiding GitHub's own `schedule:` (UTC-only, no DST
 handling), plus cron-job.org lets both the specific time and the weekday-only restriction be set
-directly, in `America/New_York`, without any code in this repo. Both workflows need their own
-cron-job.org job pointed at their `workflow_dispatch` endpoint — that setup (including the weekday
-exclusion) lives in the cron-job.org account, not in this repo.
+directly, in `America/New_York`, without any code in this repo.
+`.github/workflows/release_watch_adp.yml`/`release_watch_nfp.yml` follow the same pattern for
+`release_watch_job.py` (see "Same-minute release detection" above), weekdays at 8:14am/8:29am
+America/New_York respectively. All four workflows need their own cron-job.org job pointed at their
+`workflow_dispatch` endpoint — that setup (including the weekday exclusion and, for the two
+release-watch workflows, the specific 8:14am/8:29am trigger times) lives in the cron-job.org account,
+not in this repo.
 `frequency_check_job.py` reruns `frequency_test.py`'s companion-swing study fresh (see the "Two
 separate frequency-test workflows" entry above for the full methodology) and rewrites
 `intrahour_swing_thresholds.json` with whichever of the twenty-four indicator/window combinations'

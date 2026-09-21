@@ -1,0 +1,30 @@
+name: Release watch (ADP)
+
+# Triggered externally by cron-job.org calling the workflow_dispatch endpoint, weekdays at 8:14am
+# America/New_York -- a few minutes before ADP's scheduled 8:15am ET release. release_watch_job.py
+# then burst-polls FMP's economic calendar itself (see the script's own docstring for why a
+# one-shot 5-minute poll cadence, like poll.yml's, can't get same-minute detection). Most weekday
+# mornings this is a no-op within a second or two, since ADP only actually prints a few days a
+# month -- the script checks FMP's calendar first and exits immediately if nothing is scheduled
+# for today.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  release-watch-adp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -r requirements.txt
+
+      - run: python release_watch_job.py
+        env:
+          RELEASE_WATCH_TARGET: adp
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}

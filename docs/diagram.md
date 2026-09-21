@@ -9,10 +9,12 @@ flowchart TD
         YF["yfinance\n(dxy, us10y, gld, iau, gldm, gdx, gdxj, ring, GC=F)"]
         TD["Twelve Data\n(gold spot + RSI candles)"]
         FRED["FRED\n(inflation, financial_stress)"]
+        FMP["FMP\n(economic calendar)"]
     end
 
     Cron["cron-job.org\n(external scheduler)"] -->|every 5 min| Poll
     Cron -->|weekday 6am ET| FreqCheck["frequency_check_job.py"]
+    Cron -->|weekday 8:14am/8:29am ET| ReleaseWatch["release_watch_job.py"]
 
     Sources --> Fetcher["data_fetcher.py"]
     Fetcher --> Poll["poll_once()\n(main.py / poll_job.py)"]
@@ -28,6 +30,9 @@ flowchart TD
     FreqCheck --> Thresholds["intrahour_swing_thresholds.json"]
     FreqCheck --> Telegram
     Thresholds -.-> Rules
+
+    FMP --> ReleaseWatch
+    ReleaseWatch --> Telegram
 ```
 
 **Step by step:**
@@ -61,3 +66,12 @@ flowchart TD
     whether each changed.
 13. **intrahour_swing_thresholds.json -> rules.py** (dotted) — the next poll picks up whatever
     thresholds are currently on disk; this isn't a live data flow, just a config dependency.
+14. **cron-job.org -> release_watch_job.py (weekday 8:14am/8:29am ET)** — a few minutes before ADP's
+    8:15am and NFP's 8:30am ET scheduled releases; unlike every other scheduled job here, this one
+    isn't a pure one-shot — it burst-polls FMP internally for up to a few minutes once triggered, since
+    cron-job.org itself can't reliably schedule sub-minute triggers.
+15. **FMP -> release_watch_job.py -> Telegram** — the moment FMP's economic-calendar `actual` field
+    for today's matching release goes from `null` to a real number, a same-minute alert is sent,
+    independent of FRED's own ingestion lag (which the main `Poll` -> `rules.py` path still depends on
+    for `adp_employment`/`nonfarm_payrolls`). Deliberately not connected to Postgres — this job doesn't
+    write `nfp_reports`/`adp_reports` itself, see CLAUDE.md's "Same-minute release detection".
