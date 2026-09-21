@@ -51,7 +51,7 @@ conflate them:
   target, it searches a new threshold itself (`threshold_search.search_threshold`, same
   post-peak-side convention) and rewrites `intrahour_swing_thresholds.json` in place. The GitHub Actions
   workflow then commits that file, opens a PR, and merges it — see Scheduling below for exactly how and
-  its limits. A Telegram report is sent every run either way, naming every one of the eighteen
+  its limits. A Telegram report is sent every run either way, naming every one of the twenty-four
   indicator/window combinations and whether it was left unchanged or updated (old threshold/count ->
   new threshold/count).
 
@@ -64,8 +64,8 @@ Installing/updating deps: `pip install -r requirements.txt` (into `./venv`).
 and `poll_job.py` (cloud, one-shot) call the same `poll_once()`.
 
 **Three different data sources, per indicator** (all defined in `config.py`):
-- `dxy`, `us10y`, `gld`, `iau`, `gldm`, `sgol` — yfinance (`INDICATORS` dict, generic path in
-  `data_fetcher._fetch_yfinance_price`)
+- `dxy`, `us10y`, `gld`, `iau`, `gldm`, `gdx`, `gdxj`, `ring` — yfinance (`INDICATORS` dict, generic
+  path in `data_fetcher._fetch_yfinance_price`)
 - `gold` — **Twelve Data**, not yfinance. Yahoo's spot-gold symbols (`XAUUSD=X`, `XAU=X`) no longer
   resolve; `GC=F` (COMEX futures) is the only gold quote yfinance still serves, and it trades at a
   premium/discount to spot. So `gold`'s live price is special-cased in `fetch_latest_prices()` to call
@@ -128,15 +128,19 @@ the value from two polls back instead of one).
   `storage.get_recent_readings()`. Catches a slow climb/drop that never trips the poll-to-poll %
   check. Uses a rising-edge comparison per window (current window over threshold, the window as of one
   poll ago wasn't) so a sustained swing alerts once per window, not every 5 minutes for the rest of the
-  window — so a single poll can produce up to one alert per window (up to 3 per indicator, 18 total
-  across all six indicators this mechanism covers). This is the mechanism for gld ($1.65/$1.42/$1.08
-  for 15/10/5 min, dollars, see `docs/technical-analyst-gld-log.md`), the three other gold ETFs iau
-  (see `docs/technical-analyst-iau-log.md`), gldm (`docs/technical-analyst-gldm-log.md`), and sgol
-  (`docs/technical-analyst-sgol-log.md`) — added the same way, alerted/frequency-tested identically to
-  gld but deliberately **excluded** from the Broker's paper-trading rules below — dxy (0.102/0.084/0.064
-  index points, see `docs/technical-analyst-dxy-log.md`), and us10y (0.0140/0.0123/0.0100 yield points,
-  see `docs/technical-analyst-us10y-log.md`) — there is no single 60-min window anymore; it was replaced
-  by these three shorter windows so each of these price/rate indicators alerts at multiple timescales.
+  window — so a single poll can produce up to one alert per window (up to 3 per indicator, 24 total
+  across all eight indicators this mechanism covers). This is the mechanism for gld ($1.65/$1.42/$1.08
+  for 15/10/5 min, dollars, see `docs/technical-analyst-gld-log.md`), the two other physically-backed
+  gold ETFs iau (see `docs/technical-analyst-iau-log.md`) and gldm
+  (`docs/technical-analyst-gldm-log.md`), and the three gold-**mining** ETFs gdx
+  (`docs/technical-analyst-gdx-log.md`), gdxj (`docs/technical-analyst-gdxj-log.md`), and ring
+  (`docs/technical-analyst-ring-log.md`, holding mining-company shares rather than gold itself, so
+  leveraged/noisier than the physical ETFs) — all five added the same way, alerted/frequency-tested
+  identically to gld but deliberately **excluded** from the Broker's paper-trading rules below — dxy
+  (0.102/0.084/0.064 index points, see `docs/technical-analyst-dxy-log.md`), and us10y
+  (0.0140/0.0123/0.0100 yield points, see `docs/technical-analyst-us10y-log.md`) — there is no single
+  60-min window anymore; it was replaced by these three shorter windows so each of these price/rate
+  indicators alerts at multiple timescales.
   Current values were tuned with `frequency_test.py` (60-day lookback, the max yfinance serves for 5-min
   bars) to each land at ~60 rising-edge events/60 days, and are kept there automatically:
   `frequency_check_job.py` re-tunes any off-target value every weekday morning and
@@ -158,8 +162,8 @@ the value from two polls back instead of one).
 from `main.poll_once()` before the price fetch (so it still fires even if prices are briefly
 unavailable right at the boundary), sends a one-off Telegram message when the market closes for the
 week (Friday 5:00 PM ET) and reopens (Sunday 6:00 PM ET) — the standard weekly schedule shared by
-XAU/USD and the other intraday indicators (gld/iau/gldm/sgol/dxy/us10y), i.e. the daily 5-6 PM ET
-settlement break
+XAU/USD and the other intraday indicators (gld/iau/gldm/gdx/gdxj/ring/dxy/us10y), i.e. the daily 5-6 PM
+ET settlement break
 that simply doesn't reopen until Sunday evening on the week's final session. "ET" here is
 `America/New_York`, the same zone the rest of the project already uses (`dashboard.py`'s `DISPLAY_TZ`,
 `frequency_check_job.py`) — equivalent to Toronto time, since both share the same UTC offset and DST
@@ -236,7 +240,8 @@ never allowed to edit repository files when it fires, live-trigger or scheduled 
 **Weekday threshold audit trail (`threshold_history` table)**: same move as the two tables above —
 `docs/frequency-test-thresholds.md` used to have a "Threshold history" table that
 `frequency_check_job.py` appended one row to every weekday run (the date plus that run's final value for
-all eighteen GLD/IAU/GLDM/SGOL/DXY/US10Y 15/10/5-min thresholds, whether or not any changed); that now
+all twenty-four GLD/IAU/GLDM/GDX/GDXJ/RING/DXY/US10Y 15/10/5-min thresholds, whether or not any
+changed); that now
 goes straight to a `threshold_history` table in Postgres (`storage.insert_threshold_history_row()`/
 `get_threshold_history()`) instead, so the log entry doesn't need a repo commit — `poll.yml`
 and `frequency_check.yml`'s automated commits are both now purely "when a value actually changed", not
@@ -292,7 +297,7 @@ values, and for any indicator/window combination outside `FREQUENCY_TEST_TARGET 
 FREQUENCY_TEST_TOLERANCE` searches a new threshold (`threshold_search.search_threshold`) and rewrites
 `intrahour_swing_thresholds.json` with just the changed entries — see the "Automatic (weekday mornings,
 unattended)" workflow above for how this differs from an interactive session's frequency test. A
-Telegram message is sent every run either way, listing all eighteen indicator/window combinations and
+Telegram message is sent every run either way, listing all twenty-four indicator/window combinations and
 whether each was left unchanged or updated (old threshold/count -> new threshold/count).
 `.github/workflows/frequency_check.yml` is what actually applies the change: after the script runs, if
 `intrahour_swing_thresholds.json` changed, the workflow commits it on a new branch, opens a PR, and

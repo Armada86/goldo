@@ -6,7 +6,7 @@ for the full breakdown of each piece.
 ```mermaid
 flowchart TD
     subgraph Sources["Data sources"]
-        YF["yfinance\n(dxy, us10y, gld, iau, gldm, sgol, GC=F)"]
+        YF["yfinance\n(dxy, us10y, gld, iau, gldm, gdx, gdxj, ring, GC=F)"]
         TD["Twelve Data\n(gold spot + RSI candles)"]
         FRED["FRED\n(inflation, financial_stress)"]
     end
@@ -54,7 +54,8 @@ flowchart TD
     completely separate deployment, so it never touches the poll/alert path directly.
 11. **frequency_check_job.py -> intrahour_swing_thresholds.json** — each weekday morning, off-target
     thresholds are re-tuned and rewritten in place (a PR is opened and merged automatically).
-12. **frequency_check_job.py -> Telegram** — a report is sent every run either way, naming all eighteen
-    indicator/window combinations (GLD/IAU/GLDM/SGOL/DXY/US10Y x 15/10/5 min) and whether each changed.
+12. **frequency_check_job.py -> Telegram** — a report is sent every run either way, naming all
+    twenty-four indicator/window combinations (GLD/IAU/GLDM/GDX/GDXJ/RING/DXY/US10Y x 15/10/5 min) and
+    whether each changed.
 13. **intrahour_swing_thresholds.json -> rules.py** (dotted) — the next poll picks up whatever
     thresholds are currently on disk; this isn't a live data flow, just a config dependency.

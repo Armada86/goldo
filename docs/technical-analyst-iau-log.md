@@ -2,7 +2,8 @@
 
 Description and operational-usage reference for IAU (iShares Gold Trust), a supporting doc for the
 `technical-analyst` subagent. See also `docs/technical-analyst-gld-log.md`,
-`docs/technical-analyst-gldm-log.md`, `docs/technical-analyst-sgol-log.md`,
+`docs/technical-analyst-gldm-log.md`, `docs/technical-analyst-gdx-log.md`,
+`docs/technical-analyst-gdxj-log.md`, `docs/technical-analyst-ring-log.md`,
 `docs/technical-analyst-dxy-log.md`, and `docs/technical-analyst-us10y-log.md` for the other tracked
 indicators, and `docs/market.md` for the full indicator reference table.
 
@@ -11,9 +12,10 @@ indicators, and `docs/market.md` for the full indicator reference table.
 IAU (`iau` in `config.INDICATORS`, ticker `IAU` via yfinance) is the iShares Gold Trust, a physically
 backed gold ETF (roughly 1/100 oz per share — a smaller, lower-priced share size than GLD's ~1/10 oz,
 which is why its dollar-swing thresholds are smaller too). Because it's backed by physical gold, IAU
-moves in the **same** direction as gold spot — it's tracked here as a second liquid, exchange-traded
-proxy alongside GLD/GLDM/SGOL. IAU updates continuously during market hours (see `docs/market.md`'s
-Trading times column — same NYSE Arca session as GLD/GLDM/SGOL) and is polled every
+moves in the **same** direction as gold spot — it's tracked here alongside GLD/GLDM as a second liquid,
+physically-backed, exchange-traded proxy (as opposed to GDX/GDXJ/RING, which hold mining-company shares
+rather than gold itself). IAU updates continuously during market hours (see `docs/market.md`'s Trading
+times column — same NYSE Arca session as the other gold ETFs) and is polled every
 `config.POLL_INTERVAL_MINUTES` like the other intraday indicators.
 
 ## How it's used in this project

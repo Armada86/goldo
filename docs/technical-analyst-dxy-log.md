@@ -3,7 +3,8 @@
 Description and operational-usage reference for DXY (US Dollar Index), a supporting doc for the
 `technical-analyst` subagent. See also `docs/technical-analyst-gld-log.md`,
 `docs/technical-analyst-iau-log.md`, `docs/technical-analyst-gldm-log.md`,
-`docs/technical-analyst-sgol-log.md`, and `docs/technical-analyst-us10y-log.md` for the other tracked
+`docs/technical-analyst-gdx-log.md`, `docs/technical-analyst-gdxj-log.md`,
+`docs/technical-analyst-ring-log.md`, and `docs/technical-analyst-us10y-log.md` for the other tracked
 indicators, and `docs/market.md` for the full indicator reference table.
 
 ## Description

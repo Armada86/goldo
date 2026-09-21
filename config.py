@@ -11,7 +11,9 @@ INDICATORS = {
     "gld": "GLD",
     "iau": "IAU",
     "gldm": "GLDM",
-    "sgol": "SGOL",
+    "gdx": "GDX",
+    "gdxj": "GDXJ",
+    "ring": "RING",
 }
 
 # Live gold price (Twelve Data spot quote, not yfinance).
@@ -20,7 +22,7 @@ GOLD_SPOT_SYMBOL = "XAU/USD"
 # Indicators whose price/alert values are dollar-denominated (vs. index points/yield points) --
 # picks the "$" unit in rules.py/frequency_test.py/frequency_check_job.py/dashboard.py alike, one
 # shared list instead of repeating the same per-name check in each.
-DOLLAR_UNIT_NAMES = {"gold", "gld", "iau", "gldm", "sgol"}
+DOLLAR_UNIT_NAMES = {"gold", "gld", "iau", "gldm", "gdx", "gdxj", "ring"}
 
 # FRED series.
 FRED_SERIES = {
