@@ -20,6 +20,14 @@ Index or intraday Treasury-yield instrument at any plan tier evaluated (see
 docs/data-sources.md) -- Twelve Data's "USDX"/"DX" symbols look plausible but resolve to
 unrelated tickers (confirmed via its own symbol_search), not the Dollar Index.
 
+run_frequency_test() also returns a directional co-flagging distribution per window (how many
+of the eight indicators, at each gold event, both crossed their own threshold AND moved in the
+direction broker.py's Consensus6of8 rule actually requires -- same direction as gold for the
+six ETFs, opposite for dxy/us10y). This replaced an earlier magnitude-only co-flagging analysis
+that counted a "flag" regardless of direction, which overstated real co-flagging since it
+credited an indicator crossing its threshold in the wrong direction -- not a signal the Broker
+would ever act on.
+
 Run: python frequency_test.py
 """
 
@@ -53,6 +61,15 @@ YFINANCE_NAMES = ["dxy", "us10y"]
 
 ET = ZoneInfo("America/New_York")
 PREVIOUS_WINDOW_GAP = timedelta(minutes=5)  # one poll interval, same rising-edge convention as rules.py
+
+# broker.py's Consensus6of8 rule requires these six to move the SAME direction gold itself
+# moved, and dxy/us10y to move the OPPOSITE direction -- see co_flagging_distribution() below,
+# which uses this same split to decide whether a threshold-crossing is a coherent "flag" or
+# just a same-magnitude move in the wrong direction (broker.GOLD_DIRECTION_NAMES/
+# INVERSE_DIRECTION_NAMES duplicate these; kept separate since frequency_test.py has no
+# dependency on broker.py).
+SAME_DIRECTION_NAMES = ["gld", "iau", "gldm", "gdx", "gdxj", "ring"]
+INVERSE_DIRECTION_NAMES = ["dxy", "us10y"]
 
 
 def _fetch_twelve_data_1min(symbol: str, lookback_days: int) -> tuple[list[datetime], list[float]]:
@@ -153,7 +170,61 @@ def swing_in_window(
     return max(window) - min(window)
 
 
-def run_frequency_test() -> dict[str, dict[int, dict]]:
+def direction_and_swing_in_window(
+    timestamps: list[datetime], prices: list[float], now: datetime, window_minutes: int, min_bars: int = 2
+) -> tuple[int | None, float | None]:
+    """Like swing_in_window, but also returns net direction over the identical window: +1 (net
+    up), -1 (net down), or None (perfectly flat, or too little data) -- last close vs first
+    close within the [now - window_minutes, now] slice."""
+    lo = bisect.bisect_left(timestamps, now - timedelta(minutes=window_minutes))
+    hi = bisect.bisect_right(timestamps, now)
+    window = prices[lo:hi]
+    if len(window) < min_bars:
+        return None, None
+    swing = max(window) - min(window)
+    net = window[-1] - window[0]
+    direction = 1 if net > 0 else (-1 if net < 0 else None)
+    return direction, swing
+
+
+def co_flagging_distribution(
+    gold_ts: list[datetime],
+    gold_px: list[float],
+    events: list[datetime],
+    window_minutes: int,
+    series: dict[str, tuple[list[datetime], list[float]]],
+    thresholds: dict[str, float | None],
+) -> dict:
+    """At each gold event, counts how many of the eight indicators both crossed their own
+    threshold for this window AND moved in the direction broker.py's Consensus6of8 rule
+    actually requires (SAME_DIRECTION_NAMES with gold, INVERSE_DIRECTION_NAMES against it) --
+    unlike a plain magnitude-only co-flag count, an indicator that crossed its threshold in the
+    wrong direction does not count as a flag here, since the Broker would not credit it either.
+    Returns {"n_events", "distribution" (>=1..>=8 -> count), "per_indicator" (name -> count)}."""
+    per_event_flags = []
+    per_indicator = {name: 0 for name in series}
+    for t in events:
+        gold_dir, _ = direction_and_swing_in_window(gold_ts, gold_px, t, window_minutes)
+        flag_count = 0
+        if gold_dir is not None:
+            for name, (ts, px) in series.items():
+                threshold = thresholds.get(name)
+                if threshold is None:
+                    continue
+                d, s = direction_and_swing_in_window(ts, px, t, window_minutes)
+                if s is None or d is None:
+                    continue
+                direction_ok = (d == gold_dir) if name in SAME_DIRECTION_NAMES else (d == -gold_dir)
+                if s >= threshold and direction_ok:
+                    flag_count += 1
+                    per_indicator[name] += 1
+        per_event_flags.append(flag_count)
+
+    distribution = {n: sum(1 for f in per_event_flags if f >= n) for n in range(1, 9)}
+    return {"n_events": len(events), "distribution": distribution, "per_indicator": per_indicator}
+
+
+def run_frequency_test() -> tuple[dict[str, dict[int, dict]], dict[int, dict]]:
     """Returns {name: {window_minutes: {"avg": float | None, "n_used": int, "n_total": int}}}
     for every name in INTRAHOUR_SWING_ALERT_THRESHOLD. "avg" is the new threshold itself --
     there is no separate search/tuning step."""
@@ -200,7 +271,18 @@ def run_frequency_test() -> dict[str, dict[int, dict]]:
             else:
                 print(f"  {window:2d} min: no usable data (n=0/{len(events)})")
 
-    return results
+    co_flags: dict[int, dict] = {}
+    print("\nCo-flagging (magnitude AND direction coherent with gold, per broker.py's Consensus6of8 rule):")
+    for window in INTRAHOUR_SWING_WINDOWS_MINUTES:
+        thresholds = {name: results[name][window]["avg"] for name in series}
+        co_flags[window] = co_flagging_distribution(
+            gold_ts, gold_px, gold_events[window], window, series, thresholds
+        )
+        dist = co_flags[window]["distribution"]
+        print(f"  {window:2d} min ({co_flags[window]['n_events']} events): " +
+              ", ".join(f">={n}: {dist[n]}" for n in range(1, 9)))
+
+    return results, co_flags
 
 
 if __name__ == "__main__":
