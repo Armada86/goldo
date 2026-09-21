@@ -253,6 +253,53 @@ hiccup never blocks the rest of that poll cycle (the remaining alerts and `check
 run). This is the only place project code talks to the Routines API; the Routine itself is still
 never allowed to edit repository files when it fires, live-trigger or scheduled alike.
 
+**Same-minute release detection (`release_watch_job.py`)**: the mechanism above still ultimately
+depends on FRED having ingested the fresh ADP/NFP number, which can lag the real BLS/ADP release by
+anywhere from minutes to hours -- so `check_value_change_alerts`'s detection (and the Routine nudge it
+triggers) is "eventually," not "same-minute." `release_watch_job.py` is a separate, faster, purely
+additive path: triggered by cron-job.org (`.github/workflows/release_watch_adp.yml`/
+`release_watch_nfp.yml`) at 8:14am/8:29am ET weekdays -- a few minutes before ADP's 8:15am and NFP's
+8:30am ET scheduled releases -- it checks FMP's economic-calendar endpoint (`FMP_API_KEY`,
+`config`'s `docs/data-sources.md` has the source comparison) for today's matching release, and if one
+is scheduled, burst-polls that same endpoint every `BURST_POLL_INTERVAL_SECONDS` (15) for up to
+`BURST_POLL_MAX_MINUTES` (6) -- unlike every other job in this repo, this one is not a pure one-shot,
+since cron-job.org itself can't reliably schedule sub-minute triggers. The moment FMP's `actual` field
+goes from `null` to a real number, it sends a Telegram alert (prefixed 🟣, `RELEASE_ALERT_PREFIX`)
+immediately and exits. On the large majority of weekday mornings neither release is scheduled that
+day, so the job is a single FMP call and an immediate no-op. Deliberately does **not** write to
+`nfp_reports`/`adp_reports` or fire `routine_trigger.trigger_release_analysis()` itself -- the existing
+Routine still owns recording the release and sending its recommendation message, and its own no-op
+check keys off whether the release is already in those tables; writing the row here first would make
+the Routine think its job was already done and skip its recommendation entirely. This job only adds a
+faster "the number just printed" alert on top of that unchanged pipeline.
+
+**API Weekly Crude Oil Stock data (`oil_weekly_reports` table)**: the first indicator in this project
+sourced from neither FRED/yfinance/Twelve Data nor the regular poll loop at all -- see
+`docs/fundamental-analyst-oil-weekly-log.md`. FRED has no matching series (checked directly; only the
+official EIA report exists there, not the API's, and this project doesn't track EIA's either), so this
+one is FMP-only (`/stable/economic-calendar`, same endpoint `release_watch_job.py` uses). Real-world
+release timing is Tuesday evenings but at a much less precise minute than ADP/NFP (observed anywhere
+from ~19:00-22:00 UTC / 3pm-6pm ET), so a short burst-poll like `release_watch_job.py`'s doesn't fit --
+instead `oil_weekly_job.py` is a pure one-shot (check FMP once, act or exit) that cron-job.org triggers
+repeatedly across that whole window (`.github/workflows/oil_weekly_watch.yml`), same philosophy as
+`poll.yml`'s own repeated-external-trigger pattern, just scoped to Tuesday evenings instead of running
+continuously. Unlike `release_watch_job.py`, this job **does** write directly to Postgres -- there's no
+competing Routine for this indicator, so it's the sole source of truth: the moment `actual` appears for
+a week not already in `oil_weekly_reports`, it sends a Telegram alert (🟣, same prefix as the ADP/NFP
+same-minute alerts) and records the release (`storage.insert_oil_weekly_report()`) in one step.
+`storage.oil_weekly_report_exists()` plus the table's `UNIQUE (week_ending)` constraint make repeated
+invocations after the real release (there will be several, since the job fires on a schedule not tied
+to the actual release minute) a safe no-op rather than a duplicate alert. `week_ending` is a real `DATE`
+(parsed from FMP's event-name suffix, e.g. `(Sep/18)`), not a text label like `nfp_reports`/
+`adp_reports`' `data_month` -- the natural per-release key for a weekly report.
+`backfill_oil_weekly_reports.py` loaded the last 52 weeks, fetched live from FMP (paginated in ~85-day
+chunks around a silent per-call history cap FMP's economic-calendar endpoint turned out to have,
+confirmed empirically -- see `docs/data-sources.md`) -- unlike the original 12-row NFP/ADP backfills,
+this one needed no manual research, since FMP already has clean structured history for this specific
+event. `gold_at_release` and the reaction columns are left `NULL` for every backfilled row (fillable
+later via `storage.update_oil_weekly_report_reaction()`); only the release figures themselves
+(`previous_value`/`expected_value`/`actual_value`/`week_ending`) are backfilled.
+
 **Weekday threshold audit trail (`threshold_history` table)**: same move as the two tables above —
 `docs/frequency-test-thresholds.md` used to have a "Threshold history" table that
 `frequency_check_job.py` appended one row to every weekday run (the date plus that run's final value for
@@ -305,9 +352,16 @@ trigger it — this is the actual scheduler. `.github/workflows/frequency_check.
 pattern for `frequency_check_job.py`, but weekday mornings (6 AM America/New_York, Monday–Friday)
 instead of every 5 min — same reasoning for avoiding GitHub's own `schedule:` (UTC-only, no DST
 handling), plus cron-job.org lets both the specific time and the weekday-only restriction be set
-directly, in `America/New_York`, without any code in this repo. Both workflows need their own
+directly, in `America/New_York`, without any code in this repo.
+`.github/workflows/release_watch_adp.yml`/`release_watch_nfp.yml` follow the same pattern for
+`release_watch_job.py` (see "Same-minute release detection" above), weekdays at 8:14am/8:29am
+America/New_York respectively. `.github/workflows/oil_weekly_watch.yml` follows the same pattern again
+for `oil_weekly_job.py` (see "API Weekly Crude Oil Stock data" above), but triggered *repeatedly* —
+roughly every 10 minutes across a Tuesday-evening window (~3pm-6pm ET) — rather than once, since that
+report's release minute is far less precise than ADP/NFP's. All five workflows need their own
 cron-job.org job pointed at their `workflow_dispatch` endpoint — that setup (including the weekday
-exclusion) lives in the cron-job.org account, not in this repo.
+exclusion, the two release-watch workflows' specific 8:14am/8:29am trigger times, and the oil-weekly
+workflow's Tuesday-only repeated-trigger window) lives in the cron-job.org account, not in this repo.
 `frequency_check_job.py` reruns `frequency_test.py`'s companion-swing study fresh (see the "Two
 separate frequency-test workflows" entry above for the full methodology) and rewrites
 `intrahour_swing_thresholds.json` with whichever of the twenty-four indicator/window combinations'
@@ -366,11 +420,14 @@ both files together. It's invoked on demand like `technical-analyst`.
 sales, jobless claims, etc.) and how they move gold. Unlike `technical-analyst`, it *is* meant to query
 Postgres — release-by-release data (e.g. the `nfp_reports` table) lives there, not in markdown, per the
 "NFP fundamental-analysis data" entry above. It reads `docs/fundamental-analyst-*.md` for
-context/methodology (currently just `docs/fundamental-analyst-nfp-log.md`; more will be added the same
-way as other releases get their own research), the same way `technical-analyst` reads
-`docs/technical-analyst-*-log.md`. It's read-only and plans-then-asks for everything **except** one
-pre-approved live action: when a release just printed, its "New-release recommendation workflow" lets it
-send exactly one Telegram message (`notifier.send_telegram_message()`) recommending gold's likely
+context/methodology (`docs/fundamental-analyst-nfp-log.md`, `docs/fundamental-analyst-adp-log.md`, and
+`docs/fundamental-analyst-oil-weekly-log.md`; more will be added the same way as other releases get
+their own research), the same way `technical-analyst` reads `docs/technical-analyst-*-log.md`. It's
+read-only and plans-then-asks for everything **except** one pre-approved live action, scoped to
+`nfp_reports`/`adp_reports` only (not `oil_weekly_reports` — see "API Weekly Crude Oil Stock data"
+above for why that one's fully automated instead): when a release just printed, its "New-release
+recommendation workflow" lets it send exactly one Telegram message (`notifier.send_telegram_message()`)
+recommending gold's likely
 5/10/15-minute move, and record the release in `nfp_reports` via `storage.insert_nfp_report()`/
 `update_nfp_report_reaction()` — without stopping to ask first, since the user has already authorized
 that specific pairing of actions. It still never touches any other table, edits any file, or sends

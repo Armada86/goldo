@@ -123,6 +123,26 @@ def init_db() -> None:
             )
             """
         )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS oil_weekly_reports (
+                id SERIAL PRIMARY KEY,
+                release_ts TIMESTAMPTZ NOT NULL,
+                week_ending DATE NOT NULL,
+                previous_value TEXT,
+                expected_value TEXT,
+                actual_value TEXT,
+                gold_at_release DOUBLE PRECISION,
+                gold_5min DOUBLE PRECISION,
+                gold_10min DOUBLE PRECISION,
+                gold_30min DOUBLE PRECISION,
+                gold_1h DOUBLE PRECISION,
+                gold_2h DOUBLE PRECISION,
+                notes TEXT,
+                UNIQUE (week_ending)
+            )
+            """
+        )
 
 
 def save_readings(prices: dict[str, float]) -> None:
@@ -425,6 +445,109 @@ def update_adp_report_reaction(
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
             f"UPDATE adp_reports SET {set_clause} WHERE release_ts = %s",
+            (*updates.values(), release_ts),
+        )
+
+
+def insert_oil_weekly_report(
+    release_ts: datetime,
+    week_ending: date,
+    previous_value: str | None,
+    expected_value: str | None,
+    actual_value: str | None,
+    gold_at_release: float | None,
+    gold_5min: float | None,
+    gold_10min: float | None,
+    gold_30min: float | None,
+    gold_1h: float | None,
+    gold_2h: float | None,
+    notes: str | None = None,
+) -> None:
+    """Records one API Crude Oil Stock Change release's figures and gold spot's reaction -- same
+    shape as insert_adp_report()/insert_nfp_report(), see docs/fundamental-analyst-oil-weekly-log.md.
+    `week_ending` (not release_ts) is the natural per-release key here -- the report always covers a
+    Friday-to-Friday week and releases the following Tuesday, so ON CONFLICT (week_ending) DO NOTHING
+    makes a duplicate insert (e.g. oil_weekly_job.py firing twice for the same week, or a backfill
+    re-run) a safe no-op rather than an error."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO oil_weekly_reports (
+                release_ts, week_ending, previous_value, expected_value, actual_value,
+                gold_at_release, gold_5min, gold_10min, gold_30min, gold_1h, gold_2h, notes
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (week_ending) DO NOTHING
+            """,
+            (
+                release_ts, week_ending, previous_value, expected_value, actual_value,
+                gold_at_release, gold_5min, gold_10min, gold_30min, gold_1h, gold_2h, notes,
+            ),
+        )
+
+
+def get_oil_weekly_reports() -> list[dict]:
+    """Every recorded API Crude Oil Stock Change release, oldest first."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT release_ts, week_ending, previous_value, expected_value, actual_value, "
+            "gold_at_release, gold_5min, gold_10min, gold_30min, gold_1h, gold_2h, notes "
+            "FROM oil_weekly_reports ORDER BY week_ending"
+        )
+        rows = cur.fetchall()
+    return [
+        {
+            "release_ts": r[0],
+            "week_ending": r[1],
+            "previous_value": r[2],
+            "expected_value": r[3],
+            "actual_value": r[4],
+            "gold_at_release": r[5],
+            "gold_5min": r[6],
+            "gold_10min": r[7],
+            "gold_30min": r[8],
+            "gold_1h": r[9],
+            "gold_2h": r[10],
+            "notes": r[11],
+        }
+        for r in rows
+    ]
+
+
+def oil_weekly_report_exists(week_ending: date) -> bool:
+    """True if a row for this week is already recorded -- used by oil_weekly_job.py to decide
+    whether a detected release still needs inserting (it's triggered repeatedly across a multi-hour
+    window each Tuesday, since the report's exact release time varies more than ADP/NFP's fixed
+    minute, so the same week's release could otherwise be seen -- and alerted on -- more than once)."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT 1 FROM oil_weekly_reports WHERE week_ending = %s", (week_ending,))
+        return cur.fetchone() is not None
+
+
+def update_oil_weekly_report_reaction(
+    release_ts: datetime,
+    gold_5min: float | None = None,
+    gold_10min: float | None = None,
+    gold_30min: float | None = None,
+    gold_1h: float | None = None,
+    gold_2h: float | None = None,
+) -> None:
+    """Fills in gold spot's reaction windows for a release already recorded by
+    insert_oil_weekly_report() -- only columns passed a non-None value are updated; matches the row
+    by release_ts. Same pattern as update_adp_report_reaction()/update_nfp_report_reaction()."""
+    updates = {
+        "gold_5min": gold_5min,
+        "gold_10min": gold_10min,
+        "gold_30min": gold_30min,
+        "gold_1h": gold_1h,
+        "gold_2h": gold_2h,
+    }
+    updates = {col: value for col, value in updates.items() if value is not None}
+    if not updates:
+        return
+    set_clause = ", ".join(f"{col} = %s" for col in updates)
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            f"UPDATE oil_weekly_reports SET {set_clause} WHERE release_ts = %s",
             (*updates.values(), release_ts),
         )
 
