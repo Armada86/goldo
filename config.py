@@ -75,7 +75,7 @@ PCT_CHANGE_ALERT_THRESHOLD = {
 
 # Absolute move (since previous poll) that triggers an alert.
 ABS_CHANGE_ALERT_THRESHOLD = {
-    "gold": 10.0,
+    "gold": 5.0,
 }
 
 # Indicators that alert on any change from the previous poll.
