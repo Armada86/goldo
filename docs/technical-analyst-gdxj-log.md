@@ -25,8 +25,10 @@ other intraday indicators.
 GDXJ alerts via `rules.check_intrahour_swing_alerts` — trailing 15/10/5-minute high-low swing, each
 window independently thresholded (`INTRAHOUR_SWING_ALERT_THRESHOLD["gdxj"]`). The live threshold values
 themselves live in `intrahour_swing_thresholds.json`, not here or in `config.py`, specifically so
-`frequency_check_job.py` can re-tune any off-target value automatically every weekday morning (see
-`CLAUDE.md`'s Scheduling section and `docs/frequency-test-thresholds.md`) — treat any specific number
+`frequency_check_job.py` can recompute it fresh every weekday morning -- it's the average companion swing of
+this indicator's own price movement at every moment gold spot itself swings $5/$10/$15
+(`config.GOLD_SWING_THRESHOLDS`) over the trailing 30 days, not a fixed or searched-for value (see
+`CLAUDE.md`'s Scheduling section and `docs/frequency-test-thresholds.md`) -- treat any specific number
 quoted elsewhere as a snapshot, not a fixed setting. Each Telegram alert states the window, direction,
 swing size, threshold, and current price. Like the other gold ETFs beyond GLD, GDXJ is **not** wired
 into the Broker's automated paper-trading rules (`.claude/agents/broker.md`) — it's alerted and

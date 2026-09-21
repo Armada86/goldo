@@ -1,6 +1,7 @@
 """Indicators to track and the rules that trigger an alert."""
 
 import json
+from datetime import time
 from pathlib import Path
 
 # yfinance tickers.
@@ -100,11 +101,10 @@ VALUE_CHANGE_ALERT_NAMES = [
 INTRAHOUR_SWING_WINDOWS_MINUTES = [15, 10, 5]
 
 # Absolute high-low swing over each trailing window in
-# INTRAHOUR_SWING_WINDOWS_MINUTES that triggers an alert, per indicator.
-# Lives in its own JSON file (not inline here) because frequency_check_job.py
-# rewrites it automatically every weekday morning when a threshold drifts off
-# target -- see docs/frequency-test-thresholds.md for how, and the "Standing
-# frequency test workflow" in CLAUDE.md.
+# INTRAHOUR_SWING_WINDOWS_MINUTES that triggers an alert, per indicator. Lives in its own JSON
+# file (not inline here) because frequency_check_job.py rewrites it automatically every
+# weekday morning -- see docs/frequency-test-thresholds.md for the companion-swing
+# methodology, and the "Standing frequency test workflow" in CLAUDE.md.
 INTRAHOUR_SWING_THRESHOLDS_PATH = Path(__file__).parent / "intrahour_swing_thresholds.json"
 
 with open(INTRAHOUR_SWING_THRESHOLDS_PATH) as _f:
@@ -114,16 +114,27 @@ with open(INTRAHOUR_SWING_THRESHOLDS_PATH) as _f:
     }
 del _f
 
-# Backtest lookback used by frequency_test.py -- the max yfinance allows for
-# 5-min bars (see frequency_test.py's docstring).
-FREQUENCY_TEST_LOOKBACK_DAYS = 60
+# Dollar move gold spot itself must swing, within the matching window, to count as a "gold
+# event" for frequency_test.py's companion-swing study -- $5 in 5 min, $10 in 10 min, $15 in
+# 15 min. Each of the eight indicators' thresholds is then the average of what that indicator
+# was doing, in that same window, at every one of those events (see frequency_test.py).
+GOLD_SWING_THRESHOLDS = {5: 5.0, 10: 10.0, 15: 15.0}
 
-# Target rising-edge event count (per FREQUENCY_TEST_LOOKBACK_DAYS-day
-# frequency_test.py run, per indicator/window combination) and tolerance used
-# to detect threshold drift. Same ~1-event/day rate as the original 30±2/30-day
-# target, scaled to the new lookback.
-FREQUENCY_TEST_TARGET = 60
-FREQUENCY_TEST_TOLERANCE = 4
+# How far back frequency_test.py looks (rolling window, recomputed fresh each run -- not a
+# fixed historical range). Twelve Data can paginate true 1-minute bars back this far for gold
+# and the six gold ETFs; yfinance cannot (its 1-minute bars are capped at ~7-8 days), which is
+# why dxy/us10y -- the two indicators frequency_test.py still sources from yfinance, at 5-min
+# resolution -- are the coarser-grained pair. See docs/data-sources.md.
+FREQUENCY_TEST_LOOKBACK_DAYS = 30
+
+# Trading hours shared by all eight intrahour-swing indicators (gld/iau/gldm/gdx/gdxj/ring/
+# dxy/us10y), America/New_York, weekdays only. frequency_test.py only counts a gold event (and
+# the companion swings measured against it) when the *entire* window falls inside this range,
+# so every indicator actually has a chance to have moved. The tightest constraint is us10y
+# (^TNX only quotes ~8:20am-2:55pm ET); the six equity ETFs trade 9:30am-4pm ET; dxy is
+# near-24hr. See docs/data-sources.md for how these hours were determined.
+COMMON_SESSION_START_ET = time(9, 30)
+COMMON_SESSION_END_ET = time(14, 55)
 
 # Simple moving-average crossover on gold price, evaluated on daily closes.
 SMA_SHORT = 20

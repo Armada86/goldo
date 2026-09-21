@@ -52,8 +52,10 @@ flowchart TD
    Telegram.
 10. **Postgres -> dashboard.py** — the Streamlit dashboard reads the same tables independently, in a
     completely separate deployment, so it never touches the poll/alert path directly.
-11. **frequency_check_job.py -> intrahour_swing_thresholds.json** — each weekday morning, off-target
-    thresholds are re-tuned and rewritten in place (a PR is opened and merged automatically).
+11. **frequency_check_job.py -> intrahour_swing_thresholds.json** — each weekday morning, all
+    twenty-four thresholds are recomputed fresh (the average companion swing of each indicator when
+    gold itself moves $5/$10/$15) and whichever changed are rewritten in place (a PR is opened and
+    merged automatically).
 12. **frequency_check_job.py -> Telegram** — a report is sent every run either way, naming all
     twenty-four indicator/window combinations (GLD/IAU/GLDM/GDX/GDXJ/RING/DXY/US10Y x 15/10/5 min) and
     whether each changed.
