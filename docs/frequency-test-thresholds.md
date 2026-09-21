@@ -72,6 +72,51 @@ for DXY/US10Y specifically as the least reliable of the twenty-four; the ETF gro
 sourced from genuine 1-minute Twelve Data bars) had ~987-989/1,002 coverage and is far more trustworthy
 than it was under the previous all-5-minute-bar methodology.
 
+## Co-flagging: how many indicators move together
+
+A follow-up ad hoc analysis (run in a Claude Code session, not something any script in this repo
+computes automatically) asked a different question of the same gold events used above: at each moment
+gold itself crossed $5/$10/$15, how many of the eight indicators *also* crossed their own
+companion-swing threshold in that identical window? "Flagging" here means an indicator's own swing, in
+that window, reached its threshold from the table above.
+
+Using the 972/444/219 gold events (5/10/15-min, common-session-restricted) from the table above:
+
+| At least N of 8 flagging together | 5-min (of 972) | 10-min (of 444) | 15-min (of 219) |
+|---|---|---|---|
+| ≥1 | 635 (65.3%) | 343 (77.3%) | 162 (74.0%) |
+| ≥2 | 529 (54.4%) | 283 (63.7%) | 137 (62.6%) |
+| ≥3 | 454 (46.7%) | 244 (55.0%) | 116 (53.0%) |
+| ≥4 | 299 (30.8%) | 179 (40.3%) | 76 (34.7%) |
+| ≥5 | 233 (24.0%) | 134 (30.2%) | 59 (26.9%) |
+| ≥6 | 179 (18.4%) | 102 (23.0%) | 43 (19.6%) |
+| ≥7 | 28 (2.9%) | 66 (14.9%) | 34 (15.5%) |
+| ≥8 (all together) | 16 (1.6%) | 33 (7.4%) | 14 (6.4%) |
+
+Per-indicator flag counts (how often each one was among the flaggers):
+
+| Indicator | 5-min | 10-min | 15-min |
+|---|---|---|---|
+| GLD | 362 | 166 | 70 |
+| IAU | 384 | 157 | 71 |
+| GLDM | 365 | 164 | 71 |
+| GDX | 375 | 202 | 90 |
+| GDXJ | 390 | 191 | 91 |
+| RING | 369 | 187 | 86 |
+| DXY | 63 | 135 | 72 |
+| US10Y | 65 | 182 | 90 |
+
+Average data availability (how many of the 8 had enough price bars in that window to measure a swing
+at all, regardless of whether it flagged) was 6.27/8 at 5-min, 7.91/8 at 10-min, and a clean 8.00/8 at
+15-min — the same resolution-vs-window-width limitation noted above (a 5-minute window against
+5-minute-spaced yfinance bars for DXY/US10Y usually only catches one bar) drags the 5-min column down;
+treat it as the least reliable of the three. The 10-min and 15-min columns are trustworthy.
+
+**Reading this table**: true 8-of-8 agreement is rare (1.6-7.4% of gold's own events), and even "half
+or more of the 8 flagging together" only reaches ~24-36% at the 10/15-min windows. Most of the time gold
+moves without every correlated instrument confirming it in the same window — which is expected, since
+each instrument has its own noise, liquidity, and (for the ETFs specifically) limited trading hours.
+
 ## Alerting
 
 Every one of these twenty-four threshold values is wired into `rules.check_intrahour_swing_alerts` and
