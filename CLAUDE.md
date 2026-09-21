@@ -184,9 +184,10 @@ each notification firing exactly once.
 `main.poll_once()` right after this cycle's alerts are saved, is a fully automated imaginary
 buy/sell engine layered on top of the alert mechanisms above — see `.claude/agents/broker.md`'s
 "Rules" section for the human-readable spec (kept in sync with this code by hand, the same convention
-as `docs/market.md` vs. `config.py`). Currently two mirror-image rules: buy 1 troy oz of gold spot when
-GLD/DXY/US10Y intrahour-swing alerts (any window) land in the `alerts` table within a trailing 15
-minutes in the directions GLD up/DXY down/US10Y down (sell on the exact opposite); close at $10
+as `docs/market.md` vs. `config.py`). Currently two mirror-image rules (`Consensus6of8-buy`/`-sell`):
+buy 1 troy oz of gold spot when at least 6 of the 8 intrahour-swing indicators (any window) land
+alerts in the `alerts` table within a trailing 10 minutes in the required direction — GLD/IAU/GLDM/
+GDX/GDXJ/RING up, DXY/US10Y down (sell on the exact opposite, and it's 6-of-8, not all 8); close at $10
 unrealized profit or loss either way. Trade state lives in a new Postgres `trades` table (mirrors
 `readings`/`alerts` — required since `poll_job.py` is a stateless one-shot run each cloud poll, so
 in-memory state can't survive between polls); only one trade open at a time, and a fresh entry only

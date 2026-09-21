@@ -123,9 +123,10 @@ Every one of these twenty-four threshold values is wired into `rules.check_intra
 alerts to Telegram — no window or indicator here is backtest-only. A poll can produce anywhere from
 zero to twenty-four of these alerts (three windows x eight indicators) in a single cycle, each
 rising-edge deduped per window so a sustained swing alerts once, not repeatedly for the rest of the
-window. IAU, GLDM, GDX, GDXJ, and RING are alerted and re-tuned exactly like GLD, but — unlike GLD —
-are **not** referenced by the Broker's paper-trading rules (`.claude/agents/broker.md`), which still
-only watch GLD/DXY/US10Y.
+window. IAU, GLDM, GDX, GDXJ, and RING are alerted and re-tuned exactly like GLD, and are now also
+referenced by the Broker's paper-trading rules (`.claude/agents/broker.md`) — the `Consensus6of8-buy`/
+`-sell` rules require at least 6 of all eight of these indicators to flag together (in the correct
+direction) within a trailing 10-minute window, not just GLD/DXY/US10Y.
 
 ## Weekday auto-tuning
 

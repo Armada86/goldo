@@ -19,9 +19,11 @@ one row neither subagent claims (`gold` itself) — it doesn't mean unmonitored,
 currently specializes in it.
 
 Note `iau`, `gldm`, `gdx`, `gdxj`, and `ring` are alerted and frequency-tested exactly like `gld` (same
-`check_intrahour_swing_alerts` mechanism, same auto-tuning), but deliberately excluded from the Broker's
-automated paper-trading rules — see `.claude/agents/broker.md`'s "Rules" section, which still only
-references `gld`/`dxy`/`us10y`. Also note `iau`/`gldm` are physically-backed gold ETFs like `gld`
+`check_intrahour_swing_alerts` mechanism, same auto-tuning), and — unlike before — are now also part of
+the Broker's automated paper-trading rules: see `.claude/agents/broker.md`'s "Rules" section, whose
+`Consensus6of8-buy`/`-sell` rules require at least 6 of all eight intrahour-swing indicators
+(`gld`/`iau`/`gldm`/`gdx`/`gdxj`/`ring`/`dxy`/`us10y`) to flag together, not just `gld`/`dxy`/`us10y`.
+Also note `iau`/`gldm` are physically-backed gold ETFs like `gld`
 (same-direction, near-1:1 tracking), while `gdx`/`gdxj`/`ring` hold gold-**mining company** shares
 instead — still same-direction with gold on average, but leveraged/noisier, since mining margins amplify
 gold-price moves and add company-specific/equity-market risk on top (see each one's
