@@ -25,6 +25,11 @@ from storage import (
 ENTRY_WINDOW_MINUTES = 10
 EXIT_THRESHOLD = 10.0  # take-profit and stop-loss, symmetric, $ per troy ounce
 
+# Prefix for every Broker open/close Telegram message -- distinguishes trade alerts from
+# XAU/USD price alerts (rules.XAUUSD_ALERT_PREFIX) in the chat. See rules.py's module comment
+# for why an emoji, not real text color -- Telegram's Bot API doesn't support that.
+TRADE_ALERT_PREFIX = "\U0001f535 "  # blue circle
+
 # The six physically/mining-correlated gold ETFs must flag the same direction gold itself is
 # presumed to be moving; dxy/us10y (inversely correlated with gold) must flag the opposite
 # direction. A trade only needs MIN_FLAGGING_COUNT of these eight to actually flag, not all of
@@ -94,7 +99,7 @@ def _pnl(trade: dict, current_price: float) -> float:
 
 def _open_message(trade_type: str, rule_name: str, price: float, triggering_text: str) -> str:
     return (
-        f"BROKER: opened {trade_type} 1 oz XAU/USD @ ${price:.2f} (rule {rule_name}).\n"
+        f"{TRADE_ALERT_PREFIX}BROKER: opened {trade_type} 1 oz XAU/USD @ ${price:.2f} (rule {rule_name}).\n"
         f"Trigger: {triggering_text}"
     )
 
@@ -102,7 +107,7 @@ def _open_message(trade_type: str, rule_name: str, price: float, triggering_text
 def _close_message(trade: dict, exit_price: float, pnl: float) -> str:
     result = "profit" if pnl >= 0 else "loss"
     return (
-        f"BROKER: closed {trade['trade_type']} 1 oz XAU/USD @ ${exit_price:.2f} "
+        f"{TRADE_ALERT_PREFIX}BROKER: closed {trade['trade_type']} 1 oz XAU/USD @ ${exit_price:.2f} "
         f"(opened @ ${trade['entry_price']:.2f}, rule {trade['rule_name']}) -- "
         f"{result} of ${abs(pnl):.2f}"
     )
