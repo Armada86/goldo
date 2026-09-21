@@ -20,10 +20,19 @@ from storage import (
     insert_trade,
 )
 
-# GLD-DXY-US10Y-buy / GLD-DXY-US10Y-sell correlation window and exit target -- see
+# Consensus6of8-buy / Consensus6of8-sell entry window and exit target -- see
 # .claude/agents/broker.md.
-CORRELATION_WINDOW_MINUTES = 15
+ENTRY_WINDOW_MINUTES = 10
 EXIT_THRESHOLD = 10.0  # take-profit and stop-loss, symmetric, $ per troy ounce
+
+# The six physically/mining-correlated gold ETFs must flag the same direction gold itself is
+# presumed to be moving; dxy/us10y (inversely correlated with gold) must flag the opposite
+# direction. A trade only needs MIN_FLAGGING_COUNT of these eight to actually flag, not all of
+# them, and each can flag from any of its own 15/10/5-min windows -- see
+# .claude/agents/broker.md's Consensus6of8 rules.
+GOLD_DIRECTION_NAMES = ["gld", "iau", "gldm", "gdx", "gdxj", "ring"]
+INVERSE_DIRECTION_NAMES = ["dxy", "us10y"]
+MIN_FLAGGING_COUNT = 6
 
 
 def _has_alert(alerts: list[tuple[datetime, str]], name: str, direction: str) -> bool:
@@ -39,21 +48,41 @@ def _first_alert(alerts: list[tuple[datetime, str]], name: str, direction: str) 
     return None
 
 
+def _entry_direction_map(trade_type: str) -> dict[str, str]:
+    """Required alert direction per indicator for this trade_type: the gold-correlated names in
+    GOLD_DIRECTION_NAMES move with gold, the inversely-correlated names in
+    INVERSE_DIRECTION_NAMES move against it."""
+    same = "up" if trade_type == "Buy" else "down"
+    opposite = "down" if trade_type == "Buy" else "up"
+    return {
+        **{name: same for name in GOLD_DIRECTION_NAMES},
+        **{name: opposite for name in INVERSE_DIRECTION_NAMES},
+    }
+
+
+def _count_flagging(alerts: list[tuple[datetime, str]], direction_map: dict[str, str]) -> int:
+    return sum(1 for name, direction in direction_map.items() if _has_alert(alerts, name, direction))
+
+
 def _match_entry_rule(alerts: list[tuple[datetime, str]]):
-    """Returns (trade_type, rule_name), or (None, None) if no rule's entry condition is met."""
-    if _has_alert(alerts, "gld", "up") and _has_alert(alerts, "dxy", "down") and _has_alert(alerts, "us10y", "down"):
-        return "Buy", "GLD-DXY-US10Y-buy"
-    if _has_alert(alerts, "gld", "down") and _has_alert(alerts, "dxy", "up") and _has_alert(alerts, "us10y", "up"):
-        return "Sell", "GLD-DXY-US10Y-sell"
+    """Returns (trade_type, rule_name), or (None, None) if neither direction has at least
+    MIN_FLAGGING_COUNT of the eight indicators flagging in the required direction. If both
+    directions independently reach the threshold at once (a genuine conflict in the alert
+    stream), no trade opens either way -- an incoherent signal is not acted on."""
+    buy_count = _count_flagging(alerts, _entry_direction_map("Buy"))
+    sell_count = _count_flagging(alerts, _entry_direction_map("Sell"))
+    buy_ok = buy_count >= MIN_FLAGGING_COUNT
+    sell_ok = sell_count >= MIN_FLAGGING_COUNT
+    if buy_ok and not sell_ok:
+        return "Buy", "Consensus6of8-buy"
+    if sell_ok and not buy_ok:
+        return "Sell", "Consensus6of8-sell"
     return None, None
 
 
 def _triggering_text(alerts: list[tuple[datetime, str]], trade_type: str) -> str:
-    if trade_type == "Buy":
-        directions = [("gld", "up"), ("dxy", "down"), ("us10y", "down")]
-    else:
-        directions = [("gld", "down"), ("dxy", "up"), ("us10y", "up")]
-    parts = [_first_alert(alerts, name, direction) for name, direction in directions]
+    direction_map = _entry_direction_map(trade_type)
+    parts = [_first_alert(alerts, name, direction) for name, direction in direction_map.items()]
     return "; ".join(part for part in parts if part)
 
 
@@ -82,9 +111,10 @@ def _close_message(trade: dict, exit_price: float, pnl: float) -> str:
 def check_broker_trades(prices: dict[str, float]) -> None:
     """Runs once per poll, after this cycle's alerts are saved. Closes the open trade (if any) the
     moment its unrealized P/L reaches the $10 take-profit/stop-loss, then looks for a fresh
-    GLD-DXY-US10Y-buy/-sell entry signal -- all three intrahour-swing alerts, in the required
-    directions, landing in the alerts table within the trailing 15 minutes. See
-    .claude/agents/broker.md for the rules themselves."""
+    Consensus6of8-buy/-sell entry signal -- at least MIN_FLAGGING_COUNT (6) of the eight
+    intrahour-swing indicators, in the required directions, landing in the alerts table within the
+    trailing ENTRY_WINDOW_MINUTES (10) minutes. See .claude/agents/broker.md for the rules
+    themselves."""
     gold_price = prices.get("gold")
     if gold_price is None:
         return
@@ -101,7 +131,7 @@ def check_broker_trades(prices: dict[str, float]) -> None:
 
     if open_trade is None:
         watermark = get_last_trade_open_ts()
-        alerts = get_recent_alerts(minutes=CORRELATION_WINDOW_MINUTES)
+        alerts = get_recent_alerts(minutes=ENTRY_WINDOW_MINUTES)
         if watermark is not None:
             alerts = [(ts, message) for ts, message in alerts if ts > watermark]
 
