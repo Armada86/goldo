@@ -3,7 +3,7 @@
 What this project tracks, how often each one actually updates, and how it typically moves relative to
 the gold price. See `config.py` for the exact tickers/series and `CLAUDE.md` for the full data-flow
 description; see `docs/technical-analyst-*-log.md` for a description and operational-usage reference on
-each of GLD/DXY/US10Y.
+each of GLD/IAU/GLDM/SGOL/DXY/US10Y.
 
 Sorted by **Type** (second column), with `Price` kept on top (gold is the tracked price this whole project is
 built around).
@@ -11,11 +11,17 @@ built around).
 The **Agent** column (right after **Type**) says which subagent (`.claude/agents/technical-analyst.md`
 or `.claude/agents/fundamental-analyst.md`) treats this row as its territory for
 analysis/recommendations — `Technical` for gold's own price action and the market-based indicators
-traded continuously alongside it (`gld`, `dxy`, `us10y`, gold's RSI, `inflation` breakevens,
-`interest_rate`), `Fundamental` for the eleven scheduled macro releases (the BLS NFP report, the ADP
-National Employment Change report, and the nine other FRED reports below) plus the financial stress
-index (also a FRED macro-risk series, not a traded price), and `NA` for the one row neither subagent
-claims (`gold` itself) — it doesn't mean unmonitored, just that no subagent currently specializes in it.
+traded continuously alongside it (`gld`, `iau`, `gldm`, `sgol`, `dxy`, `us10y`, gold's RSI, `inflation`
+breakevens, `interest_rate`), `Fundamental` for the eleven scheduled macro releases (the BLS NFP report,
+the ADP National Employment Change report, and the nine other FRED reports below) plus the financial
+stress index (also a FRED macro-risk series, not a traded price), and `NA` for the one row neither
+subagent claims (`gold` itself) — it doesn't mean unmonitored, just that no subagent currently
+specializes in it.
+
+Note `iau`, `gldm`, and `sgol` are alerted and frequency-tested exactly like `gld` (same
+`check_intrahour_swing_alerts` mechanism, same auto-tuning), but deliberately excluded from the Broker's
+automated paper-trading rules — see `.claude/agents/broker.md`'s "Rules" section, which still only
+references `gld`/`dxy`/`us10y`.
 
 Note the two separate employment reports below are easy to conflate: **BLS NFP** (`nonfarm_payrolls`)
 is the official government Non-Farm Payrolls report from the Bureau of Labor Statistics — this is the
@@ -27,9 +33,11 @@ National Employment Change report, released a couple of days before BLS NFP each
 also has its own Neon Postgres release-data table (`adp_reports`, same column shape as `nfp_reports`)
 and `docs/fundamental-analyst-adp-log.md` log — see CLAUDE.md's "ADP NEC fundamental-analysis data".
 
-**Not every row trades on the same schedule.** The four "Technical" price/index/yield rows each track a
-*different* underlying market with its own hours — gold spot, GLD, DXY, and US10Y are four separate
-instruments, not four views of one continuous tape — so a swing measured at 2am ET might be real price
+**Not every row trades on the same schedule.** The seven continuously-traded price/index/yield rows each
+track a *different* underlying market with its own hours — gold spot, GLD, IAU, GLDM, SGOL, DXY, and
+US10Y are seven separate instruments, not seven views of one continuous tape (GLD/IAU/GLDM/SGOL do
+share the same NYSE Arca session, since they're all US-listed physical-gold ETFs, but gold spot/DXY/
+US10Y each run on their own separate schedule) — so a swing measured at 2am ET might be real price
 action on one and simply stale/flat on another. See the **Trading times** column (all times ET, matching
 `DISPLAY_TZ`) for each one's actual session; this project polls every `config.POLL_INTERVAL_MINUTES`
 (5) regardless, so a poll outside an instrument's own trading hours just re-reads its last traded price
@@ -42,6 +50,9 @@ frequency` cell instead for how often each one actually changes.
 |---|---|---|---|---|---|---|---|---|
 | **Gold spot** (`gold`, Twelve Data `XAU/USD`) | Price | NA | Twelve Data (`XAU/USD`) — the separate SMA crossover check below instead uses yfinance `GC=F` daily closes | Continuous (intraday, polled every 5 min) | — (this *is* the tracked price) | Yes — absolute $ move since the previous poll (`ABS_CHANGE_ALERT_THRESHOLD`); also triggers the separate 20/50-day SMA crossover alert | No — uses `ABS_CHANGE_ALERT_THRESHOLD` ($10.00), not the intrahour-swing mechanism the frequency test covers | Sun 6:00 PM – Fri 5:00 PM ET, with a daily settlement break ~5:00–6:00 PM ET (standard OTC FX-style gold market hours — see `market_hours.py`) |
 | **GLD** (`gld`, SPDR Gold Shares ETF) | Price | Technical | yfinance (`GLD`) | Continuous (intraday, market hours) | Same direction — GLD holds physical gold (~1/10 oz/share) and tracks spot closely, minus a small expense-ratio drag over time | Yes — trailing 15/10/5-min high/low swing, independently thresholded (`INTRAHOUR_SWING_ALERT_THRESHOLD`) | Yes — `INTRAHOUR_SWING_ALERT_THRESHOLD["gld"]` = {15: $1.65, 10: $1.42, 5: $1.08} | Mon–Fri 9:30 AM – 4:00 PM ET (regular NYSE Arca session; no overnight/pre-post-market data via this feed) |
+| **IAU** (`iau`, iShares Gold Trust) | Price | Technical | yfinance (`IAU`) | Continuous (intraday, market hours) | Same direction — IAU holds physical gold (~1/100 oz/share, a smaller/cheaper share size than GLD) and tracks spot closely, minus a small expense-ratio drag | Yes — trailing 15/10/5-min high/low swing, independently thresholded (`INTRAHOUR_SWING_ALERT_THRESHOLD`) | Yes — `INTRAHOUR_SWING_ALERT_THRESHOLD["iau"]` = {15: $0.345, 10: $0.300, 5: $0.2251} | Mon–Fri 9:30 AM – 4:00 PM ET (regular NYSE Arca session; no overnight/pre-post-market data via this feed) |
+| **GLDM** (`gldm`, SPDR Gold MiniShares Trust) | Price | Technical | yfinance (`GLDM`) | Continuous (intraday, market hours) | Same direction — GLDM holds physical gold (~1/100 oz/share, SPDR's lower-cost/lower-share-price sibling to GLD) and tracks spot closely, minus a small expense-ratio drag | Yes — trailing 15/10/5-min high/low swing, independently thresholded (`INTRAHOUR_SWING_ALERT_THRESHOLD`) | Yes — `INTRAHOUR_SWING_ALERT_THRESHOLD["gldm"]` = {15: $0.365, 10: $0.310, 5: $0.2400} | Mon–Fri 9:30 AM – 4:00 PM ET (regular NYSE Arca session; no overnight/pre-post-market data via this feed) |
+| **SGOL** (`sgol`, abrdn Physical Gold Shares ETF) | Price | Technical | yfinance (`SGOL`) | Continuous (intraday, market hours) | Same direction — SGOL holds physical gold (Swiss-vaulted, ~1/100 oz/share) and tracks spot closely, minus a small expense-ratio drag | Yes — trailing 15/10/5-min high/low swing, independently thresholded (`INTRAHOUR_SWING_ALERT_THRESHOLD`) | Yes — `INTRAHOUR_SWING_ALERT_THRESHOLD["sgol"]` = {15: $0.170, 10: $0.150, 5: $0.1150} | Mon–Fri 9:30 AM – 4:00 PM ET (regular NYSE Arca session; no overnight/pre-post-market data via this feed) |
 | **DXY** (`dxy`, US Dollar Index) | Index | Technical | yfinance (`DX-Y.NYB`) | Continuous (intraday, market hours) | Opposite direction — gold is dollar-denominated, so a stronger dollar tends to push gold down and vice versa. Real-world correlation is directionally consistent but not clean-cut hour-by-hour (see `docs/technical-analyst-dxy-log.md`) | Yes — trailing 15/10/5-min high/low swing, independently thresholded (`INTRAHOUR_SWING_ALERT_THRESHOLD`) | Yes — `INTRAHOUR_SWING_ALERT_THRESHOLD["dxy"]` = {15: 0.102, 10: 0.084, 5: 0.064} index points | Sun 8:00 PM – Fri 6:00 PM ET, with a brief daily pause (~6:00–8:00 PM ET) — standard ICE US Dollar Index futures session |
 | **Financial stress index** (`financial_stress`, FRED `STLFSI4`) | Index | Fundamental | FRED (`STLFSI4`) | Weekly | Same direction, but noisier — rising stress (risk-off, flight to safety) usually supports gold, though acute stress can also spike dollar demand and cause gold to be sold for liquidity, muddying the relationship | Yes — any change since the previous poll (`VALUE_CHANGE_ALERT_NAMES`) | No — uses `VALUE_CHANGE_ALERT_NAMES` (alerts on any change), not the intrahour-swing mechanism the frequency test covers | N/A — published economic index, not a traded instrument |
 | **Industrial Production** (`industrial_production`, FRED `INDPRO`) | Index | Fundamental | FRED (`INDPRO`) | Monthly | Opposite direction — strong output signals economic strength, typically gold-negative | Yes — any change since the previous poll (`VALUE_CHANGE_ALERT_NAMES`) | No — uses `VALUE_CHANGE_ALERT_NAMES` (alerts on any change), not the intrahour-swing mechanism the frequency test covers | N/A — published economic report, not a traded instrument |
@@ -64,18 +75,19 @@ Every row above alerts on Telegram — see `notifier.send_telegram_message`, cal
 for every alert string `rules.py` returns, regardless of which mechanism produced it.
 
 Three data sources are in play, per `CLAUDE.md`: **yfinance** (`config.INDICATORS`, generic path in
-`data_fetcher._fetch_yfinance_price`) for `gld`, `dxy`, `us10y`, and (only for the SMA crossover's daily
-closes) `gold`; **Twelve Data** (`config.GOLD_SPOT_SYMBOL`) for `gold`'s live spot price and the RSI(14)
-candles derived from it, since yfinance no longer serves a working spot-gold quote; and **FRED**
-(`config.FRED_SERIES`) for every daily/weekly/monthly macro series, including all eleven scheduled
-reports.
+`data_fetcher._fetch_yfinance_price`) for `gld`, `iau`, `gldm`, `sgol`, `dxy`, `us10y`, and (only for the
+SMA crossover's daily closes) `gold`; **Twelve Data** (`config.GOLD_SPOT_SYMBOL`) for `gold`'s live spot
+price and the RSI(14) candles derived from it, since yfinance no longer serves a working spot-gold
+quote; and **FRED** (`config.FRED_SERIES`) for every daily/weekly/monthly macro series, including all
+eleven scheduled reports.
 
 ## Notes on frequency
 
 - "Continuous" indicators are only as fresh as the poll loop (`config.POLL_INTERVAL_MINUTES = 5`) and
   only move during their underlying market's trading hours — they don't update overnight/weekends. See
-  each row's **Trading times** column in the table above; the four "Continuous" rows (`gold`, `gld`,
-  `dxy`, `us10y`) don't share one schedule — each is a different instrument on a different exchange.
+  each row's **Trading times** column in the table above; the seven "Continuous" rows (`gold`, `gld`,
+  `iau`, `gldm`, `sgol`, `dxy`, `us10y`) don't share one schedule — each is a different instrument, on
+  one of two different exchanges/markets.
 - `inflation`, `financial_stress`, and `interest_rate` come from FRED and update on their own
   daily/weekly schedule regardless of how often this project polls; polling more frequently than the
   source updates doesn't add signal for those three.
@@ -90,11 +102,11 @@ reports.
 
 Not every indicator uses the same alert logic — see `rules.py` / `CLAUDE.md` for details:
 
-- `gld`, `dxy`, `us10y` — trailing high/low swing over three independent windows (15/10/5 min,
-  `INTRAHOUR_SWING_WINDOWS_MINUTES`), each with its own threshold
+- `gld`, `iau`, `gldm`, `sgol`, `dxy`, `us10y` — trailing high/low swing over three independent windows
+  (15/10/5 min, `INTRAHOUR_SWING_WINDOWS_MINUTES`), each with its own threshold
   (`INTRAHOUR_SWING_ALERT_THRESHOLD[name][window]`, stored in `intrahour_swing_thresholds.json`) — up to
   one alert per window per poll, naming the window, direction, swing size, threshold, and current price.
-  These nine thresholds are re-tuned automatically every weekday morning by `frequency_check_job.py`
+  These eighteen thresholds are re-tuned automatically every weekday morning by `frequency_check_job.py`
   when one drifts off target (see `docs/frequency-test-thresholds.md` and CLAUDE.md's "Scheduling"), so
   the exact numbers quoted in the table above reflect the last successful weekday run, not a value fixed
   at design time.

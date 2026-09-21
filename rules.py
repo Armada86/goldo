@@ -4,6 +4,7 @@ from datetime import timedelta
 
 from config import (
     ABS_CHANGE_ALERT_THRESHOLD,
+    DOLLAR_UNIT_NAMES,
     INTRAHOUR_SWING_ALERT_THRESHOLD,
     INTRAHOUR_SWING_WINDOWS_MINUTES,
     PCT_CHANGE_ALERT_THRESHOLD,
@@ -117,8 +118,8 @@ def check_intrahour_swing_alerts(prices: dict[str, float]) -> list[str]:
 
             if current_swing >= threshold and previous_swing < threshold:
                 direction = "up" if current_window[-1] >= current_window[0] else "down"
-                unit = "$" if name == "gld" else ""
-                decimals = 2 if name == "gld" else 4
+                unit = "$" if name in DOLLAR_UNIT_NAMES else ""
+                decimals = 2 if name in DOLLAR_UNIT_NAMES else 4
                 alerts.append(
                     f"{name.upper()} moved {direction} {unit}{current_swing:.{decimals}f} in the "
                     f"last {window} min (threshold {unit}{threshold:.{decimals}f}, "
