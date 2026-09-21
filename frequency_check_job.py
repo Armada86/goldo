@@ -1,10 +1,11 @@
 """Scheduled job (weekdays, 6 AM ET, via cron-job.org -> workflow_dispatch,
 same pattern as poll_job.py): run frequency_test.py against the *current*
-INTRAHOUR_SWING_ALERT_THRESHOLD values (eighteen indicator/window combinations
--- 15/10/5 min for each of gld/dxy/us10y/iau/gldm/sgol) and, for any
-combination whose FREQUENCY_TEST_LOOKBACK_DAYS-day rising-edge event count has
-drifted outside config.FREQUENCY_TEST_TARGET +/- config.FREQUENCY_TEST_TOLERANCE,
-search a new threshold (threshold_search.search_threshold) and write it to
+INTRAHOUR_SWING_ALERT_THRESHOLD values (twenty-four indicator/window
+combinations -- 15/10/5 min for each of gld/dxy/us10y/iau/gldm/gdx/gdxj/ring)
+and, for any combination whose FREQUENCY_TEST_LOOKBACK_DAYS-day rising-edge
+event count has drifted outside config.FREQUENCY_TEST_TARGET +/-
+config.FREQUENCY_TEST_TOLERANCE, search a new threshold
+(threshold_search.search_threshold) and write it to
 intrahour_swing_thresholds.json.
 
 Unlike the interactive "Standing frequency test workflow" in CLAUDE.md (which
@@ -13,7 +14,7 @@ the change itself: it's meant to run fully unattended every weekday, with the
 GitHub Actions workflow (.github/workflows/frequency_check.yml) committing
 the updated JSON file, opening a PR, and merging it automatically when this
 script changes anything. A Telegram message is always sent, listing every
-one of the eighteen combinations and whether it changed or stayed the same.
+one of the twenty-four combinations and whether it changed or stayed the same.
 
 Run: python frequency_check_job.py
 """
@@ -37,7 +38,7 @@ from threshold_search import search_threshold
 
 
 def append_history_row(thresholds: dict[str, dict[int, float]]) -> None:
-    """Logs one row -- today's date (America/New_York) plus the final value of all eighteen
+    """Logs one row -- today's date (America/New_York) plus the final value of all twenty-four
     indicator/window combinations -- to the `threshold_history` table in Postgres (see storage.py).
     Runs every weekday regardless of whether check() changed anything, so the table is a complete
     weekday log. Replaces the old "Threshold history" table that used to live in

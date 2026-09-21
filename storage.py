@@ -73,9 +73,15 @@ def init_db() -> None:
                 gldm_15min DOUBLE PRECISION,
                 gldm_10min DOUBLE PRECISION,
                 gldm_5min DOUBLE PRECISION,
-                sgol_15min DOUBLE PRECISION,
-                sgol_10min DOUBLE PRECISION,
-                sgol_5min DOUBLE PRECISION
+                gdx_15min DOUBLE PRECISION,
+                gdx_10min DOUBLE PRECISION,
+                gdx_5min DOUBLE PRECISION,
+                gdxj_15min DOUBLE PRECISION,
+                gdxj_10min DOUBLE PRECISION,
+                gdxj_5min DOUBLE PRECISION,
+                ring_15min DOUBLE PRECISION,
+                ring_10min DOUBLE PRECISION,
+                ring_5min DOUBLE PRECISION
             )
             """
         )
@@ -424,25 +430,28 @@ def update_adp_report_reaction(
 
 
 # Column order for threshold_history -- gld/dxy/us10y first (the original three, matching the
-# table's existing column order) then iau/gldm/sgol appended after, so existing rows/columns are
-# untouched by the newer indicators. Kept here (not read from config.INTRAHOUR_SWING_ALERT_THRESHOLD)
-# so this module doesn't need to import config just for one fixed column order.
-THRESHOLD_HISTORY_INDICATORS = ["gld", "dxy", "us10y", "iau", "gldm", "sgol"]
+# table's existing column order) then iau/gldm/gdx/gdxj/ring appended after, so existing rows/columns
+# are untouched by the newer indicators. Kept here (not read from config.INTRAHOUR_SWING_ALERT_THRESHOLD)
+# so this module doesn't need to import config just for one fixed column order. sgol was tracked here
+# briefly and dropped (see CLAUDE.md) before any weekday run ever wrote a value to its columns, so no
+# historical sgol_* data was lost by removing it.
+THRESHOLD_HISTORY_INDICATORS = ["gld", "dxy", "us10y", "iau", "gldm", "gdx", "gdxj", "ring"]
 THRESHOLD_HISTORY_WINDOWS = [15, 10, 5]
 
 
 def insert_threshold_history_row(row_date: date, thresholds: dict[str, dict[int, float]]) -> None:
     """One row per weekday's frequency_check_job.py run -- `row_date` (America/New_York) plus that
-    run's final value for all eighteen GLD/DXY/US10Y/IAU/GLDM/SGOL 15/10/5-min intrahour-swing
-    thresholds, whether or not any of them changed that run. Replaces the old "Threshold history"
-    table that used to live in docs/frequency-test-thresholds.md, same reasoning as the Broker's
-    `trades` table: a routine log entry shouldn't need a repo commit."""
+    run's final value for all twenty-four GLD/DXY/US10Y/IAU/GLDM/GDX/GDXJ/RING 15/10/5-min
+    intrahour-swing thresholds, whether or not any of them changed that run. Replaces the old
+    "Threshold history" table that used to live in docs/frequency-test-thresholds.md, same reasoning
+    as the Broker's `trades` table: a routine log entry shouldn't need a repo commit."""
     # Column names are built from THRESHOLD_HISTORY_INDICATORS/_WINDOWS above (fixed constants, never
     # external input), so interpolating them into the query string is safe here.
     columns = [f"{name}_{window}min" for name in THRESHOLD_HISTORY_INDICATORS for window in THRESHOLD_HISTORY_WINDOWS]
     # .get() rather than direct indexing: tolerates a `thresholds` dict that doesn't cover every
     # indicator (e.g. an older caller/backfill predating a newer indicator) by writing NULL instead
-    # of raising -- the nine newer columns above are nullable for exactly this reason.
+    # of raising -- the fifteen newer columns above (iau/gldm/gdx/gdxj/ring) are nullable for exactly
+    # this reason.
     values = [
         thresholds.get(name, {}).get(window)
         for name in THRESHOLD_HISTORY_INDICATORS

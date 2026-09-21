@@ -3,7 +3,8 @@
 Description and operational-usage reference for us10y (10-year Treasury yield), a supporting doc for
 the `technical-analyst` subagent. See also `docs/technical-analyst-gld-log.md`,
 `docs/technical-analyst-iau-log.md`, `docs/technical-analyst-gldm-log.md`,
-`docs/technical-analyst-sgol-log.md`, and `docs/technical-analyst-dxy-log.md` for the other tracked
+`docs/technical-analyst-gdx-log.md`, `docs/technical-analyst-gdxj-log.md`,
+`docs/technical-analyst-ring-log.md`, and `docs/technical-analyst-dxy-log.md` for the other tracked
 indicators, and `docs/market.md` for the full indicator reference table.
 
 All figures for this indicator are in **points** (percentage points of yield, e.g. 0.081 = 8.1 basis

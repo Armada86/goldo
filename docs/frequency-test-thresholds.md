@@ -7,13 +7,15 @@ indicator. That single window has been dropped in favor of three independent, sh
 window), each naming the indicator, the window, the threshold, the direction (up/down), and the swing
 amount.
 
-**These eighteen thresholds are no longer a fixed, hand-picked table — they're re-tuned automatically
-every weekday morning.** The values below are the ones this backtest produced at the time this doc was
-written; the live values always live in `intrahour_swing_thresholds.json`, not here. See "Weekday
-auto-tuning" below for how and how often they actually move.
+**These twenty-four thresholds are no longer a fixed, hand-picked table — they're re-tuned
+automatically every weekday morning.** The values below are the ones this backtest produced at the time
+this doc was written; the live values always live in `intrahour_swing_thresholds.json`, not here. See
+"Weekday auto-tuning" below for how and how often they actually move.
 
-IAU/GLDM/SGOL were added later than GLD/DXY/US10Y (same mechanism, same target, just a newer backtest
-date — see their rows' notes below) so their entries reflect a separate run.
+IAU/GLDM and GDX/GDXJ/RING were added later than GLD/DXY/US10Y (same mechanism, same target, just newer
+backtest dates — see their rows' notes below) so their entries reflect separate runs. SGOL was tracked
+here briefly and removed (swapped for the gold-mining ETFs GDX/GDXJ/RING) before any weekday run ever
+wrote a value for it, so no historical SGOL data exists anywhere in this project.
 
 ## Thresholds (as of this backtest)
 
@@ -22,7 +24,9 @@ date — see their rows' notes below) so their entries reflect a separate run.
 | GLD | $1.65 | $1.42 | $1.08 |
 | IAU | $0.3450 | $0.3000 | $0.2251 |
 | GLDM | $0.3650 | $0.3100 | $0.2400 |
-| SGOL | $0.1700 | $0.1500 | $0.1150 |
+| GDX | $0.8700 | $0.7425 | $0.6050 |
+| GDXJ | $1.2150 | $1.0800 | $0.8500 |
+| RING | $0.7600 | $0.6400 | $0.5050 |
 | DXY | 0.102 | 0.084 | 0.064 |
 | US10Y | 0.0140 | 0.0123 | 0.0100 |
 
@@ -42,7 +46,7 @@ lookback (`config.FREQUENCY_TEST_LOOKBACK_DAYS`), and the target scales from 30�
 60±4 events/60 days to keep the same underlying rate.
 
 Event counts at the picked thresholds, over the last 60 days (2026-07-19 to 2026-09-17 for
-GLD/DXY/US10Y; 2026-06-25 to 2026-09-18 for the later IAU/GLDM/SGOL run):
+GLD/DXY/US10Y; 2026-06-25 to 2026-09-18 for the later IAU/GLDM/GDX/GDXJ/RING runs):
 
 | Indicator | Window | Threshold | Events/60 days |
 |---|---|---|---|
@@ -55,9 +59,15 @@ GLD/DXY/US10Y; 2026-06-25 to 2026-09-18 for the later IAU/GLDM/SGOL run):
 | GLDM | 15 min | $0.3650 | 57 |
 | GLDM | 10 min | $0.3100 | 56 |
 | GLDM | 5 min | $0.2400 | 59 |
-| SGOL | 15 min | $0.1700 | 62 |
-| SGOL | 10 min | $0.1500 | 57 |
-| SGOL | 5 min | $0.1150 | 59 |
+| GDX | 15 min | $0.8700 | 56 |
+| GDX | 10 min | $0.7425 | 56 |
+| GDX | 5 min | $0.6050 | 57 |
+| GDXJ | 15 min | $1.2150 | 56 |
+| GDXJ | 10 min | $1.0800 | 56 |
+| GDXJ | 5 min | $0.8500 | 57 |
+| RING | 15 min | $0.7600 | 56 |
+| RING | 10 min | $0.6400 | 56 |
+| RING | 5 min | $0.5050 | 56 |
 | DXY | 15 min | 0.102 | 58 |
 | DXY | 10 min | 0.084 | 61 |
 | DXY | 5 min | 0.064 | 62 |
@@ -65,40 +75,42 @@ GLD/DXY/US10Y; 2026-06-25 to 2026-09-18 for the later IAU/GLDM/SGOL run):
 | US10Y | 10 min | 0.0123 | 57 |
 | US10Y | 5 min | 0.0100 | 58 |
 
-All eighteen land inside the 56–64 target band. US10Y's 15-min threshold sits on a sharp cliff in the
+All twenty-four land inside the 56–64 target band. US10Y's 15-min threshold sits on a sharp cliff in the
 curve — 0.0136–0.0139 all produced 80 events, then 0.0140 drops straight to 56 — so per the
 non-monotonic-curve convention, the higher-threshold/post-peak side (0.0140) was picked; there's no
 smoother candidate between 56 and 64 on that curve.
 
 ## Alerting
 
-Every one of these eighteen threshold values is wired into `rules.check_intrahour_swing_alerts` and
+Every one of these twenty-four threshold values is wired into `rules.check_intrahour_swing_alerts` and
 alerts to Telegram — no window or indicator here is backtest-only. A poll can produce anywhere from
-zero to eighteen of these alerts (three windows x six indicators) in a single cycle, each rising-edge
-deduped per window so a sustained swing alerts once, not repeatedly for the rest of the window. IAU,
-GLDM, and SGOL are alerted and re-tuned exactly like GLD, but — unlike GLD — are **not** referenced by
-the Broker's paper-trading rules (`.claude/agents/broker.md`), which still only watch GLD/DXY/US10Y.
+zero to twenty-four of these alerts (three windows x eight indicators) in a single cycle, each
+rising-edge deduped per window so a sustained swing alerts once, not repeatedly for the rest of the
+window. IAU, GLDM, GDX, GDXJ, and RING are alerted and re-tuned exactly like GLD, but — unlike GLD —
+are **not** referenced by the Broker's paper-trading rules (`.claude/agents/broker.md`), which still
+only watch GLD/DXY/US10Y.
 
 ## Weekday auto-tuning
 
 `frequency_check_job.py` runs this same backtest every weekday morning (6 AM ET, Monday–Friday —
 cron-job.org is configured to skip Saturday/Sunday, see CLAUDE.md's "Scheduling") against the *live*
-thresholds in `intrahour_swing_thresholds.json`. For any of the eighteen indicator/window combinations
-that has drifted outside `FREQUENCY_TEST_TARGET +/- FREQUENCY_TEST_TOLERANCE` (60±4 events/60 days), it
+thresholds in `intrahour_swing_thresholds.json`. For any of the twenty-four indicator/window
+combinations that has drifted outside `FREQUENCY_TEST_TARGET +/- FREQUENCY_TEST_TOLERANCE` (60±4
+events/60 days), it
 searches a new threshold itself (`threshold_search.search_threshold`, same higher-threshold/post-peak-side
 convention as the manual method above) and rewrites just that entry in the JSON file — combinations
 still on target are left untouched. `.github/workflows/frequency_check.yml` then commits the file,
 opens a PR, and merges it (`gh pr merge --squash`, no branch-protection bypass — a protected `main`
 requiring review will leave the PR open for a human instead of forcing it through).
 
-A Telegram message is sent every weekday run either way, listing all eighteen combinations and marking
-each one `unchanged` (with its threshold and current event count) or showing the change (old
+A Telegram message is sent every weekday run either way, listing all twenty-four combinations and
+marking each one `unchanged` (with its threshold and current event count) or showing the change (old
 threshold/count -> new threshold/count). Unlike the interactive workflow above, this path never asks
 for approval first — that trade-off (routine drift correction with no human gate, vs. a threshold that
 can go stale between manual runs) was a deliberate choice; see CLAUDE.md's "Automatic (weekday
 mornings, unattended)" workflow section for the reasoning.
 
-Every weekday run also logs one row — the date and that run's final value for all eighteen
+Every weekday run also logs one row — the date and that run's final value for all twenty-four
 combinations, whether or not any of them changed — to the `threshold_history` table in Postgres (see
 `storage.py`'s `insert_threshold_history_row()`/`get_threshold_history()`), **not** to a table in this
 file. It's the audit trail for "what was the threshold on day X", independent of the Telegram message
@@ -107,8 +119,11 @@ moved to Postgres so a routine log entry doesn't need a repo commit, same reason
 `trades` table (see `CLAUDE.md`'s Broker entry). Columns: `date` (America/New_York, the job's own
 schedule) and `gld_15min`/`gld_10min`/`gld_5min`/`dxy_15min`/`dxy_10min`/`dxy_5min`/`us10y_15min`/
 `us10y_10min`/`us10y_5min`, plus `iau_15min`/`iau_10min`/`iau_5min`/`gldm_15min`/`gldm_10min`/
-`gldm_5min`/`sgol_15min`/`sgol_10min`/`sgol_5min` (added later, nullable, so pre-existing rows logged
-before IAU/GLDM/SGOL were tracked simply have `NULL` there). The single historical row (`2026-09-17`)
-was migrated by `backfill_threshold_history.py` (a one-time script, safe to re-run — it skips if the
-table already has rows), from before IAU/GLDM/SGOL existed, so it only ever populated the
-GLD/DXY/US10Y columns.
+`gldm_5min`/`gdx_15min`/`gdx_10min`/`gdx_5min`/`gdxj_15min`/`gdxj_10min`/`gdxj_5min`/`ring_15min`/
+`ring_10min`/`ring_5min` (added later, nullable, so pre-existing rows logged before a given indicator
+was tracked simply have `NULL` there). SGOL had columns here too, briefly, before being swapped for
+GDX/GDXJ/RING — dropped via a manual `ALTER TABLE ... DROP COLUMN` migration, safe since no weekday run
+had written to them yet. The single historical row (`2026-09-17`) was migrated by
+`backfill_threshold_history.py` (a one-time script, safe to re-run — it skips if the table already has
+rows), from before any of IAU/GLDM/GDX/GDXJ/RING existed, so it only ever populated the GLD/DXY/US10Y
+columns.

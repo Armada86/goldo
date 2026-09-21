@@ -2,7 +2,8 @@
 
 Description and operational-usage reference for GLDM (SPDR Gold MiniShares Trust), a supporting doc for
 the `technical-analyst` subagent. See also `docs/technical-analyst-gld-log.md`,
-`docs/technical-analyst-iau-log.md`, `docs/technical-analyst-sgol-log.md`,
+`docs/technical-analyst-iau-log.md`, `docs/technical-analyst-gdx-log.md`,
+`docs/technical-analyst-gdxj-log.md`, `docs/technical-analyst-ring-log.md`,
 `docs/technical-analyst-dxy-log.md`, and `docs/technical-analyst-us10y-log.md` for the other tracked
 indicators, and `docs/market.md` for the full indicator reference table.
 
@@ -11,10 +12,11 @@ indicators, and `docs/market.md` for the full indicator reference table.
 GLDM (`gldm` in `config.INDICATORS`, ticker `GLDM` via yfinance) is the SPDR Gold MiniShares Trust —
 State Street's lower-cost, lower-share-price sibling to GLD (roughly 1/100 oz per share vs. GLD's
 ~1/10 oz), holding physical gold bullion. Because it's backed by physical gold, GLDM moves in the
-**same** direction as gold spot — it's tracked here as a second liquid, exchange-traded proxy alongside
-GLD/IAU/SGOL. GLDM updates continuously during market hours (see `docs/market.md`'s Trading times
-column — same NYSE Arca session as GLD/IAU/SGOL) and is polled every `config.POLL_INTERVAL_MINUTES`
-like the other intraday indicators.
+**same** direction as gold spot — it's tracked here alongside GLD/IAU as a second liquid,
+physically-backed, exchange-traded proxy (as opposed to GDX/GDXJ/RING, which hold mining-company shares
+rather than gold itself). GLDM updates continuously during market hours (see `docs/market.md`'s Trading
+times column — same NYSE Arca session as the other gold ETFs) and is polled every
+`config.POLL_INTERVAL_MINUTES` like the other intraday indicators.
 
 ## How it's used in this project
 
