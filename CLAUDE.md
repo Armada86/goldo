@@ -123,9 +123,13 @@ the value from two polls back instead of one).
 - `check_pct_change_alerts` — % move since the *previous poll only* (`PCT_CHANGE_ALERT_THRESHOLD`) —
   inflation
 - `check_abs_change_alerts` — same previous-poll comparison, but a fixed move
-  (`ABS_CHANGE_ALERT_THRESHOLD`) instead of a %. Used for gold only now (flat $ threshold matters more
-  than a % of a ~$4,300 price). `gold` and `inflation` are mutually exclusive between this and
-  `check_pct_change_alerts` — an indicator should only be in one of the two threshold dicts.
+  (`ABS_CHANGE_ALERT_THRESHOLD`) instead of a %. Used for gold only now (flat $5.00 threshold matters
+  more than a % of a ~$4,300 price). `gold` and `inflation` are mutually exclusive between this and
+  `check_pct_change_alerts` — an indicator should only be in one of the two threshold dicts. This
+  alert's message is prefixed with a 🟡 (`rules.XAUUSD_ALERT_PREFIX`), same as `check_sma_crossover`'s
+  and `check_rsi_alerts`' below — every Telegram alert about spot gold (XAU/USD) itself gets this
+  prefix, distinct from the Broker's 🔵 trade alerts (Telegram has no real text-color support, so a
+  colored-circle emoji is the practical substitute).
 - `check_value_change_alerts` — any change at all (`VALUE_CHANGE_ALERT_NAMES`), for indicators like
   `financial_stress` where a % threshold breaks down near zero
 - `check_intrahour_swing_alerts` — absolute high-low range over three independent trailing windows,
@@ -142,7 +146,8 @@ the value from two polls back instead of one).
   (`docs/technical-analyst-gdx-log.md`), gdxj (`docs/technical-analyst-gdxj-log.md`), and ring
   (`docs/technical-analyst-ring-log.md`, holding mining-company shares rather than gold itself, so
   leveraged/noisier than the physical ETFs) — all five added the same way, alerted/frequency-tested
-  identically to gld but deliberately **excluded** from the Broker's paper-trading rules below — dxy
+  identically to gld, and — like gld — now also referenced by the Broker's paper-trading rules below
+  (`Consensus6of8-buy`/`-sell`, requiring at least 6 of all eight of these indicators) — dxy
   (0.0445/0.0223/0.0147 index points, see `docs/technical-analyst-dxy-log.md`), and us10y
   (0.0071/0.0035/0.0025 yield points, see `docs/technical-analyst-us10y-log.md`) — there is no single
   60-min window anymore; it was replaced by these three shorter windows so each of these price/rate
@@ -192,7 +197,9 @@ unrealized profit or loss either way. Trade state lives in a new Postgres `trade
 `readings`/`alerts` — required since `poll_job.py` is a stateless one-shot run each cloud poll, so
 in-memory state can't survive between polls); only one trade open at a time, and a fresh entry only
 considers alerts newer than the last trade's open time so a stale alert can't retrigger. Every
-open/close sends a Telegram message (`notifier.send_telegram_message`). Deliberately no
+open/close sends a Telegram message (`notifier.send_telegram_message`), prefixed with a 🔵
+(`broker.TRADE_ALERT_PREFIX`) to visually distinguish it from XAU/USD price alerts' 🟡 prefix
+(`rules.XAUUSD_ALERT_PREFIX`) in the chat. Deliberately no
 markdown/doc log of trades — the `trades` table (`id`, `rule_name`, `trade_type`, `entry_price`,
 `open_ts`, `triggering_alerts`, `exit_price`, `close_ts`, `pnl`, `status`) is the only record, so a
 trade never requires a repo commit; `poll.yml` doesn't need write access to the repo for this reason.

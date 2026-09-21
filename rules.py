@@ -18,6 +18,12 @@ from config import (
 from data_fetcher import compute_rsi, fetch_daily_history, fetch_gold_candles
 from storage import get_previous_reading, get_recent_readings
 
+# Prefix for every Telegram alert about spot gold (XAU/USD) itself -- check_abs_change_alerts,
+# check_sma_crossover, check_rsi_alerts. Telegram's Bot API has no real text-color support, so a
+# colored-circle emoji is the practical substitute for visually distinguishing alert categories
+# in the chat. Broker trade alerts use their own prefix -- see broker.TRADE_ALERT_PREFIX.
+XAUUSD_ALERT_PREFIX = "\U0001f7e1 "  # yellow circle
+
 
 def check_value_change_alerts(prices: dict[str, float]) -> list[str]:
     """Alert on any change since the previous poll (used for indicators
@@ -78,8 +84,9 @@ def check_abs_change_alerts(prices: dict[str, float]) -> list[str]:
             direction = "up" if change > 0 else "down"
             unit = "$" if name == "gold" else ""
             label = "XAU/USD" if name == "gold" else name.upper()
+            prefix = XAUUSD_ALERT_PREFIX if name == "gold" else ""
             alerts.append(
-                f"{label} moved {direction} {unit}{abs(change):.2f} "
+                f"{prefix}{label} moved {direction} {unit}{abs(change):.2f} "
                 f"(now {price:.2f})"
             )
     return alerts
@@ -141,9 +148,9 @@ def check_sma_crossover() -> list[str]:
     curr_diff = sma_short.iloc[-1] - sma_long.iloc[-1]
 
     if prev_diff <= 0 < curr_diff:
-        return [f"XAU/USD: {SMA_SHORT}-day SMA crossed above {SMA_LONG}-day SMA (bullish)"]
+        return [f"{XAUUSD_ALERT_PREFIX}XAU/USD: {SMA_SHORT}-day SMA crossed above {SMA_LONG}-day SMA (bullish)"]
     if prev_diff >= 0 > curr_diff:
-        return [f"XAU/USD: {SMA_SHORT}-day SMA crossed below {SMA_LONG}-day SMA (bearish)"]
+        return [f"{XAUUSD_ALERT_PREFIX}XAU/USD: {SMA_SHORT}-day SMA crossed below {SMA_LONG}-day SMA (bearish)"]
     return []
 
 
@@ -161,12 +168,12 @@ def check_rsi_alerts() -> list[str]:
     alerts = []
     if prev_rsi < RSI_OVERBOUGHT_THRESHOLD <= curr_rsi:
         alerts.append(
-            f"XAU/USD: RSI({RSI_PERIOD}) entered overbought territory: {curr_rsi:.1f} "
+            f"{XAUUSD_ALERT_PREFIX}XAU/USD: RSI({RSI_PERIOD}) entered overbought territory: {curr_rsi:.1f} "
             f"(>= {RSI_OVERBOUGHT_THRESHOLD})"
         )
     if prev_rsi > RSI_OVERSOLD_THRESHOLD >= curr_rsi:
         alerts.append(
-            f"XAU/USD: RSI({RSI_PERIOD}) entered oversold territory: {curr_rsi:.1f} "
+            f"{XAUUSD_ALERT_PREFIX}XAU/USD: RSI({RSI_PERIOD}) entered oversold territory: {curr_rsi:.1f} "
             f"(<= {RSI_OVERSOLD_THRESHOLD})"
         )
     return alerts
