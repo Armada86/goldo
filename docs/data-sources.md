@@ -26,6 +26,3 @@ economic-calendar endpoint, which nothing in the codebase currently uses.
 No proxy instruments (UUP for DXY, IEF/TLT for US10Y) were adopted -- by explicit choice, those two
 stay on yfinance's real (if coarser) data rather than substituting a correlated-but-different
 instrument.
-
-No proxy instruments (UUP, IEF/TLT) were adopted for DXY/US10Y -- by explicit choice, those two stay on
-yfinance's real (if coarser) data rather than substituting a correlated-but-different instrument.
