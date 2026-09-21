@@ -12,11 +12,13 @@ The **Agent** column (right after **Type**) says which subagent (`.claude/agents
 or `.claude/agents/fundamental-analyst.md`) treats this row as its territory for
 analysis/recommendations — `Technical` for gold's own price action and the market-based indicators
 traded continuously alongside it (`gld`, `iau`, `gldm`, `gdx`, `gdxj`, `ring`, `dxy`, `us10y`, gold's
-RSI, `inflation` breakevens, `interest_rate`), `Fundamental` for the eleven scheduled macro releases
-(the BLS NFP report, the ADP National Employment Change report, and the nine other FRED reports below)
-plus the financial stress index (also a FRED macro-risk series, not a traded price), and `NA` for the
-one row neither subagent claims (`gold` itself) — it doesn't mean unmonitored, just that no subagent
-currently specializes in it.
+RSI, `inflation` breakevens, `interest_rate`), `Fundamental` for the twelve scheduled macro releases
+(the BLS NFP report, the ADP National Employment Change report, the nine other FRED reports below, and
+the FMP-sourced weekly API Crude Oil Stock Change report — see
+`docs/fundamental-analyst-oil-weekly-log.md`, the first indicator in this project not sourced from
+FRED/yfinance/Twelve Data) plus the financial stress index (also a FRED macro-risk series, not a
+traded price), and `NA` for the one row neither subagent claims (`gold` itself) — it doesn't mean
+unmonitored, just that no subagent currently specializes in it.
 
 Note `iau`, `gldm`, `gdx`, `gdxj`, and `ring` are alerted and frequency-tested exactly like `gld` (same
 `check_intrahour_swing_alerts` mechanism, same auto-tuning), and — unlike before — are now also part of
@@ -79,17 +81,21 @@ frequency` cell instead for how often each one actually changes.
 | **Initial Jobless Claims (IJC)** (`initial_jobless_claims`, FRED `ICSA`) | Level (weekly claims) | Fundamental | FRED (`ICSA`) | Weekly | Same direction — rising claims signal labor-market weakness, same reasoning as unemployment rate | Yes — any change since the previous poll (`VALUE_CHANGE_ALERT_NAMES`) | No — uses `VALUE_CHANGE_ALERT_NAMES` (alerts on any change), not the intrahour-swing mechanism the frequency test covers | N/A — published economic report, not a traded instrument |
 | **Capacity Utilization** (`capacity_utilization`, FRED `TCU`) | Percent | Fundamental | FRED (`TCU`) | Monthly | Opposite direction — released alongside industrial production, same reasoning | Yes — any change since the previous poll (`VALUE_CHANGE_ALERT_NAMES`) | No — uses `VALUE_CHANGE_ALERT_NAMES` (alerts on any change), not the intrahour-swing mechanism the frequency test covers | N/A — published economic report, not a traded instrument |
 | **Unemployment Rate** (`unemployment_rate`, FRED `UNRATE`) | Percent | Fundamental | FRED (`UNRATE`) | Monthly | Same direction — rising unemployment signals a weakening labor market, supporting gold via rate-cut expectations and safe-haven demand | Yes — any change since the previous poll (`VALUE_CHANGE_ALERT_NAMES`) | No — uses `VALUE_CHANGE_ALERT_NAMES` (alerts on any change), not the intrahour-swing mechanism the frequency test covers | N/A — published economic report, not a traded instrument |
+| **API Weekly Crude Oil Stock** (API Crude Oil Stock Change; not in `config.FRED_SERIES`/`config.INDICATORS`) | Level (millions of barrels, change) | Fundamental | **FMP** (`/stable/economic-calendar`) — not FRED/yfinance/Twelve Data, see `docs/data-sources.md` | Weekly (Tuesday evenings, ~3pm-6pm ET — the exact minute varies, unlike the fixed-time ADP/NFP releases) | Mixed/indirect — a crude build (oversupply) pressures oil down, which ripples into risk/inflation sentiment that's only sometimes gold-relevant; see `docs/fundamental-analyst-oil-weekly-log.md` for the full reasoning | Yes — 🟣 same-minute-ish alert from `oil_weekly_job.py` the moment FMP's `actual` field populates (triggered repeatedly across the release window by `.github/workflows/oil_weekly_watch.yml`, not on the regular 5-min poll cycle); release-by-release detail is recorded in the Neon Postgres `oil_weekly_reports` table — see CLAUDE.md's "API Weekly Crude Oil Stock data" | No — not in `INTRAHOUR_SWING_ALERT_THRESHOLD`, and not polled by `main.poll_once()`/`data_fetcher.py` at all — entirely outside the regular poll loop | N/A — published economic report, not a traded instrument |
 
 Every row above alerts on Telegram — see `notifier.send_telegram_message`, called from `main.poll_once`
 for every alert string `rules.py` returns, regardless of which mechanism produced it.
 
-Three data sources are in play, per `CLAUDE.md`: **yfinance** (`config.INDICATORS`, generic path in
+Four data sources are in play, per `CLAUDE.md`: **yfinance** (`config.INDICATORS`, generic path in
 `data_fetcher._fetch_yfinance_price`) for `gld`, `iau`, `gldm`, `gdx`, `gdxj`, `ring`, `dxy`, `us10y`,
 and (only for the SMA crossover's daily closes) `gold`; **Twelve Data** (`config.GOLD_SPOT_SYMBOL`) for
 `gold`'s live spot
 price and the RSI(14) candles derived from it, since yfinance no longer serves a working spot-gold
-quote; and **FRED** (`config.FRED_SERIES`) for every daily/weekly/monthly macro series, including all
-eleven scheduled reports.
+quote; **FRED** (`config.FRED_SERIES`) for every daily/weekly/monthly macro series, including all
+eleven scheduled reports in that dict; and **FMP** (`/stable/economic-calendar`), used only for the
+API Weekly Crude Oil Stock row below and for `release_watch_job.py`'s ADP/NFP same-minute detection —
+not part of `config.FRED_SERIES`/`config.INDICATORS`/the regular poll loop at all, see
+`docs/data-sources.md`.
 
 ## Notes on frequency
 
@@ -131,6 +137,10 @@ Not every indicator uses the same alert logic — see `rules.py` / `CLAUDE.md` f
   from the dashboard for now (`config.DASHBOARD_INDICATOR_NAMES` vs. `ALL_INDICATOR_NAMES`) — eleven
   more rows at wildly different scales/frequencies would clutter the one compact symbols table
 - `gold` also has a separate 20/50-day SMA crossover check on daily closes, independent of any threshold
+- The API Weekly Crude Oil Stock report has its own dedicated mechanism entirely outside `rules.py`/
+  `main.poll_once()`: `oil_weekly_job.py`, triggered repeatedly by cron-job.org across each Tuesday's
+  multi-hour release window (not the regular 5-min poll), alerts and records the release directly the
+  moment FMP's economic-calendar `actual` field appears — see `docs/fundamental-analyst-oil-weekly-log.md`.
 - `gold`'s RSI(14) (15-min candles) alerts once when it crosses into overbought (`RSI_OVERBOUGHT_THRESHOLD`,
   70) or oversold (`RSI_OVERSOLD_THRESHOLD`, 30) territory — a crossing check like the SMA crossover, not a
   poll-to-poll comparison, so it doesn't repeat every 5 minutes while RSI stays past the threshold

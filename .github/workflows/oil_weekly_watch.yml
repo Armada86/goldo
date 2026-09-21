@@ -1,0 +1,31 @@
+name: Oil weekly watch (API Crude Oil Stock Change)
+
+# Triggered externally by cron-job.org calling the workflow_dispatch endpoint, repeatedly (e.g. every
+# 10 minutes) across a Tuesday-evening window, roughly 19:00-22:15 UTC (~3pm-6:15pm ET) --
+# observed real release times for this report vary within that multi-hour range, unlike ADP/NFP's
+# fixed minute, so oil_weekly_job.py is a pure one-shot triggered repeatedly rather than a single
+# invocation that burst-polls internally (see the script's own docstring for the reasoning). Most
+# invocations this is a no-op within a second or two: either it's not Tuesday, the report hasn't
+# printed yet, or (after the real release) the week is already recorded in oil_weekly_reports.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  oil-weekly-watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -r requirements.txt
+
+      - run: python oil_weekly_job.py
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+          TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}

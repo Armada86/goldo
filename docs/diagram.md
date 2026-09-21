@@ -15,10 +15,11 @@ flowchart TD
     Cron["cron-job.org\n(external scheduler)"] -->|every 5 min| Poll
     Cron -->|weekday 6am ET| FreqCheck["frequency_check_job.py"]
     Cron -->|weekday 8:14am/8:29am ET| ReleaseWatch["release_watch_job.py"]
+    Cron -->|Tuesday ~every 10 min, 3-6pm ET| OilWeekly["oil_weekly_job.py"]
 
     Sources --> Fetcher["data_fetcher.py"]
     Fetcher --> Poll["poll_once()\n(main.py / poll_job.py)"]
-    Poll --> DB[("Postgres / Neon\nreadings, alerts, trades,\nnfp_reports, threshold_history")]
+    Poll --> DB[("Postgres / Neon\nreadings, alerts, trades,\nnfp_reports, oil_weekly_reports,\nthreshold_history")]
     DB --> Rules["rules.py\n(6 alert checks)"]
     Rules --> Telegram["notifier.py -> Telegram"]
     Poll --> Broker["broker.py\n(paper trading)"]
@@ -33,6 +34,10 @@ flowchart TD
 
     FMP --> ReleaseWatch
     ReleaseWatch --> Telegram
+
+    FMP --> OilWeekly
+    OilWeekly --> DB
+    OilWeekly --> Telegram
 ```
 
 **Step by step:**
@@ -75,3 +80,12 @@ flowchart TD
     independent of FRED's own ingestion lag (which the main `Poll` -> `rules.py` path still depends on
     for `adp_employment`/`nonfarm_payrolls`). Deliberately not connected to Postgres — this job doesn't
     write `nfp_reports`/`adp_reports` itself, see CLAUDE.md's "Same-minute release detection".
+16. **cron-job.org -> oil_weekly_job.py (Tuesday, repeated)** — unlike every other trigger here, this
+    one fires many times across a single multi-hour window (~3pm-6pm ET) rather than once, since API
+    Crude Oil Stock Change's real release minute is far less predictable than ADP/NFP's. Each
+    invocation is a plain one-shot (check FMP once, act or exit) — no internal polling loop.
+17. **FMP -> oil_weekly_job.py -> Postgres / Telegram** — the moment `actual` appears for a week not
+    already in `oil_weekly_reports`, this job both alerts and records the release in the same step
+    (unlike release_watch_job.py, there's no other mechanism tracking this indicator, so this job owns
+    both), then every subsequent invocation that same Tuesday sees the week is already recorded and
+    no-ops.
