@@ -11,13 +11,13 @@ twenty-four values, keeping them current as market volatility drifts. The GitHub
 workflow (.github/workflows/frequency_check.yml) commits intrahour_swing_thresholds.json,
 opens a PR, and merges it whenever the recomputed values actually differ from what's on disk.
 A Telegram message is always sent, listing every one of the twenty-four combinations and
-whether it changed (old value -> new value) or stayed the same, plus the directional
-co-flagging distribution (frequency_test.py's co_flagging_distribution()) for each of the three
-windows -- how many of the eight indicators, at each gold event, crossed their own threshold
-AND moved direction-coherent with gold. This still covers all eight regardless of which ones
-broker.py's Consensus5of7 rule actually trades on (us10y is alerted/frequency-tested like the
-rest but not part of that rule -- see .claude/agents/broker.md). This is reporting only -- it
-doesn't feed back into the twenty-four thresholds themselves or into broker.py.
+whether it changed (old value -> new value) or stayed the same, plus two directional
+co-flagging distributions (frequency_test.py's co_flagging_distribution()) for each of the three
+windows: one across all eight indicators (general research view) and one restricted to
+BROKER_TRADED_NAMES (the seven -- no us10y -- broker.py's live Consensus5of7 rule actually
+trades on -- see .claude/agents/broker.md), which is the one that actually answers "how often
+would Consensus5of7 fire." This is reporting only -- it doesn't feed back into the twenty-four
+thresholds themselves or into broker.py.
 
 Run: python frequency_check_job.py
 """
@@ -41,19 +41,19 @@ def append_history_row(thresholds: dict[str, dict[int, float]]) -> None:
     insert_threshold_history_row(today, thresholds)
 
 
-def _co_flag_lines(co_flags: dict[int, dict]) -> list[str]:
-    lines = ["Co-flagging (magnitude AND direction coherent with gold, all eight indicators):"]
+def _co_flag_lines(header: str, co_flags: dict[int, dict]) -> list[str]:
+    lines = [header]
     for window in sorted(co_flags, reverse=True):
         data = co_flags[window]
         dist = data["distribution"]
-        counts = ", ".join(f">={n}: {dist[n]}" for n in range(1, 9))
+        counts = ", ".join(f">={n}: {dist[n]}" for n in sorted(dist))
         lines.append(f"  {window}min ({data['n_events']} events): {counts}")
     return lines
 
 
 def check() -> None:
     init_db()
-    results, co_flags = run_frequency_test()
+    results, co_flags, co_flags_broker = run_frequency_test()
 
     updated_thresholds = {
         name: dict(by_window) for name, by_window in INTRAHOUR_SWING_ALERT_THRESHOLD.items()
@@ -100,7 +100,12 @@ def check() -> None:
     else:
         header = "Frequency check: all 24 indicator/window combos unchanged this run"
 
-    message = "\n".join([header] + lines + [""] + _co_flag_lines(co_flags))
+    co_flag_lines = (
+        _co_flag_lines("Co-flagging, Consensus5of7 (broker.py's live 7-indicator rule, no us10y):", co_flags_broker)
+        + [""]
+        + _co_flag_lines("Co-flagging, all eight indicators (general research view):", co_flags)
+    )
+    message = "\n".join([header] + lines + [""] + co_flag_lines)
     print(message)
     send_telegram_message(message)
 

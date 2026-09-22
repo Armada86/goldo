@@ -168,9 +168,11 @@ a human instead of forcing it through).
 
 A Telegram message is sent every weekday run either way, listing all twenty-four combinations and
 marking each one `unchanged` (with its current value) or showing the change (old value -> new value,
-with the sample size behind the new one), followed by the direction-coherent co-flagging distribution
-(the "Co-flagging" section above) for each of the three windows — reporting only, it doesn't feed back
-into the twenty-four thresholds themselves. Unlike the interactive workflow above, this path never asks
+with the sample size behind the new one), followed by **two** direction-coherent co-flagging
+distributions for each of the three windows (the "Co-flagging" section above): the `Consensus5of7`
+one, restricted to the seven indicators `broker.py`'s live rule actually trades on, and the general
+eight-indicator research one — reporting only, neither feeds back into the twenty-four thresholds
+themselves. Unlike the interactive workflow above, this path never asks
 for approval first — that trade-off (routine drift correction with no human gate, vs. a threshold that
 can go stale between manual runs) was a deliberate choice; see `CLAUDE.md`'s "Automatic (weekday
 mornings, unattended)" workflow section for the reasoning.
