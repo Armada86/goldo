@@ -41,10 +41,17 @@ APP_KEY = os.environ.get("FOREX_APP_KEY")
 # environment turns out to need a different host -- verify against the docs portal before trusting this.
 BASE_URL = os.environ.get("FOREX_API_BASE_URL", "https://ciapi.cityindex.com/TradingAPI")
 
-# Instrument this client trades -- forex.com's exact market name for spot gold, matched exactly (not as a
-# prefix/substring) against /cfd/markets results, since that search is a loose substring match that also
-# returns "Gold - Cash", gold futures CFDs, gold ETFs, and mining stocks.
-MARKET_NAME = os.environ.get("FOREX_MARKET_NAME", "XAU/USD")
+# The ONLY instrument this client will ever place an order on: spot gold, XAU/USD. Both the name and the
+# market ID are hardcoded (deliberately not env-overridable) and both must match before an order is sent
+# -- see _assert_tradable_market(). The name is matched exactly (not as a prefix/substring) against
+# /cfd/markets results, since that search is a loose substring match that also returns "Gold - Cash",
+# gold futures CFDs, gold ETFs, and mining stocks. Changing what this client trades is a code change here,
+# on purpose, not a config tweak.
+TRADABLE_MARKET_NAME = "XAU/USD"
+TRADABLE_MARKET_ID = 401153870
+
+# Default market for read-only price quotes (get_price()); orders ignore this and always use the above.
+MARKET_NAME = TRADABLE_MARKET_NAME
 
 # Trade size, troy oz -- matches broker.py's paper-trading size so P/L stays directly comparable.
 # Confirm this is a valid tradable quantity for the instrument before ever placing a real order.
@@ -151,24 +158,42 @@ class ForexClient:
             raise ForexClientError(f"No price ticks returned for market {market_id}")
         return float(ticks[-1]["Price"])
 
-    @with_retries()
-    def place_market_order(
-        self, direction: str, market_name: str | None = None, quantity: float | None = None
-    ) -> dict:
-        """Places a market order (`direction` is "buy" or "sell") and returns
+    def _assert_tradable_market(self) -> None:
+        """Refuses to go any further unless forex.com's own lookup of TRADABLE_MARKET_NAME resolves to
+        exactly TRADABLE_MARKET_ID. Guards against the name ever matching a different market (as
+        /market/search once silently did) or the account's market ID changing underneath us -- either
+        way, no order is sent until a human re-checks and updates the constants."""
+        resolved_id = self._market_id_for(TRADABLE_MARKET_NAME)
+        if resolved_id != TRADABLE_MARKET_ID:
+            raise ForexClientError(
+                f"Refusing to trade: {TRADABLE_MARKET_NAME!r} resolved to market ID {resolved_id}, "
+                f"expected {TRADABLE_MARKET_ID}. No order was placed."
+            )
+
+    def place_market_order(self, direction: str, *, quantity: float | None = None) -> dict:
+        """Places a market order on XAU/USD (TRADABLE_MARKET_ID) -- the only market this client ever
+        trades; there is intentionally no market parameter. `direction` is "buy" or "sell". Returns
         {"order_id", "fill_price", "status"}. On a netting account, an opposite-direction order against
         an existing open position closes it rather than opening a new one -- see close_position()."""
-        market_name = market_name or MARKET_NAME
+        direction = direction.lower()
+        if direction not in ("buy", "sell"):
+            raise ForexClientError(f"direction must be 'buy' or 'sell', got {direction!r}")
         quantity = TRADE_QUANTITY if quantity is None else quantity
-        market_id = self._market_id_for(market_name)
-        offer_price = self.get_price(market_name)
+        # Checked outside the retried request below, so a failed guard stops immediately instead of
+        # being retried.
+        self._assert_tradable_market()
+        return self._send_order(direction, quantity)
+
+    @with_retries()
+    def _send_order(self, direction: str, quantity: float) -> dict:
+        offer_price = self.get_price(TRADABLE_MARKET_NAME)
         response = requests.post(
             f"{BASE_URL}/order/newtradeorder",
             headers=self._headers(),
             json={
                 "Direction": direction,
-                "MarketId": market_id,
-                "MarketName": market_name,
+                "MarketId": TRADABLE_MARKET_ID,
+                "MarketName": TRADABLE_MARKET_NAME,
                 "Quantity": quantity,
                 "OfferPrice": offer_price,
                 "TradingAccountId": self._trading_account_id,
@@ -186,15 +211,13 @@ class ForexClient:
             "status": data.get("StatusReason") or data.get("Status"),
         }
 
-    def close_position(
-        self, open_direction: str, market_name: str | None = None, quantity: float | None = None
-    ) -> dict:
+    def close_position(self, open_direction: str, *, quantity: float | None = None) -> dict:
         """Flattens an open position by placing the opposite-direction order for the same quantity --
         the standard close mechanism on a netting CFD/FX account. Confirm this account is in netting
         (not hedging) mode before relying on this; a hedging account would need a dedicated close call
         referencing the original position/order ID instead."""
         opposite = "sell" if open_direction.lower() == "buy" else "buy"
-        return self.place_market_order(opposite, market_name, quantity)
+        return self.place_market_order(opposite, quantity=quantity)
 
 
 if __name__ == "__main__":
@@ -205,7 +228,8 @@ if __name__ == "__main__":
     client = ForexClient()
     print(f"[forex_client] Logged in. trading_account_id={client._trading_account_id} "
           f"client_account_id={client._client_account_id}")
-    market_id = client._market_id_for(MARKET_NAME)
+    client._assert_tradable_market()
     price = client.get_price()
-    print(f"[forex_client] {MARKET_NAME} (market_id={market_id}) price: {price}")
+    print(f"[forex_client] {TRADABLE_MARKET_NAME} (market_id={TRADABLE_MARKET_ID}, trading lock "
+          f"verified) price: {price}")
     print("[forex_client] Connectivity check passed -- no order was placed.")

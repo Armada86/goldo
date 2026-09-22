@@ -216,7 +216,10 @@ Login, the account lookup, and the price fetch are confirmed working against the
 (`python forex_client.py` — connectivity only, never places an order). Spot gold is market `XAU/USD`
 (MarketId 401153870, min size 0.1); the lookup uses `/cfd/markets` with an exact name match, because
 `/market/search` ignores its name filter and returns the whole catalog (it silently resolved "Spot Gold" to
-an unrelated stock). Credentials are three
+an unrelated stock). **Orders are locked to XAU/USD only**: `TRADABLE_MARKET_NAME`/`TRADABLE_MARKET_ID` are hardcoded
+(not env-overridable), `place_market_order()`/`close_position()` take no market argument, and every order
+first re-resolves the name and refuses (raising `ForexClientError`, nothing sent) unless it maps to exactly
+that ID. Letting the Forex broker trade anything else is a deliberate code change, not a config tweak. Credentials are three
 optional env vars (`FOREX_USERNAME`/`FOREX_PASSWORD`/`FOREX_APP_KEY`, see `.env.example`) read the same
 `load_dotenv()`-then-`os.environ.get()` way as every other secret in this project — never read by
 `main.py`/`poll_job.py`.
