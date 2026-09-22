@@ -7,10 +7,27 @@ The two must be kept in sync by hand when the rules change (same convention as `
 
 Every trade lives only in the `trades` table in Postgres (see storage.py) -- there is deliberately no
 markdown/doc mirror to keep in sync, so a trade never requires a repo commit.
+
+**Exit check is a candle scan, not a point sample.** check_broker_trades() only ever runs once per
+poll (every 5 minutes), so a naive "compare entry price to this poll's spot price" check can miss a
+real crossing entirely: if gold spikes past the $10 target and reverses before the next poll, the
+point-in-time price at that next poll may be back under the target, and the trade would wrongly stay
+open with the missed profit unrecorded. _scan_exit_crossing() fixes this by fetching real 1-minute
+OHLC candles (fetch_candles(), Twelve Data) covering the window since the trade opened, and scanning
+each bar's high/low for the first point that actually crossed the $10 take-profit or stop-loss level
+-- catching a spike-and-reverse the next poll's point sample alone would have missed, and closing at
+the true crossing price/time rather than whatever the spot price happens to be at poll time. This
+still only *detects* the crossing at the next poll (up to ~5 minutes after the real event) -- it fixes
+correctness (the right exit price gets recorded, the trade actually closes), not notification latency.
+If the candle fetch fails or the API confirms no crossing occurred, this falls back to the previous
+point-price check unchanged, so a transient Twelve Data hiccup never leaves the Broker unable to close
+a trade at all.
 """
 
 from datetime import datetime, timezone
 
+from config import GOLD_SPOT_SYMBOL
+from data_fetcher import fetch_candles
 from notifier import send_telegram_message
 from storage import (
     close_trade_row,
@@ -24,6 +41,11 @@ from storage import (
 # .claude/agents/broker.md.
 ENTRY_WINDOW_MINUTES = 10
 EXIT_THRESHOLD = 10.0  # take-profit and stop-loss, symmetric, $ per troy ounce
+
+# How many minutes of 1-min candles the exit check pulls each poll -- comfortably more than one
+# 5-min poll interval, so a slightly late-firing poll still has full coverage back to the last
+# check. See _scan_exit_crossing() / module docstring.
+EXIT_CANDLE_LOOKBACK_MINUTES = 20
 
 # Prefix for every Broker open/close Telegram message -- distinguishes trade alerts from
 # XAU/USD price alerts (rules.XAUUSD_ALERT_PREFIX) in the chat. See rules.py's module comment
@@ -97,6 +119,58 @@ def _pnl(trade: dict, current_price: float) -> float:
     return trade["entry_price"] - current_price
 
 
+def _exit_levels(trade: dict) -> tuple[float, float]:
+    """(take_profit_price, stop_loss_price) for this trade -- both are exactly EXIT_THRESHOLD away
+    from entry, on opposite sides, mirrored for Buy vs Sell."""
+    entry = trade["entry_price"]
+    if trade["trade_type"] == "Buy":
+        return entry + EXIT_THRESHOLD, entry - EXIT_THRESHOLD
+    return entry - EXIT_THRESHOLD, entry + EXIT_THRESHOLD
+
+
+def _scan_exit_crossing(trade: dict, candles) -> tuple[float, datetime] | None:
+    """Scans 1-min OHLC candles in chronological order for the first bar whose high/low actually
+    touched this trade's take-profit or stop-loss level -- see module docstring for why this beats
+    comparing entry price to a single later point-in-time price. Returns (exit_price, exit_ts) at
+    the first bar that crossed either level, or None if neither level was touched in `candles`."""
+    take_profit, stop_loss = _exit_levels(trade)
+    is_buy = trade["trade_type"] == "Buy"
+    for _, bar in candles.iterrows():
+        hit_tp = bar["high"] >= take_profit if is_buy else bar["low"] <= take_profit
+        hit_sl = bar["low"] <= stop_loss if is_buy else bar["high"] >= stop_loss
+        if hit_tp and hit_sl:
+            # Both levels fall inside the same 1-min bar -- an OHLC bar alone can't tell which was
+            # touched first. Conservatively assume the worse outcome for this imaginary trade.
+            return stop_loss, bar["datetime"].to_pydatetime()
+        if hit_tp:
+            return take_profit, bar["datetime"].to_pydatetime()
+        if hit_sl:
+            return stop_loss, bar["datetime"].to_pydatetime()
+    return None
+
+
+def _find_exit(trade: dict, fallback_price: float, fallback_ts: datetime) -> tuple[float, datetime, float] | None:
+    """(exit_price, exit_ts, pnl) if this trade should close now, else None. Tries the real
+    intrabar candle path first; falls back to the plain point-price check (the original behavior)
+    if the candle fetch fails or turns up no crossing, so a Twelve Data hiccup never blocks a
+    trade from closing at all."""
+    try:
+        candles = fetch_candles(GOLD_SPOT_SYMBOL, interval="1min", outputsize=EXIT_CANDLE_LOOKBACK_MINUTES)
+        candles = candles[candles["datetime"] >= trade["open_ts"]]
+        crossing = _scan_exit_crossing(trade, candles)
+    except Exception:
+        crossing = None  # best-effort accuracy improvement -- fall back below, don't block on it
+
+    if crossing is not None:
+        exit_price, exit_ts = crossing
+        return exit_price, exit_ts, _pnl(trade, exit_price)
+
+    pnl = _pnl(trade, fallback_price)
+    if abs(pnl) >= EXIT_THRESHOLD:
+        return fallback_price, fallback_ts, pnl
+    return None
+
+
 def _open_message(trade_type: str, rule_name: str, price: float, triggering_text: str) -> str:
     return (
         f"{TRADE_ALERT_PREFIX}BROKER: opened {trade_type} 1 oz XAU/USD @ ${price:.2f} (rule {rule_name}).\n"
@@ -128,10 +202,11 @@ def check_broker_trades(prices: dict[str, float]) -> None:
     open_trade = get_open_trade()
 
     if open_trade is not None:
-        pnl = _pnl(open_trade, gold_price)
-        if abs(pnl) >= EXIT_THRESHOLD:
-            close_trade_row(open_trade["id"], gold_price, now, pnl)
-            send_telegram_message(_close_message(open_trade, gold_price, pnl))
+        exit_result = _find_exit(open_trade, gold_price, now)
+        if exit_result is not None:
+            exit_price, exit_ts, pnl = exit_result
+            close_trade_row(open_trade["id"], exit_price, exit_ts, pnl)
+            send_telegram_message(_close_message(open_trade, exit_price, pnl))
             open_trade = None
 
     if open_trade is None:

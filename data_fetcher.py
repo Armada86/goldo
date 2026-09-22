@@ -106,31 +106,40 @@ def fetch_daily_history(name: str, period: str = "6mo"):
 
 
 @with_retries()
-def fetch_gold_candles(interval: str = "15min", outputsize: int = 96) -> pd.DataFrame:
-    """Real OHLC candles for gold spot, straight from Twelve Data (the point
-    readings in Postgres are single prices, not bars, so they can't make
-    candles on their own). Shared by the dashboard's price panel and
-    rules.check_rsi_alerts, which both need a close-price series rather than
-    just the latest point reading."""
+def fetch_candles(symbol: str, interval: str = "15min", outputsize: int = 96) -> pd.DataFrame:
+    """Real OHLC candles for any Twelve Data symbol (the point readings in Postgres are single
+    prices, not bars, so they can't make candles on their own). Explicit timezone=UTC -- Twelve
+    Data's default (no timezone param) is not UTC, same reasoning as frequency_test.py's own
+    Twelve Data fetches (see docs/data-sources.md). Shared by fetch_gold_candles() (below) and
+    broker.py's candle-scan exit check, which needs the real intrabar high/low path rather than a
+    single point reading -- see broker.py's module docstring."""
     response = requests.get(
         "https://api.twelvedata.com/time_series",
         params={
-            "symbol": GOLD_SPOT_SYMBOL,
+            "symbol": symbol,
             "interval": interval,
             "outputsize": outputsize,
             "apikey": TWELVE_DATA_API_KEY,
+            "timezone": "UTC",
         },
         timeout=10,
     )
     response.raise_for_status()
     payload = response.json()
     if payload.get("status") != "ok":
-        raise RuntimeError(f"Twelve Data error: {payload}")
+        raise RuntimeError(f"Twelve Data error for {symbol}: {payload}")
     df = pd.DataFrame(payload["values"])
-    df["datetime"] = pd.to_datetime(df["datetime"])
+    df["datetime"] = pd.to_datetime(df["datetime"], utc=True)
     for col in ("open", "high", "low", "close"):
         df[col] = df[col].astype(float)
     return df.sort_values("datetime")
+
+
+def fetch_gold_candles(interval: str = "15min", outputsize: int = 96) -> pd.DataFrame:
+    """Real OHLC candles for gold spot specifically -- see fetch_candles(). Used by
+    rules.check_rsi_alerts, which needs a close-price series rather than just the latest point
+    reading. Not @with_retries() itself; fetch_candles() already is."""
+    return fetch_candles(GOLD_SPOT_SYMBOL, interval=interval, outputsize=outputsize)
 
 
 def compute_rsi(close: pd.Series, period: int = 14) -> pd.Series:
