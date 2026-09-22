@@ -14,7 +14,7 @@ table, so the two engines' open positions/watermarks never interact.
 
 from datetime import datetime, timezone
 
-from broker import CORRELATION_WINDOW_MINUTES, EXIT_THRESHOLD, _match_entry_rule, _pnl, _triggering_text
+from broker import ENTRY_WINDOW_MINUTES, EXIT_THRESHOLD, _match_entry_rule, _pnl, _triggering_text
 from forex_client import ForexClient, ForexClientError, ForexOrderUncertainError
 from notifier import send_telegram_message
 from storage import (
@@ -55,7 +55,7 @@ def _report_uncertain_order(action: str, error: ForexOrderUncertainError) -> Non
 
 
 def check_forex_broker_trades(prices: dict[str, float]) -> None:
-    """Same GLD-DXY-US10Y-buy/-sell trigger logic as broker.check_broker_trades() (imported from
+    """Same Consensus5of7-buy/-sell entry trigger logic as broker.check_broker_trades() (imported from
     broker.py, not re-implemented), executed against the real FOREX.com demo account instead of just
     writing a row to Postgres. Every call that finds an entry/exit condition places or closes a live
     order on that demo account -- never call this from an automated path."""
@@ -89,7 +89,7 @@ def check_forex_broker_trades(prices: dict[str, float]) -> None:
 
     if open_trade is None:
         watermark = get_last_forex_trade_open_ts()
-        alerts = get_recent_alerts(minutes=CORRELATION_WINDOW_MINUTES)
+        alerts = get_recent_alerts(minutes=ENTRY_WINDOW_MINUTES)
         if watermark is not None:
             alerts = [(ts, message) for ts, message in alerts if ts > watermark]
 

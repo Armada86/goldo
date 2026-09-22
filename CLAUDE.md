@@ -214,7 +214,7 @@ trade never requires a repo commit; `poll.yml` doesn't need write access to the 
 **Forex broker (`forex_broker.py`, `forex_client.py`) — built but deliberately disconnected**: a second
 paper-trading engine, the "Forex" broker, that runs the *identical* entry/exit rules as `broker.py`'s
 Broker (`forex_broker.py` imports `_match_entry_rule`/`_triggering_text`/`_pnl`/
-`CORRELATION_WINDOW_MINUTES`/`EXIT_THRESHOLD` directly from `broker.py` rather than re-implementing them,
+`ENTRY_WINDOW_MINUTES`/`EXIT_THRESHOLD` directly from `broker.py` rather than re-implementing them,
 so the two rule sets can't drift apart) but, instead of only writing an imaginary trade to Postgres,
 places and closes real orders against a FOREX.com **demo** account via `forex_client.ForexClient`
 (GAIN Capital's session-based REST "TradingAPI" — login with `FOREX_USERNAME`/`FOREX_PASSWORD`/
