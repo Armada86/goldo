@@ -28,3 +28,6 @@ jobs:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
           ROUTINE_FIRE_URL: ${{ secrets.ROUTINE_FIRE_URL }}
           ROUTINE_FIRE_TOKEN: ${{ secrets.ROUTINE_FIRE_TOKEN }}
+          FOREX_USERNAME: ${{ secrets.FOREX_USERNAME }}
+          FOREX_PASSWORD: ${{ secrets.FOREX_PASSWORD }}
+          FOREX_APP_KEY: ${{ secrets.FOREX_APP_KEY }}
