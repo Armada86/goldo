@@ -29,6 +29,9 @@ automatic poll loop either.
 """
 
 import os
+import re
+import time
+from datetime import datetime, timezone
 
 import requests
 from dotenv import load_dotenv
@@ -63,6 +66,11 @@ MARKET_NAME = TRADABLE_MARKET_NAME
 TRADE_QUANTITY = float(os.environ.get("FOREX_TRADE_QUANTITY", "1"))
 
 
+# How many times (1s apart) attach_take_profit_and_stop_loss() looks for a just-opened position before
+# giving up -- the live test order took under 3s to show up in /order/openpositions.
+POSITION_LOOKUP_ATTEMPTS = 5
+
+
 class ForexClientError(Exception):
     """Raised for a missing-credentials setup or any unexpected/unsuccessful forex.com API response."""
 
@@ -87,6 +95,12 @@ def _fill_price(data: dict, offer_price: float) -> float:
         f"using pre-trade quote {offer_price} as fill_price"
     )
     return float(offer_price)
+
+
+def _parse_ms_date(value: str | None) -> datetime | None:
+    """Parses GAIN's "/Date(1790115901267)/" (ms since the epoch, UTC) timestamps."""
+    match = re.fullmatch(r"/Date\((-?\d+)\)/", value or "")
+    return datetime.fromtimestamp(int(match.group(1)) / 1000, tz=timezone.utc) if match else None
 
 
 class ForexClient:
@@ -212,39 +226,19 @@ class ForexClient:
         return self._send_order(direction, quantity, offer_price)
 
     def _send_order(self, direction: str, quantity: float, offer_price: float) -> dict:
-        """Sends the order exactly once -- deliberately NOT wrapped in with_retries(), unlike every
-        other external call in this project. A request that fails after reaching forex.com may still
-        have been filled, so retrying it could open a second position. Failures split two ways:
-        a 4xx or an explicit rejection means no order was placed (ForexClientError); anything where
-        the outcome is unknown raises ForexOrderUncertainError, carrying the account's open positions
-        if they could be read, for a human to reconcile."""
-        try:
-            response = requests.post(
-                f"{BASE_URL}/order/newtradeorder",
-                headers=self._headers(),
-                json={
-                    "Direction": direction,
-                    "MarketId": TRADABLE_MARKET_ID,
-                    "MarketName": TRADABLE_MARKET_NAME,
-                    "Quantity": quantity,
-                    "OfferPrice": offer_price,
-                    "TradingAccountId": self._trading_account_id,
-                    "ClientAccountId": self._client_account_id,
-                },
-                timeout=10,
-            )
-        except requests.RequestException as e:
-            self._raise_uncertain(direction, quantity, f"request failed: {e}")
-        if 400 <= response.status_code < 500:
-            raise ForexClientError(
-                f"Order rejected (HTTP {response.status_code}), not placed: {response.text[:500]}"
-            )
-        if response.status_code >= 500:
-            self._raise_uncertain(direction, quantity, f"HTTP {response.status_code}: {response.text[:500]}")
-        try:
-            data = response.json()
-        except ValueError:
-            self._raise_uncertain(direction, quantity, f"unreadable response: {response.text[:500]}")
+        data = self._post_once(
+            "order/newtradeorder",
+            {
+                "Direction": direction,
+                "MarketId": TRADABLE_MARKET_ID,
+                "MarketName": TRADABLE_MARKET_NAME,
+                "Quantity": quantity,
+                "OfferPrice": offer_price,
+                "TradingAccountId": self._trading_account_id,
+                "ClientAccountId": self._client_account_id,
+            },
+            f"{direction} {quantity} {TRADABLE_MARKET_NAME} order",
+        )
         if data.get("OrderId") is None:
             raise ForexClientError(f"Order rejected or unrecognized response: {data}")
         return {
@@ -253,15 +247,139 @@ class ForexClient:
             "status": data.get("StatusReason") or data.get("Status"),
         }
 
-    def _raise_uncertain(self, direction: str, quantity: float, reason: str) -> None:
+    def _post_once(self, path: str, body: dict, what: str) -> dict:
+        """POSTs an order-changing request exactly once -- deliberately NOT wrapped in with_retries(),
+        unlike every other external call in this project. A request that fails after reaching
+        forex.com may still have been applied, so retrying it could open a second position or attach
+        a second set of stop/limit orders. Failures split two ways: a 4xx means nothing was applied
+        (ForexClientError); anything where the outcome is unknown raises ForexOrderUncertainError,
+        carrying the account's open positions if they could be read, for a human to reconcile."""
+        try:
+            response = requests.post(f"{BASE_URL}/{path}", headers=self._headers(), json=body, timeout=10)
+        except requests.RequestException as e:
+            self._raise_uncertain(what, f"request failed: {e}")
+        if 400 <= response.status_code < 500:
+            raise ForexClientError(
+                f"{what} rejected (HTTP {response.status_code}), not applied: {response.text[:500]}"
+            )
+        if response.status_code >= 500:
+            self._raise_uncertain(what, f"HTTP {response.status_code}: {response.text[:500]}")
+        try:
+            return response.json()
+        except ValueError:
+            self._raise_uncertain(what, f"unreadable response: {response.text[:500]}")
+
+    def _raise_uncertain(self, what: str, reason: str) -> None:
         try:
             positions = f"open positions now: {self.get_open_positions()}"
         except Exception as e:
             positions = f"open positions could not be read ({e})"
         raise ForexOrderUncertainError(
-            f"{direction} {quantity} {TRADABLE_MARKET_NAME} order outcome unknown ({reason}) -- it may "
-            f"or may not have been filled. NOT retried. Check the demo account before acting; {positions}"
+            f"{what} outcome unknown ({reason}) -- it may or may not have been applied. NOT retried. "
+            f"Check the demo account before acting; {positions}"
         )
+
+    def attach_take_profit_and_stop_loss(
+        self, order_id, direction: str, entry_price: float, distance: float, *, quantity: float | None = None
+    ) -> dict:
+        """Attaches a take-profit (limit) and stop-loss (stop) order, each `distance` dollars from
+        `entry_price`, to the already-open position `order_id` -- visible on the forex.com platform as
+        that position's TP/SL. `direction` is the POSITION's direction ("buy"/"sell"); both exit orders
+        go the opposite way. forex.com links the two as one-cancels-the-other, good-till-cancelled, so
+        whichever triggers first closes the position and cancels the other.
+
+        Same XAU/USD lock as orders (the position itself must be on TRADABLE_MARKET_ID) and the same
+        single-attempt POST. Confirmed live (2026-09-22, position 1032567283): /order/updatetradeorder
+        with IfDone [{Stop, Limit}] on the position's OrderId modifies it in place, no new trade.
+        Returns {"stop_order_id", "stop_price", "limit_order_id", "limit_price"}."""
+        direction = direction.lower()
+        if direction not in ("buy", "sell"):
+            raise ForexClientError(f"direction must be 'buy' or 'sell', got {direction!r}")
+        quantity = TRADE_QUANTITY if quantity is None else quantity
+        self._assert_tradable_market()
+        # A just-filled position can take a moment to appear in /order/openpositions (read-only, so
+        # polling it is safe).
+        position = None
+        for attempt in range(POSITION_LOOKUP_ATTEMPTS):
+            position = next((p for p in self.get_open_positions() if p.get("OrderId") == order_id), None)
+            if position is not None or attempt == POSITION_LOOKUP_ATTEMPTS - 1:
+                break
+            time.sleep(1)
+        if position is None:
+            raise ForexClientError(f"No open position with OrderId {order_id} -- nothing to attach TP/SL to")
+        if position.get("MarketId") != TRADABLE_MARKET_ID:
+            raise ForexClientError(
+                f"Refusing: position {order_id} is on market {position.get('MarketId')}, not "
+                f"{TRADABLE_MARKET_NAME} ({TRADABLE_MARKET_ID}). Nothing was attached."
+            )
+        sign = 1 if direction == "buy" else -1
+        limit_price = round(entry_price + sign * distance, 2)
+        stop_price = round(entry_price - sign * distance, 2)
+        exit_direction = "sell" if direction == "buy" else "buy"
+        price = self.get_price(TRADABLE_MARKET_NAME)
+
+        def leg(trigger_price: float) -> dict:
+            return {
+                "TriggerPrice": trigger_price,
+                "Direction": exit_direction,
+                "Quantity": quantity,
+                "Guaranteed": False,
+                "Applicability": "GTC",
+                "OrderId": 0,
+            }
+
+        data = self._post_once(
+            "order/updatetradeorder",
+            {
+                "OrderId": order_id,
+                "MarketId": TRADABLE_MARKET_ID,
+                "Currency": "USD",
+                "AutoRollover": False,
+                "Direction": direction,
+                "Quantity": quantity,
+                "BidPrice": price,
+                "OfferPrice": price,
+                "TradingAccountId": self._trading_account_id,
+                "IfDone": [{"Stop": leg(stop_price), "Limit": leg(limit_price)}],
+            },
+            f"TP {limit_price}/SL {stop_price} on position {order_id}",
+        )
+        # OrderTypeId 2 = stop, 3 = limit (as returned for position 1032567283).
+        by_type = {o.get("OrderTypeId"): o for o in data.get("Orders") or [] if o.get("OrderId") != order_id}
+        if 2 not in by_type or 3 not in by_type:
+            raise ForexOrderUncertainError(
+                f"TP/SL request on position {order_id} returned no stop/limit orders -- check the demo "
+                f"account; response: {data}"
+            )
+        return {
+            "stop_order_id": by_type[2]["OrderId"],
+            "stop_price": float(by_type[2]["TriggerPrice"]),
+            "limit_order_id": by_type[3]["OrderId"],
+            "limit_price": float(by_type[3]["TriggerPrice"]),
+        }
+
+    @with_retries()
+    def find_closing_trade(self, order_id) -> dict | None:
+        """The trade that closed position `order_id` (e.g. its TP/SL triggering), from /order/tradehistory
+        -- the history entry, other than the opening trade itself, whose OpeningOrderIds includes
+        `order_id`. Returns {"order_id", "price", "closed_at"} or None if none is listed. NOTE: the shape
+        of a closing entry hasn't been observed live yet (only an opening one has), so callers must
+        handle None with a fallback."""
+        response = requests.get(
+            f"{BASE_URL}/order/tradehistory",
+            headers=self._headers(),
+            params={"TradingAccountId": self._trading_account_id, "maxResults": 50},
+            timeout=10,
+        )
+        response.raise_for_status()
+        for trade in response.json().get("TradeHistory") or []:
+            if trade.get("OrderId") != order_id and order_id in (trade.get("OpeningOrderIds") or []):
+                return {
+                    "order_id": trade["OrderId"],
+                    "price": float(trade["Price"]),
+                    "closed_at": _parse_ms_date(trade.get("ExecutedDateTimeUtc")),
+                }
+        return None
 
     @with_retries()
     def get_open_positions(self) -> list[dict]:

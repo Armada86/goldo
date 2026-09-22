@@ -293,7 +293,7 @@ def get_open_forex_trade() -> dict | None:
     trades or vice versa."""
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "SELECT id, rule_name, trade_type, entry_price, open_ts, triggering_alerts "
+            "SELECT id, rule_name, trade_type, entry_price, open_ts, triggering_alerts, forex_order_id "
             "FROM forex_trades WHERE status = 'Open' ORDER BY open_ts DESC LIMIT 1"
         )
         row = cur.fetchone()
@@ -306,6 +306,7 @@ def get_open_forex_trade() -> dict | None:
         "entry_price": row[3],
         "open_ts": row[4],
         "triggering_alerts": row[5],
+        "forex_order_id": row[6],
     }
 
 
