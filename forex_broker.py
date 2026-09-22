@@ -15,7 +15,7 @@ table, so the two engines' open positions/watermarks never interact.
 from datetime import datetime, timezone
 
 from broker import CORRELATION_WINDOW_MINUTES, EXIT_THRESHOLD, _match_entry_rule, _pnl, _triggering_text
-from forex_client import ForexClient, ForexClientError
+from forex_client import ForexClient, ForexClientError, ForexOrderUncertainError
 from notifier import send_telegram_message
 from storage import (
     close_forex_trade_row,
@@ -42,6 +42,18 @@ def _close_message(trade: dict, fill_price: float, pnl: float, order_id) -> str:
     )
 
 
+def _report_uncertain_order(action: str, error: ForexOrderUncertainError) -> None:
+    """An order whose outcome is unknown is not recorded in forex_trades (there may be no real position
+    behind it) and not retried (there may be one) -- it's surfaced to a human instead. Until they
+    reconcile the demo account against forex_trades, a later run can act on stale state."""
+    message = (
+        f"FOREX BROKER (demo account): could not confirm the {action} order -- CHECK THE DEMO ACCOUNT "
+        f"before running forex_broker.py again. {error}"
+    )
+    print(f"[forex_broker] {message}")
+    send_telegram_message(message)
+
+
 def check_forex_broker_trades(prices: dict[str, float]) -> None:
     """Same GLD-DXY-US10Y-buy/-sell trigger logic as broker.check_broker_trades() (imported from
     broker.py, not re-implemented), executed against the real FOREX.com demo account instead of just
@@ -63,7 +75,11 @@ def check_forex_broker_trades(prices: dict[str, float]) -> None:
     if open_trade is not None:
         pnl = _pnl(open_trade, gold_price)
         if abs(pnl) >= EXIT_THRESHOLD:
-            result = client.close_position(open_trade["trade_type"])
+            try:
+                result = client.close_position(open_trade["trade_type"])
+            except ForexOrderUncertainError as e:
+                _report_uncertain_order("close", e)
+                return
             actual_pnl = _pnl(open_trade, result["fill_price"])
             close_forex_trade_row(
                 open_trade["id"], result["fill_price"], now, actual_pnl, result["order_id"]
@@ -81,7 +97,11 @@ def check_forex_broker_trades(prices: dict[str, float]) -> None:
         if trade_type is not None:
             triggering_text = _triggering_text(alerts, trade_type)
             direction = "buy" if trade_type == "Buy" else "sell"
-            result = client.place_market_order(direction)
+            try:
+                result = client.place_market_order(direction)
+            except ForexOrderUncertainError as e:
+                _report_uncertain_order("open", e)
+                return
             insert_forex_trade(
                 rule_name, trade_type, result["fill_price"], now, triggering_text, result["order_id"]
             )

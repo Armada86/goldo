@@ -62,6 +62,13 @@ class ForexClientError(Exception):
     """Raised for a missing-credentials setup or any unexpected/unsuccessful forex.com API response."""
 
 
+class ForexOrderUncertainError(ForexClientError):
+    """An order request was sent but its outcome is unknown (timeout, dropped connection, 5xx, or an
+    unreadable response) -- forex.com may or may not have filled it. Never retry on this: check the
+    account's open positions (ForexClient.get_open_positions()) first, or a retry could double the
+    position."""
+
+
 class ForexClient:
     """One authenticated session against the forex.com demo account. Construct a fresh one per use
     (e.g. once per manual run of forex_broker.py) rather than holding it open across polls -- there's
@@ -179,30 +186,45 @@ class ForexClient:
         if direction not in ("buy", "sell"):
             raise ForexClientError(f"direction must be 'buy' or 'sell', got {direction!r}")
         quantity = TRADE_QUANTITY if quantity is None else quantity
-        # Checked outside the retried request below, so a failed guard stops immediately instead of
-        # being retried.
         self._assert_tradable_market()
-        return self._send_order(direction, quantity)
-
-    @with_retries()
-    def _send_order(self, direction: str, quantity: float) -> dict:
+        # Everything before the POST (market guard, price quote) is read-only and retried as usual.
         offer_price = self.get_price(TRADABLE_MARKET_NAME)
-        response = requests.post(
-            f"{BASE_URL}/order/newtradeorder",
-            headers=self._headers(),
-            json={
-                "Direction": direction,
-                "MarketId": TRADABLE_MARKET_ID,
-                "MarketName": TRADABLE_MARKET_NAME,
-                "Quantity": quantity,
-                "OfferPrice": offer_price,
-                "TradingAccountId": self._trading_account_id,
-                "ClientAccountId": self._client_account_id,
-            },
-            timeout=10,
-        )
-        response.raise_for_status()
-        data = response.json()
+        return self._send_order(direction, quantity, offer_price)
+
+    def _send_order(self, direction: str, quantity: float, offer_price: float) -> dict:
+        """Sends the order exactly once -- deliberately NOT wrapped in with_retries(), unlike every
+        other external call in this project. A request that fails after reaching forex.com may still
+        have been filled, so retrying it could open a second position. Failures split two ways:
+        a 4xx or an explicit rejection means no order was placed (ForexClientError); anything where
+        the outcome is unknown raises ForexOrderUncertainError, carrying the account's open positions
+        if they could be read, for a human to reconcile."""
+        try:
+            response = requests.post(
+                f"{BASE_URL}/order/newtradeorder",
+                headers=self._headers(),
+                json={
+                    "Direction": direction,
+                    "MarketId": TRADABLE_MARKET_ID,
+                    "MarketName": TRADABLE_MARKET_NAME,
+                    "Quantity": quantity,
+                    "OfferPrice": offer_price,
+                    "TradingAccountId": self._trading_account_id,
+                    "ClientAccountId": self._client_account_id,
+                },
+                timeout=10,
+            )
+        except requests.RequestException as e:
+            self._raise_uncertain(direction, quantity, f"request failed: {e}")
+        if 400 <= response.status_code < 500:
+            raise ForexClientError(
+                f"Order rejected (HTTP {response.status_code}), not placed: {response.text[:500]}"
+            )
+        if response.status_code >= 500:
+            self._raise_uncertain(direction, quantity, f"HTTP {response.status_code}: {response.text[:500]}")
+        try:
+            data = response.json()
+        except ValueError:
+            self._raise_uncertain(direction, quantity, f"unreadable response: {response.text[:500]}")
         if data.get("OrderId") is None:
             raise ForexClientError(f"Order rejected or unrecognized response: {data}")
         return {
@@ -210,6 +232,30 @@ class ForexClient:
             "fill_price": float(data.get("Price", offer_price)),
             "status": data.get("StatusReason") or data.get("Status"),
         }
+
+    def _raise_uncertain(self, direction: str, quantity: float, reason: str) -> None:
+        try:
+            positions = f"open positions now: {self.get_open_positions()}"
+        except Exception as e:
+            positions = f"open positions could not be read ({e})"
+        raise ForexOrderUncertainError(
+            f"{direction} {quantity} {TRADABLE_MARKET_NAME} order outcome unknown ({reason}) -- it may "
+            f"or may not have been filled. NOT retried. Check the demo account before acting; {positions}"
+        )
+
+    @with_retries()
+    def get_open_positions(self) -> list[dict]:
+        """Raw open positions on this trading account (read-only). Confirmed live: returns
+        {"OpenPositions": [...]}; the per-position field names haven't been seen yet (the demo account
+        had none at the time), so callers get the raw dicts."""
+        response = requests.get(
+            f"{BASE_URL}/order/openpositions",
+            headers=self._headers(),
+            params={"TradingAccountId": self._trading_account_id},
+            timeout=10,
+        )
+        response.raise_for_status()
+        return response.json().get("OpenPositions") or []
 
     def close_position(self, open_direction: str, *, quantity: float | None = None) -> dict:
         """Flattens an open position by placing the opposite-direction order for the same quantity --
@@ -232,4 +278,5 @@ if __name__ == "__main__":
     price = client.get_price()
     print(f"[forex_client] {TRADABLE_MARKET_NAME} (market_id={TRADABLE_MARKET_ID}, trading lock "
           f"verified) price: {price}")
+    print(f"[forex_client] Open positions: {client.get_open_positions()}")
     print("[forex_client] Connectivity check passed -- no order was placed.")

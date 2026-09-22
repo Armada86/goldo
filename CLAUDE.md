@@ -219,7 +219,13 @@ Login, the account lookup, and the price fetch are confirmed working against the
 an unrelated stock). **Orders are locked to XAU/USD only**: `TRADABLE_MARKET_NAME`/`TRADABLE_MARKET_ID` are hardcoded
 (not env-overridable), `place_market_order()`/`close_position()` take no market argument, and every order
 first re-resolves the name and refuses (raising `ForexClientError`, nothing sent) unless it maps to exactly
-that ID. Letting the Forex broker trade anything else is a deliberate code change, not a config tweak. Credentials are three
+that ID. Letting the Forex broker trade anything else is a deliberate code change, not a config tweak. **Order
+placement is a single attempt** — the one deliberate exception to "every external call is wrapped in
+`retry.with_retries()`", since retrying a request that forex.com may already have filled could double the
+position. A 4xx or explicit rejection raises `ForexClientError` (nothing placed); a timeout, dropped
+connection, 5xx, or unreadable response raises `ForexOrderUncertainError` (outcome unknown, with the
+account's open positions from `/order/openpositions` attached). `forex_broker.py` catches the latter, sends
+a Telegram warning to check the demo account, and records nothing in `forex_trades`. Credentials are three
 optional env vars (`FOREX_USERNAME`/`FOREX_PASSWORD`/`FOREX_APP_KEY`, see `.env.example`) read the same
 `load_dotenv()`-then-`os.environ.get()` way as every other secret in this project — never read by
 `main.py`/`poll_job.py`.
