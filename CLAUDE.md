@@ -188,6 +188,35 @@ markdown/doc log of trades — the `trades` table (`id`, `rule_name`, `trade_typ
 `open_ts`, `triggering_alerts`, `exit_price`, `close_ts`, `pnl`, `status`) is the only record, so a
 trade never requires a repo commit; `poll.yml` doesn't need write access to the repo for this reason.
 
+**Forex broker (`forex_broker.py`, `forex_client.py`) — built but deliberately disconnected**: a second
+paper-trading engine, the "Forex" broker, that runs the *identical* entry/exit rules as `broker.py`'s
+Broker (`forex_broker.py` imports `_match_entry_rule`/`_triggering_text`/`_pnl`/
+`CORRELATION_WINDOW_MINUTES`/`EXIT_THRESHOLD` directly from `broker.py` rather than re-implementing them,
+so the two rule sets can't drift apart) but, instead of only writing an imaginary trade to Postgres,
+places and closes real orders against a FOREX.com **demo** account via `forex_client.ForexClient`
+(GAIN Capital's session-based REST "TradingAPI" — login with `FOREX_USERNAME`/`FOREX_PASSWORD`/
+`FOREX_APP_KEY`, then market search / order placement / opposite-direction close). Trade state lives in
+its own `forex_trades` table (same shape as `trades` plus `forex_order_id`/`forex_close_order_id` for
+traceability against the real orders) — entirely separate from `broker.py`'s `trades` table, so the two
+engines' open positions and watermarks never interact.
+
+**Not wired into the automatic poll cycle** — `main.py`/`poll_job.py` never import `forex_broker`, and
+no GitHub Actions workflow references it. `check_forex_broker_trades()` only runs when called directly;
+`forex_broker.py`'s own `__main__` block is the one supported way to fire it (`python forex_broker.py`),
+which fetches prices once and checks the rules once against the real demo account — it does not loop or
+schedule itself. Keep it disconnected from `main.poll_once()` unless the user explicitly asks to connect
+it — this is a deliberate, standing exception to "adding an indicator/mechanism makes it show up
+everywhere automatically."
+
+`forex_client.py`'s endpoint paths/JSON field names were reconstructed from third-party client
+implementations, not forex.com's official (login-gated) API reference — its module docstring lists what
+to verify against the real docs portal (exact field names, whether the demo account nets an
+opposite-direction order into a close vs. needing a dedicated close call, the exact tradable market name
+and minimum quantity for spot gold) before it's ever pointed at a live call. Credentials are three
+optional env vars (`FOREX_USERNAME`/`FOREX_PASSWORD`/`FOREX_APP_KEY`, see `.env.example`) read the same
+`load_dotenv()`-then-`os.environ.get()` way as every other secret in this project — never read by
+`main.py`/`poll_job.py`.
+
 **NFP fundamental-analysis data (`nfp_reports` table)**: `docs/fundamental-analyst-nfp-log.md` used to
 hold a hand-maintained markdown table of Non-Farm Payrolls release data (previous/expected/actual
 figures plus gold spot's reaction at +5/10/30min/1h/2h) — that raw data now lives in Postgres instead,

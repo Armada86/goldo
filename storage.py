@@ -55,6 +55,24 @@ def init_db() -> None:
         )
         cur.execute(
             """
+            CREATE TABLE IF NOT EXISTS forex_trades (
+                id SERIAL PRIMARY KEY,
+                rule_name TEXT NOT NULL,
+                trade_type TEXT NOT NULL,
+                entry_price DOUBLE PRECISION NOT NULL,
+                open_ts TIMESTAMPTZ NOT NULL,
+                triggering_alerts TEXT NOT NULL,
+                forex_order_id TEXT NOT NULL,
+                exit_price DOUBLE PRECISION,
+                close_ts TIMESTAMPTZ,
+                pnl DOUBLE PRECISION,
+                forex_close_order_id TEXT,
+                status TEXT NOT NULL DEFAULT 'Open'
+            )
+            """
+        )
+        cur.execute(
+            """
             CREATE TABLE IF NOT EXISTS threshold_history (
                 id SERIAL PRIMARY KEY,
                 date DATE NOT NULL,
@@ -246,6 +264,91 @@ def close_trade_row(trade_id: int, exit_price: float, close_ts: datetime, pnl: f
         cur.execute(
             "UPDATE trades SET exit_price = %s, close_ts = %s, pnl = %s, status = 'Closed' WHERE id = %s",
             (exit_price, close_ts, pnl, trade_id),
+        )
+
+
+def get_open_forex_trade() -> dict | None:
+    """The Forex broker's single open real (demo-account) trade, if any -- see forex_broker.py. Mirrors
+    get_open_trade() but reads the separate forex_trades table, so it never sees broker.py's imaginary
+    trades or vice versa."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, rule_name, trade_type, entry_price, open_ts, triggering_alerts "
+            "FROM forex_trades WHERE status = 'Open' ORDER BY open_ts DESC LIMIT 1"
+        )
+        row = cur.fetchone()
+    if row is None:
+        return None
+    return {
+        "id": row[0],
+        "rule_name": row[1],
+        "trade_type": row[2],
+        "entry_price": row[3],
+        "open_ts": row[4],
+        "triggering_alerts": row[5],
+    }
+
+
+def get_last_forex_trade_open_ts() -> datetime | None:
+    """Open timestamp of the most recent forex_trades row (open or closed) -- the watermark
+    forex_broker.py uses so an already-acted-on alert can't trigger a second trade."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT open_ts FROM forex_trades ORDER BY open_ts DESC LIMIT 1")
+        row = cur.fetchone()
+    return row[0] if row else None
+
+
+def get_all_forex_trades() -> list[dict]:
+    """Every Forex-broker trade, oldest first -- for ad hoc querying/analysis; not used by
+    forex_broker.py's own trading logic, which only needs the single open trade."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT rule_name, trade_type, entry_price, open_ts, triggering_alerts, forex_order_id, "
+            "exit_price, close_ts, pnl, forex_close_order_id, status FROM forex_trades ORDER BY open_ts"
+        )
+        rows = cur.fetchall()
+    return [
+        {
+            "rule_name": r[0],
+            "trade_type": r[1],
+            "entry_price": r[2],
+            "open_ts": r[3],
+            "triggering_alerts": r[4],
+            "forex_order_id": r[5],
+            "exit_price": r[6],
+            "close_ts": r[7],
+            "pnl": r[8],
+            "forex_close_order_id": r[9],
+            "status": r[10],
+        }
+        for r in rows
+    ]
+
+
+def insert_forex_trade(
+    rule_name: str,
+    trade_type: str,
+    entry_price: float,
+    open_ts: datetime,
+    triggering_alerts: str,
+    forex_order_id,
+) -> None:
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO forex_trades (rule_name, trade_type, entry_price, open_ts, triggering_alerts, "
+            "forex_order_id, status) VALUES (%s, %s, %s, %s, %s, %s, 'Open')",
+            (rule_name, trade_type, entry_price, open_ts, triggering_alerts, str(forex_order_id)),
+        )
+
+
+def close_forex_trade_row(
+    trade_id: int, exit_price: float, close_ts: datetime, pnl: float, forex_close_order_id
+) -> None:
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE forex_trades SET exit_price = %s, close_ts = %s, pnl = %s, "
+            "forex_close_order_id = %s, status = 'Closed' WHERE id = %s",
+            (exit_price, close_ts, pnl, str(forex_close_order_id), trade_id),
         )
 
 
