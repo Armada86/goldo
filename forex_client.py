@@ -5,18 +5,23 @@ placement/flattening.
 CAVEAT: forex.com's official API reference (docs.labs.gaincapital.com) is gated behind a login this
 session doesn't have, so the endpoint paths and JSON field names below are reconstructed from
 independent third-party client implementations (gcapi-python, the `forexcom` PyPI package, and an
-archived docs.labs.cityindex.com HTTP-services page) rather than the official spec. Before this module
-is ever used against the real demo account, log in to the docs portal (you have the account for it) and
-confirm:
-  - the exact request/response field names for /order/newtradeorder (not yet exercised)
+archived docs.labs.cityindex.com HTTP-services page) rather than the official spec. Still unconfirmed:
   - whether this account nets an opposite-direction order into a closed position (assumed in
-    close_position() below) or requires a dedicated close/cancel call referencing the original order
+    close_position() below) or requires a dedicated close/cancel call referencing the original order.
+    /order/openpositions reports PositionMethodId 1 for this account, likely netting, but no close has
+    been exercised yet.
 
 Confirmed against the live demo account (connectivity check, 2026-09-22): login, the account lookup,
 /cfd/markets and /market/{id}/tickhistory all work as written. Spot gold is market "XAU/USD" (MarketId
 401153870, min size 0.1, max 1000). /market/search turned out to ignore its MarketName filter entirely and
 return the whole catalog in MarketId order (so the first result was an unrelated stock), which is why the
 lookup below uses /cfd/markets and requires an exact name match rather than taking the first hit.
+
+Confirmed by a real test order (buy 1 XAU/USD, 2026-09-22 18:25 ET, OrderId 1032567283): the
+/order/newtradeorder request fields below are accepted as-is. The response's top-level has OrderId/Status/
+StatusReason but NO Price -- the executed price is only in Orders[] (the entry whose OrderId matches), e.g.
+{"Status": 1, "OrderId": 1032567283, "Orders": [{"OrderId": 1032567283, "Price": 4364.4, "Quantity": 1.0,
+"Status": 3, "CommissionCharge": -0.4, ...}], ...}.
 
 Nothing in this project imports or calls this module automatically -- it only talks to forex.com when
 something explicitly constructs a ForexClient. See forex_broker.py, which is itself not wired into the
@@ -67,6 +72,21 @@ class ForexOrderUncertainError(ForexClientError):
     unreadable response) -- forex.com may or may not have filled it. Never retry on this: check the
     account's open positions (ForexClient.get_open_positions()) first, or a retry could double the
     position."""
+
+
+def _fill_price(data: dict, offer_price: float) -> float:
+    """Executed price from a /order/newtradeorder response -- it lives on the matching Orders[] entry,
+    not the top level (see module docstring). The order was placed either way (the caller already saw an
+    OrderId), so a missing price falls back to the pre-trade quote with a loud log line rather than
+    raising, which would leave a real position unrecorded."""
+    for order in data.get("Orders") or []:
+        if order.get("OrderId") == data["OrderId"] and order.get("Price") is not None:
+            return float(order["Price"])
+    print(
+        f"[forex_client] WARNING: no executed price in order {data['OrderId']} response; "
+        f"using pre-trade quote {offer_price} as fill_price"
+    )
+    return float(offer_price)
 
 
 class ForexClient:
@@ -229,7 +249,7 @@ class ForexClient:
             raise ForexClientError(f"Order rejected or unrecognized response: {data}")
         return {
             "order_id": data["OrderId"],
-            "fill_price": float(data.get("Price", offer_price)),
+            "fill_price": _fill_price(data, offer_price),
             "status": data.get("StatusReason") or data.get("Status"),
         }
 
@@ -245,9 +265,9 @@ class ForexClient:
 
     @with_retries()
     def get_open_positions(self) -> list[dict]:
-        """Raw open positions on this trading account (read-only). Confirmed live: returns
-        {"OpenPositions": [...]}; the per-position field names haven't been seen yet (the demo account
-        had none at the time), so callers get the raw dicts."""
+        """Raw open positions on this trading account (read-only), from {"OpenPositions": [...]}.
+        Confirmed live; each entry includes OrderId, MarketId, MarketName, Direction ("buy"/"sell"),
+        Quantity, Price (entry), Status, and PositionMethodId, among others."""
         response = requests.get(
             f"{BASE_URL}/order/openpositions",
             headers=self._headers(),

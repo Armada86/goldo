@@ -233,10 +233,12 @@ everywhere automatically."
 
 `forex_client.py`'s endpoint paths/JSON field names were reconstructed from third-party client
 implementations, not forex.com's official (login-gated) API reference — its module docstring lists what
-to verify against the real docs portal (order-placement field names, whether the demo account nets an
-opposite-direction order into a close vs. needing a dedicated close call) before an order is ever placed.
-Login, the account lookup, and the price fetch are confirmed working against the live demo account
-(`python forex_client.py` — connectivity only, never places an order). Spot gold is market `XAU/USD`
+to verify against the real docs portal — now just whether the demo account nets an opposite-direction
+order into a close vs. needing a dedicated close call. Login, the account lookup, the price fetch
+(`python forex_client.py` — connectivity only, never places an order), and order placement (one manual
+test buy of 1 oz XAU/USD, 2026-09-22) are confirmed working against the live demo account. The order
+response's executed price is in its `Orders[]` entry, not the top level — `_fill_price()` reads it from
+there (reading the top level silently fell back to the pre-trade quote, $0.34 off on the test order). Spot gold is market `XAU/USD`
 (MarketId 401153870, min size 0.1); the lookup uses `/cfd/markets` with an exact name match, because
 `/market/search` ignores its name filter and returns the whole catalog (it silently resolved "Spot Gold" to
 an unrelated stock). **Orders are locked to XAU/USD only**: `TRADABLE_MARKET_NAME`/`TRADABLE_MARKET_ID` are hardcoded
