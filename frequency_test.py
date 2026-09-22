@@ -21,11 +21,14 @@ docs/data-sources.md) -- Twelve Data's "USDX"/"DX" symbols look plausible but re
 unrelated tickers (confirmed via its own symbol_search), not the Dollar Index.
 
 run_frequency_test() also returns a directional co-flagging distribution per window (how many
-of the eight indicators, at each gold event, both crossed their own threshold AND moved in the
-direction broker.py's Consensus6of8 rule actually requires -- same direction as gold for the
-six ETFs, opposite for dxy/us10y). This replaced an earlier magnitude-only co-flagging analysis
-that counted a "flag" regardless of direction, which overstated real co-flagging since it
-credited an indicator crossing its threshold in the wrong direction -- not a signal the Broker
+of the eight indicators, at each gold event, both crossed their own threshold AND moved
+direction-coherent with gold -- same direction as gold for the six ETFs, opposite for
+dxy/us10y). This study still covers all eight regardless of which ones broker.py actually
+trades on (currently Consensus5of7 -- gld/iau/gldm/gdx/gdxj/ring/dxy; us10y is alerted/
+frequency-tested like the rest but not part of that rule -- see .claude/agents/broker.md).
+This replaced an earlier magnitude-only co-flagging analysis that counted a "flag" regardless
+of direction, which overstated real co-flagging since it credited an indicator crossing its
+threshold in the wrong direction -- not a signal the Broker
 would ever act on.
 
 Run: python frequency_test.py
@@ -62,11 +65,13 @@ YFINANCE_NAMES = ["dxy", "us10y"]
 ET = ZoneInfo("America/New_York")
 PREVIOUS_WINDOW_GAP = timedelta(minutes=5)  # one poll interval, same rising-edge convention as rules.py
 
-# broker.py's Consensus6of8 rule requires these six to move the SAME direction gold itself
-# moved, and dxy/us10y to move the OPPOSITE direction -- see co_flagging_distribution() below,
-# which uses this same split to decide whether a threshold-crossing is a coherent "flag" or
-# just a same-magnitude move in the wrong direction (broker.GOLD_DIRECTION_NAMES/
-# INVERSE_DIRECTION_NAMES duplicate these; kept separate since frequency_test.py has no
+# This study's own directional split: gld/iau/gldm/gdx/gdxj/ring move the SAME direction gold
+# itself moved, dxy/us10y move the OPPOSITE direction -- see co_flagging_distribution() below,
+# which uses this split to decide whether a threshold-crossing is a coherent "flag" or just a
+# same-magnitude move in the wrong direction. Covers all eight regardless of which ones
+# broker.py actually trades on (currently Consensus5of7 -- gld/iau/gldm/gdx/gdxj/ring/dxy, no
+# us10y; broker.GOLD_DIRECTION_NAMES/INVERSE_DIRECTION_NAMES duplicate the trading subset of
+# this split; kept separate since frequency_test.py has no
 # dependency on broker.py).
 SAME_DIRECTION_NAMES = ["gld", "iau", "gldm", "gdx", "gdxj", "ring"]
 INVERSE_DIRECTION_NAMES = ["dxy", "us10y"]
@@ -204,10 +209,10 @@ def co_flagging_distribution(
     thresholds: dict[str, float | None],
 ) -> dict:
     """At each gold event, counts how many of the eight indicators both crossed their own
-    threshold for this window AND moved in the direction broker.py's Consensus6of8 rule
-    actually requires (SAME_DIRECTION_NAMES with gold, INVERSE_DIRECTION_NAMES against it) --
-    unlike a plain magnitude-only co-flag count, an indicator that crossed its threshold in the
-    wrong direction does not count as a flag here, since the Broker would not credit it either.
+    threshold for this window AND moved direction-coherent with gold (SAME_DIRECTION_NAMES with
+    gold, INVERSE_DIRECTION_NAMES against it) -- covers all eight regardless of which ones
+    broker.py actually trades on. Unlike a plain magnitude-only co-flag count, an indicator that
+    crossed its threshold in the wrong direction does not count as a flag here.
     Returns {"n_events", "distribution" (>=1..>=8 -> count), "per_indicator" (name -> count)}."""
     per_event_flags = []
     per_indicator = {name: 0 for name in series}
@@ -280,7 +285,7 @@ def run_frequency_test() -> tuple[dict[str, dict[int, dict]], dict[int, dict]]:
                 print(f"  {window:2d} min: no usable data (n=0/{len(events)})")
 
     co_flags: dict[int, dict] = {}
-    print("\nCo-flagging (magnitude AND direction coherent with gold, per broker.py's Consensus6of8 rule):")
+    print("\nCo-flagging (magnitude AND direction coherent with gold, all eight indicators):")
     for window in INTRAHOUR_SWING_WINDOWS_MINUTES:
         thresholds = {name: results[name][window]["avg"] for name in series}
         co_flags[window] = co_flagging_distribution(

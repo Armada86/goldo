@@ -37,7 +37,7 @@ from storage import (
     insert_trade,
 )
 
-# Consensus6of8-buy / Consensus6of8-sell entry window and exit target -- see
+# Consensus5of7-buy / Consensus5of7-sell entry window and exit target -- see
 # .claude/agents/broker.md.
 ENTRY_WINDOW_MINUTES = 10
 EXIT_THRESHOLD = 10.0  # take-profit and stop-loss, symmetric, $ per troy ounce
@@ -53,13 +53,15 @@ EXIT_CANDLE_LOOKBACK_MINUTES = 20
 TRADE_ALERT_PREFIX = "\U0001f535 "  # blue circle
 
 # The six physically/mining-correlated gold ETFs must flag the same direction gold itself is
-# presumed to be moving; dxy/us10y (inversely correlated with gold) must flag the opposite
-# direction. A trade only needs MIN_FLAGGING_COUNT of these eight to actually flag, not all of
-# them, and each can flag from any of its own 15/10/5-min windows -- see
-# .claude/agents/broker.md's Consensus6of8 rules.
+# presumed to be moving; dxy (inversely correlated with gold) must flag the opposite direction.
+# us10y was dropped from the Broker's indicator set entirely (it's still alerted/frequency-tested
+# like the others -- see rules.py/frequency_test.py -- just no longer part of this rule). A trade
+# only needs MIN_FLAGGING_COUNT of these seven to actually flag, not all of them, and each can
+# flag from any of its own 15/10/5-min windows -- see .claude/agents/broker.md's Consensus5of7
+# rules.
 GOLD_DIRECTION_NAMES = ["gld", "iau", "gldm", "gdx", "gdxj", "ring"]
-INVERSE_DIRECTION_NAMES = ["dxy", "us10y"]
-MIN_FLAGGING_COUNT = 6
+INVERSE_DIRECTION_NAMES = ["dxy"]
+MIN_FLAGGING_COUNT = 5
 
 
 def _has_alert(alerts: list[tuple[datetime, str]], name: str, direction: str) -> bool:
@@ -93,7 +95,7 @@ def _count_flagging(alerts: list[tuple[datetime, str]], direction_map: dict[str,
 
 def _match_entry_rule(alerts: list[tuple[datetime, str]]):
     """Returns (trade_type, rule_name), or (None, None) if neither direction has at least
-    MIN_FLAGGING_COUNT of the eight indicators flagging in the required direction. If both
+    MIN_FLAGGING_COUNT of the seven indicators flagging in the required direction. If both
     directions independently reach the threshold at once (a genuine conflict in the alert
     stream), no trade opens either way -- an incoherent signal is not acted on."""
     buy_count = _count_flagging(alerts, _entry_direction_map("Buy"))
@@ -101,9 +103,9 @@ def _match_entry_rule(alerts: list[tuple[datetime, str]]):
     buy_ok = buy_count >= MIN_FLAGGING_COUNT
     sell_ok = sell_count >= MIN_FLAGGING_COUNT
     if buy_ok and not sell_ok:
-        return "Buy", "Consensus6of8-buy"
+        return "Buy", "Consensus5of7-buy"
     if sell_ok and not buy_ok:
-        return "Sell", "Consensus6of8-sell"
+        return "Sell", "Consensus5of7-sell"
     return None, None
 
 
@@ -190,7 +192,7 @@ def _close_message(trade: dict, exit_price: float, pnl: float) -> str:
 def check_broker_trades(prices: dict[str, float]) -> None:
     """Runs once per poll, after this cycle's alerts are saved. Closes the open trade (if any) the
     moment its unrealized P/L reaches the $10 take-profit/stop-loss, then looks for a fresh
-    Consensus6of8-buy/-sell entry signal -- at least MIN_FLAGGING_COUNT (6) of the eight
+    Consensus5of7-buy/-sell entry signal -- at least MIN_FLAGGING_COUNT (5) of the seven
     intrahour-swing indicators, in the required directions, landing in the alerts table within the
     trailing ENTRY_WINDOW_MINUTES (10) minutes. See .claude/agents/broker.md for the rules
     themselves."""

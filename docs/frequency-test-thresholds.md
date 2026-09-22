@@ -77,11 +77,17 @@ previous all-5-minute-bar methodology.
 
 At each moment gold itself crossed $5/$10/$15, how many of the eight indicators *also* crossed their
 own companion-swing threshold in that identical window, moving the direction that actually matters?
-"Flagging" here requires **both** conditions broker.py's `Consensus6of8` rule requires: the indicator's
-own swing, in that window, reached its threshold from the table above, **and** its direction was
-coherent with gold's — GLD/IAU/GLDM/GDX/GDXJ/RING moving the *same* direction gold moved, DXY/US10Y
-moving the *opposite* direction. An indicator that merely crossed its threshold in the wrong direction
-does not count as a flag.
+"Flagging" here requires **both** conditions: the indicator's own swing, in that window, reached its
+threshold from the table above, **and** its direction was coherent with gold's — GLD/IAU/GLDM/GDX/
+GDXJ/RING moving the *same* direction gold moved, DXY/US10Y moving the *opposite* direction. An
+indicator that merely crossed its threshold in the wrong direction does not count as a flag.
+
+**This table still studies all eight indicators, including US10Y** — it's a general research artifact
+of `frequency_test.py`'s methodology, independent of what the Broker actually trades on. Broker's own
+live rule changed after this table was last computed: it's now `Consensus5of7` (dropped US10Y
+entirely, threshold now 5 of the remaining 7 — see `.claude/agents/broker.md`), not the `Consensus6of8`
+this table was originally built to mirror. The ≥N rows below are not a direct read on
+`Consensus5of7`'s firing rate as a result — see the "Reading this table" note below for specifics.
 
 This replaces an earlier version of this table that counted a flag on magnitude alone, regardless of
 direction — that version overstated real co-flagging (crediting e.g. DXY for a same-magnitude move in
@@ -117,17 +123,23 @@ correct direction):
 | DXY | 32 | 103 | 58 |
 | US10Y | 35 | 111 | 68 |
 
-**Reading this table**: the ≥6-of-8 row is the one that matters most in practice — it's the same
-threshold `broker.MIN_FLAGGING_COUNT` uses — and lands at 16.1%/19.7%/19.6% of gold's own qualifying
-events (5/10/15-min), barely different from the old magnitude-only ≥6 figures (18.4%/23.0%/19.6%). The
-direction filter mostly doesn't matter for the six ETFs, which move with gold the overwhelming majority
-of the time they cross their threshold at all (e.g. GLD: 348 directional flags of 371 magnitude-only
-flags at 5-min, ~94% coherent). It matters a great deal for DXY/US10Y: at 5-min, DXY crossed its own
-threshold 65 times but was only inversely correlated with gold on 32 of those (~49%, a coin flip); at
-10-min DXY's coherence rate is stronger. **Treat this as an upper bound on how often the Broker's
-`Consensus6of8` rule could plausibly fire, not a measured trade-open rate** — this table still anchors
-each check to a moment gold itself crossed the study's own $5/$10/$15 bar, while the Broker's actual
-rule scans a rolling `alerts` table over its own trailing `ENTRY_WINDOW_MINUTES` (10) window independent
+**Reading this table**: the ≥6-of-8 row was the one that mattered when this was built (it matched
+`Consensus6of8`'s old threshold), and lands at 16.1%/19.7%/19.6% of gold's own qualifying events
+(5/10/15-min), barely different from the old magnitude-only ≥6 figures (18.4%/23.0%/19.6%). Now that
+Broker's live rule is `Consensus5of7` (US10Y dropped, 5-of-7 not 6-of-8), **neither the ≥5 nor the ≥6
+row is an exact match** — ≥5-of-8 is close in spirit (same count threshold as `Consensus5of7`) but
+still includes US10Y as one of the eight candidates and still requires that count out of 8, not 7, so
+it isn't the same population; treat ≥5-of-8's 20.8%/26.5%/25.9% as a rough proxy, not the real figure.
+Getting the actual `Consensus5of7` rate would need a fresh study run on just the 7 indicators
+Broker now uses — not done here, since this table wasn't rebuilt for this change. The direction filter
+mostly doesn't matter for the six ETFs, which move with gold the overwhelming majority of the time they
+cross their threshold at all (e.g. GLD: 348 directional flags of 371 magnitude-only flags at 5-min,
+~94% coherent). It matters a great deal for DXY/US10Y: at 5-min, DXY crossed its own threshold 65 times
+but was only inversely correlated with gold on 32 of those (~49%, a coin flip); at 10-min DXY's
+coherence rate is stronger. **Treat any of these rows as an upper bound on how often a Broker-style rule
+could plausibly fire, not a measured trade-open rate** — this table still anchors each check to a moment
+gold itself crossed the study's own $5/$10/$15 bar, while the Broker's actual rule scans a rolling
+`alerts` table over its own trailing `ENTRY_WINDOW_MINUTES` (10) window independent
 of whether gold's own move happened to also qualify as one of this table's events.
 
 ## Alerting
@@ -136,10 +148,12 @@ Every one of these twenty-four threshold values is wired into `rules.check_intra
 alerts to Telegram — no window or indicator here is backtest-only. A poll can produce anywhere from
 zero to twenty-four of these alerts (three windows x eight indicators) in a single cycle, each
 rising-edge deduped per window so a sustained swing alerts once, not repeatedly for the rest of the
-window. IAU, GLDM, GDX, GDXJ, and RING are alerted and re-tuned exactly like GLD, and are now also
-referenced by the Broker's paper-trading rules (`.claude/agents/broker.md`) — the `Consensus6of8-buy`/
-`-sell` rules require at least 6 of all eight of these indicators to flag together (in the correct
-direction) within a trailing 10-minute window, not just GLD/DXY/US10Y.
+window. IAU, GLDM, GDX, GDXJ, and RING are alerted and re-tuned exactly like GLD, and are also
+referenced by the Broker's paper-trading rules (`.claude/agents/broker.md`) — the `Consensus5of7-buy`/
+`-sell` rules require at least 5 of seven of these indicators (GLD/IAU/GLDM/GDX/GDXJ/RING/DXY) to flag
+together (in the correct direction) within a trailing 10-minute window, not just GLD/DXY. US10Y is
+alerted/re-tuned the same as the rest but is deliberately excluded from the Broker's indicator set
+(dropped when the rule changed from `Consensus6of8` to `Consensus5of7`).
 
 ## Weekday auto-tuning
 

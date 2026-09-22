@@ -147,11 +147,14 @@ the value from two polls back instead of one).
   (`docs/technical-analyst-ring-log.md`, holding mining-company shares rather than gold itself, so
   leveraged/noisier than the physical ETFs) — all five added the same way, alerted/frequency-tested
   identically to gld, and — like gld — now also referenced by the Broker's paper-trading rules below
-  (`Consensus6of8-buy`/`-sell`, requiring at least 6 of all eight of these indicators) — dxy
-  (0.0445/0.0223/0.0147 index points, see `docs/technical-analyst-dxy-log.md`), and us10y
-  (0.0071/0.0035/0.0025 yield points, see `docs/technical-analyst-us10y-log.md`) — there is no single
-  60-min window anymore; it was replaced by these three shorter windows so each of these price/rate
-  indicators alerts at multiple timescales.
+  (`Consensus5of7-buy`/`-sell`, requiring at least 5 of these seven indicators: the five just listed
+  plus gld and dxy) — dxy (0.0445/0.0223/0.0147 index points, see
+  `docs/technical-analyst-dxy-log.md`), also part of the Broker's seven, and us10y
+  (0.0071/0.0035/0.0025 yield points, see `docs/technical-analyst-us10y-log.md`) — alerted and
+  frequency-tested identically to the other seven, but deliberately **excluded** from the Broker's
+  paper-trading rules (dropped from `Consensus6of8` when it became `Consensus5of7`) — there is no
+  single 60-min window anymore; it was replaced by these three shorter windows so each of these
+  price/rate indicators alerts at multiple timescales.
   Current values are each the **average companion swing** of that indicator, in that window, at every
   moment over the trailing `FREQUENCY_TEST_LOOKBACK_DAYS` (30) days gold spot itself swung
   `GOLD_SWING_THRESHOLDS[window]` ($5/$10/$15 for 5/10/15 min) — see `frequency_test.py` and
@@ -189,11 +192,15 @@ each notification firing exactly once.
 `main.poll_once()` right after this cycle's alerts are saved, is a fully automated imaginary
 buy/sell engine layered on top of the alert mechanisms above — see `.claude/agents/broker.md`'s
 "Rules" section for the human-readable spec (kept in sync with this code by hand, the same convention
-as `docs/market.md` vs. `config.py`). Currently two mirror-image rules (`Consensus6of8-buy`/`-sell`):
-buy 1 troy oz of gold spot when at least 6 of the 8 intrahour-swing indicators (any window) land
-alerts in the `alerts` table within a trailing 10 minutes in the required direction — GLD/IAU/GLDM/
-GDX/GDXJ/RING up, DXY/US10Y down (sell on the exact opposite, and it's 6-of-8, not all 8); close at $10
-unrealized profit or loss either way. Trade state lives in a new Postgres `trades` table (mirrors
+as `docs/market.md` vs. `config.py`). Currently two mirror-image rules (`Consensus5of7-buy`/`-sell`):
+buy 1 troy oz of gold spot when at least 5 of 7 intrahour-swing indicators (any window) land alerts in
+the `alerts` table within a trailing 10 minutes in the required direction — GLD/IAU/GLDM/GDX/GDXJ/RING
+up, DXY down (sell on the exact opposite, and it's 5-of-7, not all 7); US10Y is deliberately excluded
+from this indicator set (still alerted/frequency-tested like the others, just never consulted for a
+Broker entry — was included when this rule was `Consensus6of8`); close at $10 unrealized profit or loss
+either way, using a real 1-minute candle scan (not a single point-in-time price) so a spike that briefly
+touched $10 and reversed before the next poll still closes at the true level (`broker._find_exit()`).
+Trade state lives in a new Postgres `trades` table (mirrors
 `readings`/`alerts` — required since `poll_job.py` is a stateless one-shot run each cloud poll, so
 in-memory state can't survive between polls); only one trade open at a time, and a fresh entry only
 considers alerts newer than the last trade's open time so a stale alert can't retrigger. Every

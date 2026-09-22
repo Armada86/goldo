@@ -22,27 +22,32 @@ in sync by hand (same convention as `docs/market.md` vs. `config.py`): a rule ch
 until the matching code in `broker.py` changes too, and vice versa. This section is the user's to
 edit; you read it, you don't rewrite it, even if asked to "tune" or "improve" the strategy — that's a
 proposed edit you hand back to the user (or the code session that will update `broker.py` to match),
-not something you do yourself. Each rule has a short, stable name/id (e.g. `Consensus6of8-buy`) — the
+not something you do yourself. Each rule has a short, stable name/id (e.g. `Consensus5of7-buy`) — the
 `trades` table's `rule_name` column cites rules by that name, so keep names stable across edits rather
 than rephrasing them, or past trades' rule citations go stale. "Trigger"/"fires" below
 always means: an alert of that kind actually landed in the `alerts` table (i.e. crossed the threshold
 currently configured in `config.py`/`intrahour_swing_thresholds.json`), not just that the raw
 indicator moved in that direction.
 
-### `Consensus6of8-buy`
+### `Consensus5of7-buy`
 
-**Entry**: Buy 1 troy ounce of gold spot when, within a trailing 10-minute window, at least **6 of
-these 8** intrahour-swing alerts (`rules.check_intrahour_swing_alerts` — any of the 15/10/5-min
+**Entry**: Buy 1 troy ounce of gold spot when, within a trailing 10-minute window, at least **5 of
+these 7** intrahour-swing alerts (`rules.check_intrahour_swing_alerts` — any of the 15/10/5-min
 windows; it doesn't matter which window each indicator's alert came from, or whether they match
 windows with each other) land in the `alerts` table in the required direction — it does **not** require
-all 8, just 6 or more:
+all 7, just 5 or more:
 - GLD, IAU, GLDM, GDX, GDXJ, RING swing alerts, direction **up** (these six move the same direction as
   gold itself)
-- DXY, US10Y swing alerts, direction **down** (these two move opposite gold)
+- DXY swing alerts, direction **down** (moves opposite gold)
+
+US10Y is deliberately **not** part of this rule (dropped from the Broker's indicator set; it's still
+alerted and frequency-tested exactly like the others via `rules.check_intrahour_swing_alerts` and
+`frequency_test.py`, just never consulted for a Broker entry) — was `Consensus6of8` (6 of 8, including
+US10Y) before this change.
 
 Implemented in `broker.py` as: pull alerts from the trailing `ENTRY_WINDOW_MINUTES` (10) minutes, count
-how many of the 8 (`GOLD_DIRECTION_NAMES` + `INVERSE_DIRECTION_NAMES`) have an alert in the direction
-this rule requires, and fire if that count is `>= MIN_FLAGGING_COUNT` (6) — see `_match_entry_rule()`.
+how many of the 7 (`GOLD_DIRECTION_NAMES` + `INVERSE_DIRECTION_NAMES`) have an alert in the direction
+this rule requires, and fire if that count is `>= MIN_FLAGGING_COUNT` (5) — see `_match_entry_rule()`.
 
 **Exit**: close the 1 oz position the first time its unrealized P/L reaches **+$10** (take profit) or
 **-$10** (stop loss). Checked every poll (every 5 minutes), but not against a single live spot-price
@@ -56,12 +61,14 @@ directly, the original behavior. Since size is 1 oz, P/L in dollars is just `spo
 crossing at the next poll (up to ~5 minutes after the real event) — it fixes which price/time gets
 recorded, not how fast the Broker notices.
 
-### `Consensus6of8-sell`
+### `Consensus5of7-sell`
 
 Mirror image of the rule above. **Entry**: Sell 1 troy ounce of gold spot when, within the same
-trailing 10-minute window, at least 6 of the 8 fire together in this direction:
+trailing 10-minute window, at least 5 of the 7 fire together in this direction:
 - GLD, IAU, GLDM, GDX, GDXJ, RING swing alerts, direction **down**
-- DXY, US10Y swing alerts, direction **up**
+- DXY swing alerts, direction **up**
+
+(US10Y excluded here too, same as `Consensus5of7-buy` above.)
 
 **Exit**: same as above — close at unrealized P/L of **+$10** or **-$10**, computed as
 `entry_price - spot_now` for a Sell.
@@ -72,10 +79,10 @@ trailing 10-minute window, at least 6 of the 8 fire together in this direction:
   units with no scaling — no multiplier applied anywhere.
 - Only one trade open at a time, across all rules. If a rule's entry condition is met again while a
   trade is already open, `broker.py` doesn't stack a second one — it waits for the open trade to close
-  first. Unlike the old GLD-DXY-US10Y rules (which required literally all three indicators, so the buy
-  and sell patterns could never both be true at once), the 6-of-8 threshold means it's *possible*, if
+  first. Unlike the original GLD-DXY-US10Y rules (which required literally all three indicators, so the
+  buy and sell patterns could never both be true at once), the 5-of-7 threshold means it's *possible*, if
   the alert stream is genuinely conflicting, for both the buy pattern and the sell pattern to
-  independently reach 6 in the same window — `broker.py` treats that as an incoherent signal and opens
+  independently reach 5 in the same window — `broker.py` treats that as an incoherent signal and opens
   no trade either way (see `_match_entry_rule()`'s tie-break). A signal skipped this way (whether from
   an already-open trade or a buy/sell tie) isn't logged anywhere beyond the GitHub Actions run log for
   that poll — revisit this default if the user ever wants concurrent trades or a record of skipped
