@@ -236,13 +236,23 @@ with TP/SL → do nothing. The old "send our own close once |P/L| ≥ $10" path 
 our own close alongside live TP/SL orders could double-close and flip the position. This is a deliberate
 divergence from `broker.py`'s exit logic (which scans 1-minute candles for the $10 crossing), not drift.
 
-**Not wired into the automatic poll cycle** — `main.py`/`poll_job.py` never import `forex_broker`, and
-no GitHub Actions workflow references it. `check_forex_broker_trades()` only runs when called directly;
-`forex_broker.py`'s own `__main__` block is the one supported way to fire it (`python forex_broker.py`),
-which fetches prices once and checks the rules once against the real demo account — it does not loop or
-schedule itself. Keep it disconnected from `main.poll_once()` unless the user explicitly asks to connect
-it — this is a deliberate, standing exception to "adding an indicator/mechanism makes it show up
-everywhere automatically."
+**Only the read-only close-check is wired into the poll** — `main.poll_once()` calls
+`forex_broker.check_forex_closes()` every poll, right after `check_broker_trades()`, inside its own
+`try/except` so a forex.com or credentials problem only logs and never breaks the rest of the poll. It
+never places, closes, or modifies an order. It reconciles `forex_trades` with forex.com's open positions:
+a tracked trade whose position is gone gets its close recorded, with a Telegram alert. If nothing is
+tracked, the oldest open XAU/USD position on the account gets tracked as a `rule_name = 'Manual'` trade
+(entry and open time taken from forex.com, "now tracking" Telegram message), so trades placed by hand on
+the platform are alerted on close too. `forex_trades` tracks one open trade at a time; any further
+untracked positions are picked up one per poll as each closes. It no-ops with a log line if the `FOREX_*`
+secrets aren't set in the GitHub repo (`poll.yml` passes them through). The full broker
+(`check_forex_broker_trades()`: rule-triggered entries, TP/SL attachment, the unprotected-position
+fallback close) is still **not** wired in: `python forex_broker.py` by hand is the only way to run it,
+checking the rules once against the real demo account without looping or scheduling itself. Keep it
+disconnected from `main.poll_once()` unless the user explicitly asks to connect it — this is a
+deliberate, standing exception to "adding an indicator/mechanism makes it show up everywhere
+automatically." While a `Manual` trade is open, the full broker won't open another, and its fallback
+close never touches a `Manual` trade (that position is the user's to manage).
 
 `forex_client.py`'s endpoint paths/JSON field names were reconstructed from third-party client
 implementations, not forex.com's official (login-gated) API reference — its module docstring lists what
@@ -265,11 +275,10 @@ connection, 5xx, or unreadable response raises `ForexOrderUncertainError` (outco
 account's open positions from `/order/openpositions` attached). `forex_broker.py` catches the latter, sends
 a Telegram warning to check the demo account, and records nothing in `forex_trades`. Credentials are three
 optional env vars (`FOREX_USERNAME`/`FOREX_PASSWORD`/`FOREX_APP_KEY`, see `.env.example`) read the same
-`load_dotenv()`-then-`os.environ.get()` way as every other secret in this project — never read by
-`main.py`/`poll_job.py`. `poll.yml` already passes all three through from repo secrets of the same names,
-in preparation for wiring the Forex broker into the poll; until it's wired in, nothing in that job reads
-them, and until the repo secrets exist they arrive empty (so a wired-in `ForexClient()` would raise
-`ForexClientError` and `forex_broker.py` would skip trading with only a log line).
+`load_dotenv()`-then-`os.environ.get()` way as every other secret in this project. `poll.yml` passes all
+three through from repo secrets of the same names for the close-check above; until those repo secrets
+exist they arrive empty, `ForexClient()` raises `ForexClientError`, and the close-check skips with only a
+log line.
 
 **NFP fundamental-analysis data (`nfp_reports` table)**: `docs/fundamental-analyst-nfp-log.md` used to
 hold a hand-maintained markdown table of Non-Farm Payrolls release data (previous/expected/actual

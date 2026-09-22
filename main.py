@@ -7,6 +7,7 @@ from apscheduler.schedulers.blocking import BlockingScheduler   #runs in the for
 from broker import check_broker_trades
 from config import POLL_INTERVAL_MINUTES #goes to config page and gets the value of POLL_INTERVAL_MINUTES
 from data_fetcher import fetch_latest_prices
+from forex_broker import check_forex_closes
 from market_hours import check_market_hours_alert
 from notifier import send_telegram_message
 from routine_trigger import RELEASE_TRIGGER_NAMES, trigger_release_analysis
@@ -60,6 +61,14 @@ def poll_once() -> None:
     # Runs after alerts are saved: check_broker_trades() looks for its entry signal in the alerts
     # table this same cycle's swing alerts just landed in.
     check_broker_trades(prices)
+
+    # Read-only toward forex.com (never places an order): records Forex-broker positions its TP/SL
+    # closed and starts tracking manual ones, alerting on each. Isolated so a forex.com/credentials
+    # problem can never break the rest of the poll.
+    try:
+        check_forex_closes(prices)
+    except Exception:
+        log.exception("Forex close check failed")
 
 
 def main() -> None:
