@@ -46,14 +46,14 @@ a genuine Dollar Index or intraday Treasury-yield instrument at any plan tier ev
 
 | Indicator | 15-min threshold | 10-min threshold | 5-min threshold |
 |---|---|---|---|
-| GLD | $1.77 | $1.18 | $0.60 |
+| GLD | $1.77 | $1.17 | $0.60 |
 | IAU | $0.37 | $0.24 | $0.12 |
 | GLDM | $0.39 | $0.25 | $0.13 |
-| GDX | $0.83 | $0.56 | $0.28 |
-| GDXJ | $1.16 | $0.77 | $0.40 |
-| RING | $0.69 | $0.46 | $0.22 |
-| DXY | 0.0445 | 0.0223 | 0.0147 |
-| US10Y | 0.0071 | 0.0035 | 0.0025 |
+| GDX | $0.84 | $0.56 | $0.28 |
+| GDXJ | $1.18 | $0.78 | $0.40 |
+| RING | $0.68 | $0.45 | $0.22 |
+| DXY | 0.0439 | 0.0223 | 0.0145 |
+| US10Y | 0.0070 | 0.0035 | 0.0025 |
 
 **These twenty-four thresholds are re-tuned automatically every weekday morning.** The values above are
 what this backtest produced at the time this doc was written; the live values always live in
@@ -61,33 +61,26 @@ what this backtest produced at the time this doc was written; the live values al
 
 ## Sample sizes behind these numbers
 
-Over the 30-day lookback this doc's numbers came from: 224 gold events at the 15-min window, 452 at
-10-min, 1,014 at 5-min (all restricted to the common trading session — exact counts drift slightly run
+Over the 30-day lookback this doc's numbers came from: 232 gold events at the 15-min window, 484 at
+10-min, 1,060 at 5-min (all restricted to the common trading session — exact counts drift slightly run
 to run since this is a rolling window, not a fixed date range). Not every indicator had usable data (≥2
 price points) at every one of those events — the 15-min and 10-min windows had near-total coverage
-(224/224 and ~447-452/452 across all eight indicators), but the 5-min window is resolution-limited even
+(232/232 and ~479-484/484 across all eight indicators), but the 5-min window is resolution-limited even
 with 1-minute source data: DXY and US10Y, still sourced from yfinance's 5-minute bars, only had usable
-data at ~195/1,014 of the 5-min gold events (a 5-minute window against 5-minute-spaced bars usually only
+data at ~204/1,060 of the 5-min gold events (a 5-minute window against 5-minute-spaced bars usually only
 catches one bar, too few to measure a swing). Treat the 5-min column for DXY/US10Y specifically as the
 least reliable of the twenty-four; the ETF group's 5-min column (now sourced from genuine 1-minute
-Twelve Data bars) had ~961-1,001/1,014 coverage and is far more trustworthy than it was under the
+Twelve Data bars) had ~986-1,047/1,060 coverage and is far more trustworthy than it was under the
 previous all-5-minute-bar methodology.
 
 ## Co-flagging: how many indicators move together (direction-coherent)
 
-At each moment gold itself crossed $5/$10/$15, how many of the eight indicators *also* crossed their
-own companion-swing threshold in that identical window, moving the direction that actually matters?
+At each moment gold itself crossed $5/$10/$15, how many indicators *also* crossed their own
+companion-swing threshold in that identical window, moving the direction that actually matters?
 "Flagging" here requires **both** conditions: the indicator's own swing, in that window, reached its
 threshold from the table above, **and** its direction was coherent with gold's — GLD/IAU/GLDM/GDX/
 GDXJ/RING moving the *same* direction gold moved, DXY/US10Y moving the *opposite* direction. An
 indicator that merely crossed its threshold in the wrong direction does not count as a flag.
-
-**This table still studies all eight indicators, including US10Y** — it's a general research artifact
-of `frequency_test.py`'s methodology, independent of what the Broker actually trades on. Broker's own
-live rule changed after this table was last computed: it's now `Consensus5of7` (dropped US10Y
-entirely, threshold now 5 of the remaining 7 — see `.claude/agents/broker.md`), not the `Consensus6of8`
-this table was originally built to mirror. The ≥N rows below are not a direct read on
-`Consensus5of7`'s firing rate as a result — see the "Reading this table" note below for specifics.
 
 This replaces an earlier version of this table that counted a flag on magnitude alone, regardless of
 direction — that version overstated real co-flagging (crediting e.g. DXY for a same-magnitude move in
@@ -95,52 +88,93 @@ the *same* direction as gold, which the Broker would never treat as a signal) an
 see `frequency_test.py`'s `co_flagging_distribution()` for the implementation, which both this doc and
 `frequency_check_job.py`'s weekday Telegram report now draw from.
 
-Using the 1,014/452/224 gold events (5/10/15-min, common-session-restricted) from a fresh run of the
-same rolling 30-day lookback the thresholds table above uses:
+Two distributions are computed from the same gold events, since they answer different questions —
+**both are real, freshly computed numbers**, not proxies or approximations of each other:
 
-| At least N of 8 flagging together (direction-coherent) | 5-min (of 1,014) | 10-min (of 452) | 15-min (of 224) |
+### Consensus5of7 (the seven indicators broker.py actually trades on)
+
+This is the one that directly answers "how often would `broker.py`'s live rule actually see enough
+flags to fire" — computed with `co_flagging_distribution()` restricted to `BROKER_TRADED_NAMES`
+(GLD/IAU/GLDM/GDX/GDXJ/RING/DXY; US10Y excluded, matching the Broker's own indicator set exactly, not
+approximated). Using the same 1,060/484/232 gold events (5/10/15-min) as the thresholds table above:
+
+| At least N of 7 flagging together (direction-coherent) | 5-min (of 1,060) | 10-min (of 484) | 15-min (of 232) |
 |---|---|---|---|
-| ≥1 | 601 (59.3%) | 312 (69.0%) | 161 (71.9%) |
-| ≥2 | 490 (48.3%) | 258 (57.1%) | 136 (60.7%) |
-| ≥3 | 417 (41.1%) | 223 (49.3%) | 101 (45.1%) |
-| ≥4 | 265 (26.1%) | 158 (35.0%) | 71 (31.7%) |
-| ≥5 | 211 (20.8%) | 120 (26.5%) | 58 (25.9%) |
-| ≥6 | 163 (16.1%) | 89 (19.7%) | 44 (19.6%) |
-| ≥7 | 15 (1.5%) | 53 (11.7%) | 29 (12.9%) |
-| ≥8 (all together, coherent) | 7 (0.7%) | 29 (6.4%) | 14 (6.3%) |
+| ≥1 | 617 (58.2%) | 323 (66.7%) | 165 (71.1%) |
+| ≥2 | 510 (48.1%) | 275 (56.8%) | 125 (53.9%) |
+| ≥3 | 440 (41.5%) | 234 (48.3%) | 99 (42.7%) |
+| ≥4 | 275 (25.9%) | 148 (30.6%) | 57 (24.6%) |
+| **≥5** | **221 (20.8%)** | **111 (22.9%)** | **46 (19.8%)** |
+| ≥6 | 167 (15.8%) | 84 (17.4%) | 40 (17.2%) |
+| ≥7 (all seven, coherent) | 10 (0.9%) | 38 (7.9%) | 22 (9.5%) |
 
-Per-indicator directional-flag counts (how often each one flagged with both magnitude *and* the
-correct direction):
+The **≥5 row is the real, directly-computed `Consensus5of7` firing-condition rate** — no proxy, no
+caveat needed. At the 5-minute window (the one `broker.py`'s trailing `ENTRY_WINDOW_MINUTES` check
+draws alerts from most often), a coherent 5-of-7 shows up at **20.8% of gold's own qualifying events**
+— call it roughly 20 times per 30-day rolling window at this window alone, before accounting for the
+10/15-min windows also feeding the same alert stream, or for the mechanical differences noted below.
+
+Per-indicator directional-flag counts, this seven-indicator set:
 
 | Indicator | 5-min | 10-min | 15-min |
 |---|---|---|---|
-| GLD | 348 | 160 | 71 |
-| IAU | 369 | 152 | 73 |
-| GLDM | 379 | 159 | 74 |
-| GDX | 333 | 194 | 89 |
-| GDXJ | 346 | 182 | 94 |
-| RING | 327 | 181 | 87 |
-| DXY | 32 | 103 | 58 |
-| US10Y | 35 | 111 | 68 |
+| GLD | 368 | 175 | 72 |
+| IAU | 389 | 172 | 73 |
+| GLDM | 397 | 164 | 74 |
+| GDX | 348 | 213 | 93 |
+| GDXJ | 366 | 193 | 92 |
+| RING | 338 | 185 | 88 |
+| DXY | 34 | 111 | 62 |
 
-**Reading this table**: the ≥6-of-8 row was the one that mattered when this was built (it matched
-`Consensus6of8`'s old threshold), and lands at 16.1%/19.7%/19.6% of gold's own qualifying events
-(5/10/15-min), barely different from the old magnitude-only ≥6 figures (18.4%/23.0%/19.6%). Now that
-Broker's live rule is `Consensus5of7` (US10Y dropped, 5-of-7 not 6-of-8), **neither the ≥5 nor the ≥6
-row is an exact match** — ≥5-of-8 is close in spirit (same count threshold as `Consensus5of7`) but
-still includes US10Y as one of the eight candidates and still requires that count out of 8, not 7, so
-it isn't the same population; treat ≥5-of-8's 20.8%/26.5%/25.9% as a rough proxy, not the real figure.
-Getting the actual `Consensus5of7` rate would need a fresh study run on just the 7 indicators
-Broker now uses — not done here, since this table wasn't rebuilt for this change. The direction filter
-mostly doesn't matter for the six ETFs, which move with gold the overwhelming majority of the time they
-cross their threshold at all (e.g. GLD: 348 directional flags of 371 magnitude-only flags at 5-min,
-~94% coherent). It matters a great deal for DXY/US10Y: at 5-min, DXY crossed its own threshold 65 times
-but was only inversely correlated with gold on 32 of those (~49%, a coin flip); at 10-min DXY's
-coherence rate is stronger. **Treat any of these rows as an upper bound on how often a Broker-style rule
-could plausibly fire, not a measured trade-open rate** — this table still anchors each check to a moment
-gold itself crossed the study's own $5/$10/$15 bar, while the Broker's actual rule scans a rolling
-`alerts` table over its own trailing `ENTRY_WINDOW_MINUTES` (10) window independent
-of whether gold's own move happened to also qualify as one of this table's events.
+DXY is the clear outlier here — at 5-min it flags only 34 times versus 300+ for every ETF, the same
+pattern noted below: DXY's inverse correlation with gold is real but far weaker and noisier than the
+ETFs' near-1:1 tracking, especially at the shortest window.
+
+**This still isn't the literal Broker trade-open rate**, for two mechanical reasons unrelated to which
+indicator set is used: this table anchors each check to a moment gold itself crossed the study's own
+$5/$10/$15 bar, while the Broker's actual rule scans a rolling `alerts` table over its own trailing
+`ENTRY_WINDOW_MINUTES` (10) window independent of whether gold's own move happened to also qualify as
+one of this table's events; and a genuine buy/sell tie (both directions independently reaching 5) opens
+no trade either way (`_match_entry_rule()`'s tie-break), which this table doesn't separately track.
+Treat ≥5 as a ceiling on how often the condition is met, not a measured trade count.
+
+### All eight indicators (general research view, not Broker-specific)
+
+The same study, but every indicator including US10Y — a general research artifact of
+`frequency_test.py`'s methodology, independent of which ones `broker.py` actually trades on. Useful for
+understanding co-flagging behavior broadly (e.g. comparing US10Y against DXY as the "moves opposite
+gold" indicator), not as a stand-in for the Consensus5of7 table above.
+
+| At least N of 8 flagging together (direction-coherent) | 5-min (of 1,060) | 10-min (of 484) | 15-min (of 232) |
+|---|---|---|---|
+| ≥1 | 626 (59.1%) | 340 (70.2%) | 171 (73.7%) |
+| ≥2 | 517 (48.8%) | 283 (58.5%) | 140 (60.3%) |
+| ≥3 | 441 (41.6%) | 238 (49.2%) | 101 (43.5%) |
+| ≥4 | 279 (26.3%) | 170 (35.1%) | 69 (29.7%) |
+| ≥5 | 223 (21.0%) | 127 (26.2%) | 56 (24.1%) |
+| ≥6 | 168 (15.8%) | 94 (19.4%) | 44 (19.0%) |
+| ≥7 | 15 (1.4%) | 53 (11.0%) | 27 (11.6%) |
+| ≥8 (all together, coherent) | 7 (0.7%) | 29 (6.0%) | 14 (6.0%) |
+
+Per-indicator directional-flag counts, all eight:
+
+| Indicator | 5-min | 10-min | 15-min |
+|---|---|---|---|
+| GLD | 368 | 175 | 72 |
+| IAU | 389 | 172 | 73 |
+| GLDM | 397 | 164 | 74 |
+| GDX | 348 | 213 | 93 |
+| GDXJ | 366 | 193 | 92 |
+| RING | 338 | 185 | 88 |
+| DXY | 34 | 111 | 62 |
+| US10Y | 36 | 121 | 68 |
+
+**Reading this table**: US10Y behaves almost identically to DXY here (36 vs. 34 flags at 5-min, 121 vs.
+111 at 10-min) — both are noisy, weakly-coherent "moves opposite gold" signals at short windows, which
+is part of why dropping US10Y from the Broker's rule cost little in practical consensus-reaching power
+(the ETFs are doing nearly all the work in both tables — GLD alone flags 368 times at 5-min, more than
+ten times DXY's 34). The direction filter matters far less for the six ETFs, which move with gold the
+overwhelming majority of the time they cross their threshold at all.
 
 ## Alerting
 
@@ -168,9 +202,11 @@ a human instead of forcing it through).
 
 A Telegram message is sent every weekday run either way, listing all twenty-four combinations and
 marking each one `unchanged` (with its current value) or showing the change (old value -> new value,
-with the sample size behind the new one), followed by the direction-coherent co-flagging distribution
-(the "Co-flagging" section above) for each of the three windows — reporting only, it doesn't feed back
-into the twenty-four thresholds themselves. Unlike the interactive workflow above, this path never asks
+with the sample size behind the new one), followed by **two** direction-coherent co-flagging
+distributions for each of the three windows (the "Co-flagging" section above): the `Consensus5of7`
+one, restricted to the seven indicators `broker.py`'s live rule actually trades on, and the general
+eight-indicator research one — reporting only, neither feeds back into the twenty-four thresholds
+themselves. Unlike the interactive workflow above, this path never asks
 for approval first — that trade-off (routine drift correction with no human gate, vs. a threshold that
 can go stale between manual runs) was a deliberate choice; see `CLAUDE.md`'s "Automatic (weekday
 mornings, unattended)" workflow section for the reasoning.

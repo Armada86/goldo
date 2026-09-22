@@ -20,16 +20,16 @@ Index or intraday Treasury-yield instrument at any plan tier evaluated (see
 docs/data-sources.md) -- Twelve Data's "USDX"/"DX" symbols look plausible but resolve to
 unrelated tickers (confirmed via its own symbol_search), not the Dollar Index.
 
-run_frequency_test() also returns a directional co-flagging distribution per window (how many
-of the eight indicators, at each gold event, both crossed their own threshold AND moved
-direction-coherent with gold -- same direction as gold for the six ETFs, opposite for
-dxy/us10y). This study still covers all eight regardless of which ones broker.py actually
-trades on (currently Consensus5of7 -- gld/iau/gldm/gdx/gdxj/ring/dxy; us10y is alerted/
-frequency-tested like the rest but not part of that rule -- see .claude/agents/broker.md).
-This replaced an earlier magnitude-only co-flagging analysis that counted a "flag" regardless
-of direction, which overstated real co-flagging since it credited an indicator crossing its
-threshold in the wrong direction -- not a signal the Broker
-would ever act on.
+run_frequency_test() also returns two directional co-flagging distributions per window (how many
+indicators, at each gold event, both crossed their own threshold AND moved direction-coherent
+with gold -- same direction as gold for the six ETFs, opposite for dxy/us10y): one across all
+eight indicators (general research view, independent of what broker.py trades on), and one
+restricted to BROKER_TRADED_NAMES (the seven indicators -- no us10y -- broker.py's live
+Consensus5of7 rule actually uses, see .claude/agents/broker.md), which is the one that directly
+answers "how often would Consensus5of7 actually fire." This replaced an earlier magnitude-only
+co-flagging analysis that counted a "flag" regardless of direction, which overstated real
+co-flagging since it credited an indicator crossing its threshold in the wrong direction -- not
+a signal the Broker would ever act on.
 
 Run: python frequency_test.py
 """
@@ -75,6 +75,12 @@ PREVIOUS_WINDOW_GAP = timedelta(minutes=5)  # one poll interval, same rising-edg
 # dependency on broker.py).
 SAME_DIRECTION_NAMES = ["gld", "iau", "gldm", "gdx", "gdxj", "ring"]
 INVERSE_DIRECTION_NAMES = ["dxy", "us10y"]
+
+# The seven indicators broker.py's live Consensus5of7 rule actually trades on -- everything in
+# SAME_DIRECTION_NAMES/INVERSE_DIRECTION_NAMES except us10y. A literal list, not derived from
+# broker.py, for the same no-dependency-on-broker.py reason as the two constants above; kept in
+# sync by hand if broker.py's traded set ever changes again.
+BROKER_TRADED_NAMES = ["gld", "iau", "gldm", "gdx", "gdxj", "ring", "dxy"]
 
 
 def _fetch_twelve_data_1min(symbol: str, lookback_days: int) -> tuple[list[datetime], list[float]]:
@@ -208,12 +214,13 @@ def co_flagging_distribution(
     series: dict[str, tuple[list[datetime], list[float]]],
     thresholds: dict[str, float | None],
 ) -> dict:
-    """At each gold event, counts how many of the eight indicators both crossed their own
+    """At each gold event, counts how many of the indicators in `series` both crossed their own
     threshold for this window AND moved direction-coherent with gold (SAME_DIRECTION_NAMES with
-    gold, INVERSE_DIRECTION_NAMES against it) -- covers all eight regardless of which ones
-    broker.py actually trades on. Unlike a plain magnitude-only co-flag count, an indicator that
-    crossed its threshold in the wrong direction does not count as a flag here.
-    Returns {"n_events", "distribution" (>=1..>=8 -> count), "per_indicator" (name -> count)}."""
+    gold, INVERSE_DIRECTION_NAMES against it) -- unlike a plain magnitude-only co-flag count, an
+    indicator that crossed its threshold in the wrong direction does not count as a flag here.
+    Pass all eight names in `series` for the general research view, or BROKER_TRADED_NAMES (seven,
+    no us10y) for the distribution that actually matches broker.py's live Consensus5of7 rule.
+    Returns {"n_events", "distribution" (>=1..>=len(series) -> count), "per_indicator" (name -> count)}."""
     per_event_flags = []
     per_indicator = {name: 0 for name in series}
     for t in events:
@@ -233,11 +240,11 @@ def co_flagging_distribution(
                     per_indicator[name] += 1
         per_event_flags.append(flag_count)
 
-    distribution = {n: sum(1 for f in per_event_flags if f >= n) for n in range(1, 9)}
+    distribution = {n: sum(1 for f in per_event_flags if f >= n) for n in range(1, len(series) + 1)}
     return {"n_events": len(events), "distribution": distribution, "per_indicator": per_indicator}
 
 
-def run_frequency_test() -> tuple[dict[str, dict[int, dict]], dict[int, dict]]:
+def run_frequency_test() -> tuple[dict[str, dict[int, dict]], dict[int, dict], dict[int, dict]]:
     """Returns {name: {window_minutes: {"avg": float | None, "n_used": int, "n_total": int}}}
     for every name in INTRAHOUR_SWING_ALERT_THRESHOLD. "avg" is the new threshold itself --
     there is no separate search/tuning step."""
@@ -293,9 +300,21 @@ def run_frequency_test() -> tuple[dict[str, dict[int, dict]], dict[int, dict]]:
         )
         dist = co_flags[window]["distribution"]
         print(f"  {window:2d} min ({co_flags[window]['n_events']} events): " +
-              ", ".join(f">={n}: {dist[n]}" for n in range(1, 9)))
+              ", ".join(f">={n}: {dist[n]}" for n in sorted(dist)))
 
-    return results, co_flags
+    co_flags_broker: dict[int, dict] = {}
+    broker_series = {name: series[name] for name in BROKER_TRADED_NAMES if name in series}
+    print("\nCo-flagging, restricted to broker.py's actual Consensus5of7 indicator set (no us10y):")
+    for window in INTRAHOUR_SWING_WINDOWS_MINUTES:
+        thresholds = {name: results[name][window]["avg"] for name in broker_series}
+        co_flags_broker[window] = co_flagging_distribution(
+            gold_ts, gold_px, gold_events[window], window, broker_series, thresholds
+        )
+        dist = co_flags_broker[window]["distribution"]
+        print(f"  {window:2d} min ({co_flags_broker[window]['n_events']} events): " +
+              ", ".join(f">={n}: {dist[n]}" for n in sorted(dist)))
+
+    return results, co_flags, co_flags_broker
 
 
 if __name__ == "__main__":
