@@ -212,7 +212,7 @@ markdown/doc log of trades — the `trades` table (`id`, `rule_name`, `trade_typ
 trade never requires a repo commit; `poll.yml` doesn't need write access to the repo for this reason.
 
 **Forex broker (`forex_broker.py`, `forex_client.py`) — built but deliberately disconnected**: a second
-paper-trading engine, the "Forex" broker, that runs the *identical* entry/exit rules as `broker.py`'s
+paper-trading engine, the "Forex" broker, that runs the *identical* entry rules (exits differ — see below) as `broker.py`'s
 Broker (`forex_broker.py` imports `_match_entry_rule`/`_triggering_text`/`_pnl`/
 `ENTRY_WINDOW_MINUTES`/`EXIT_THRESHOLD` directly from `broker.py` rather than re-implementing them,
 so the two rule sets can't drift apart) but, instead of only writing an imaginary trade to Postgres,
@@ -222,6 +222,19 @@ places and closes real orders against a FOREX.com **demo** account via `forex_cl
 its own `forex_trades` table (same shape as `trades` plus `forex_order_id`/`forex_close_order_id` for
 traceability against the real orders) — entirely separate from `broker.py`'s `trades` table, so the two
 engines' open positions and watermarks never interact.
+
+**Exits are on the platform, not in `forex_broker.py`**: right after an entry fills, the broker attaches a
+take-profit and a stop-loss at fill ± `EXIT_THRESHOLD` ($10) via `ForexClient.attach_take_profit_and_stop_loss()`
+(`/order/updatetradeorder` with `IfDone [{Stop, Limit}]`, confirmed live on position 1032567283: both
+orders appear on the forex.com platform, linked one-cancels-the-other, good-till-cancelled), so forex.com
+closes the position the moment either level trades. Each later run just reconciles: position gone from
+`/order/openpositions` → record the close in `forex_trades`, exit price from `/order/tradehistory`
+(`find_closing_trade()`; a closing entry's shape hasn't been observed live yet, so if none is found it
+falls back to the nearer TP/SL level and flags the price as an estimate in Telegram); position still open
+with TP/SL → do nothing. The old "send our own close once |P/L| ≥ $10" path only runs for a position with
+**no** TP/SL attached (attachment failed, which also sends an "UNPROTECTED" Telegram warning) — sending
+our own close alongside live TP/SL orders could double-close and flip the position. This is a deliberate
+divergence from `broker.py`'s exit logic (which scans 1-minute candles for the $10 crossing), not drift.
 
 **Not wired into the automatic poll cycle** — `main.py`/`poll_job.py` never import `forex_broker`, and
 no GitHub Actions workflow references it. `check_forex_broker_trades()` only runs when called directly;
@@ -245,7 +258,7 @@ an unrelated stock). **Orders are locked to XAU/USD only**: `TRADABLE_MARKET_NAM
 (not env-overridable), `place_market_order()`/`close_position()` take no market argument, and every order
 first re-resolves the name and refuses (raising `ForexClientError`, nothing sent) unless it maps to exactly
 that ID. Letting the Forex broker trade anything else is a deliberate code change, not a config tweak. **Order
-placement is a single attempt** — the one deliberate exception to "every external call is wrapped in
+placement (and TP/SL attachment) is a single attempt** — the one deliberate exception to "every external call is wrapped in
 `retry.with_retries()`", since retrying a request that forex.com may already have filled could double the
 position. A 4xx or explicit rejection raises `ForexClientError` (nothing placed); a timeout, dropped
 connection, 5xx, or unreadable response raises `ForexOrderUncertainError` (outcome unknown, with the

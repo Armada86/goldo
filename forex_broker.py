@@ -10,12 +10,21 @@ schedule itself.
 
 Trade state lives in its own `forex_trades` table (see storage.py), separate from broker.py's `trades`
 table, so the two engines' open positions/watermarks never interact.
+
+Exits are handled ON THE PLATFORM, not by this module: right after an entry fills, a take-profit and a
+stop-loss are attached to the position at fill +/- EXIT_THRESHOLD ($10), so forex.com closes it the
+moment either level trades -- no waiting for the next run. Each run then just reconciles: if the
+position is gone from forex.com, record the close in forex_trades (exit price from forex.com's trade
+history). The old "close it ourselves once |P/L| >= $10" path only survives as a fallback for a position
+that has no TP/SL attached (attachment failed); sending our own close alongside live TP/SL orders could
+double-close and flip the position.
 """
 
 from datetime import datetime, timezone
 
-from broker import ENTRY_WINDOW_MINUTES, EXIT_THRESHOLD, _match_entry_rule, _pnl, _triggering_text
 from forex_client import ForexClient, ForexClientError, ForexOrderUncertainError
+
+from broker import ENTRY_WINDOW_MINUTES, EXIT_THRESHOLD, _match_entry_rule, _pnl, _triggering_text
 from notifier import send_telegram_message
 from storage import (
     close_forex_trade_row,
@@ -26,10 +35,16 @@ from storage import (
 )
 
 
-def _open_message(trade_type: str, rule_name: str, fill_price: float, triggering_text: str, order_id) -> str:
+def _open_message(
+    trade_type: str, rule_name: str, fill_price: float, triggering_text: str, order_id, bracket: dict | None
+) -> str:
+    if bracket is not None:
+        protection = f"TP ${bracket['limit_price']:.2f} / SL ${bracket['stop_price']:.2f} set on forex.com."
+    else:
+        protection = "WARNING: TP/SL could NOT be attached -- position is UNPROTECTED on forex.com."
     return (
         f"FOREX BROKER (demo account): opened {trade_type} 1 oz XAU/USD @ ${fill_price:.2f} "
-        f"(rule {rule_name}, order {order_id}).\nTrigger: {triggering_text}"
+        f"(rule {rule_name}, order {order_id}). {protection}\nTrigger: {triggering_text}"
     )
 
 
@@ -54,6 +69,33 @@ def _report_uncertain_order(action: str, error: ForexOrderUncertainError) -> Non
     send_telegram_message(message)
 
 
+def _position_for(client: ForexClient, trade: dict) -> dict | None:
+    return next(
+        (p for p in client.get_open_positions() if str(p.get("OrderId")) == str(trade["forex_order_id"])),
+        None,
+    )
+
+
+def _record_platform_close(client: ForexClient, trade: dict, gold_price: float, now: datetime) -> None:
+    """The position is gone from forex.com -- its TP or SL (or a manual close on the platform) closed
+    it. Record that in forex_trades using forex.com's own closing fill when trade history has it; if
+    not, fall back to whichever of the two TP/SL levels is nearer the current price, flagged as an
+    estimate in the Telegram message."""
+    closing = client.find_closing_trade(int(trade["forex_order_id"]))
+    if closing is not None:
+        exit_price, close_ts, close_order_id, note = (
+            closing["price"], closing["closed_at"] or now, closing["order_id"], ""
+        )
+    else:
+        levels = (trade["entry_price"] + EXIT_THRESHOLD, trade["entry_price"] - EXIT_THRESHOLD)
+        exit_price = min(levels, key=lambda level: abs(level - gold_price))
+        close_ts, close_order_id = now, "unknown"
+        note = " (exit price ESTIMATED from the nearer TP/SL level -- not found in forex.com trade history)"
+    pnl = _pnl(trade, exit_price)
+    close_forex_trade_row(trade["id"], exit_price, close_ts, pnl, close_order_id)
+    send_telegram_message(_close_message(trade, exit_price, pnl, close_order_id) + note)
+
+
 def check_forex_broker_trades(prices: dict[str, float]) -> None:
     """Same Consensus5of7-buy/-sell entry trigger logic as broker.check_broker_trades() (imported from
     broker.py, not re-implemented), executed against the real FOREX.com demo account instead of just
@@ -73,8 +115,14 @@ def check_forex_broker_trades(prices: dict[str, float]) -> None:
     open_trade = get_open_forex_trade()
 
     if open_trade is not None:
-        pnl = _pnl(open_trade, gold_price)
-        if abs(pnl) >= EXIT_THRESHOLD:
+        position = _position_for(client, open_trade)
+        if position is None:
+            _record_platform_close(client, open_trade, gold_price, now)
+            open_trade = None
+        elif position.get("StopOrder") or position.get("LimitOrder"):
+            pass  # TP/SL live on forex.com -- it will close the position itself.
+        elif abs(_pnl(open_trade, gold_price)) >= EXIT_THRESHOLD:
+            # Fallback only for a position with no TP/SL attached (see module docstring).
             try:
                 result = client.close_position(open_trade["trade_type"])
             except ForexOrderUncertainError as e:
@@ -105,8 +153,19 @@ def check_forex_broker_trades(prices: dict[str, float]) -> None:
             insert_forex_trade(
                 rule_name, trade_type, result["fill_price"], now, triggering_text, result["order_id"]
             )
+            try:
+                bracket = client.attach_take_profit_and_stop_loss(
+                    result["order_id"], direction, result["fill_price"], EXIT_THRESHOLD
+                )
+            except ForexClientError as e:
+                # Covers ForexOrderUncertainError too. The trade is real and already recorded; without
+                # TP/SL the next run's fallback closes it at +/- EXIT_THRESHOLD instead.
+                print(f"[forex_broker] Could not attach TP/SL to order {result['order_id']}: {e}")
+                bracket = None
             send_telegram_message(
-                _open_message(trade_type, rule_name, result["fill_price"], triggering_text, result["order_id"])
+                _open_message(
+                    trade_type, rule_name, result["fill_price"], triggering_text, result["order_id"], bracket
+                )
             )
 
 
