@@ -14,8 +14,10 @@ A Telegram message is always sent, listing every one of the twenty-four combinat
 whether it changed (old value -> new value) or stayed the same, plus the directional
 co-flagging distribution (frequency_test.py's co_flagging_distribution()) for each of the three
 windows -- how many of the eight indicators, at each gold event, crossed their own threshold
-AND moved in the direction broker.py's Consensus6of8 rule requires. This is reporting only --
-it doesn't feed back into the twenty-four thresholds themselves or into broker.py.
+AND moved direction-coherent with gold. This still covers all eight regardless of which ones
+broker.py's Consensus5of7 rule actually trades on (us10y is alerted/frequency-tested like the
+rest but not part of that rule -- see .claude/agents/broker.md). This is reporting only -- it
+doesn't feed back into the twenty-four thresholds themselves or into broker.py.
 
 Run: python frequency_check_job.py
 """
@@ -40,7 +42,7 @@ def append_history_row(thresholds: dict[str, dict[int, float]]) -> None:
 
 
 def _co_flag_lines(co_flags: dict[int, dict]) -> list[str]:
-    lines = ["Co-flagging (magnitude AND direction coherent with gold, per Consensus6of8):"]
+    lines = ["Co-flagging (magnitude AND direction coherent with gold, all eight indicators):"]
     for window in sorted(co_flags, reverse=True):
         data = co_flags[window]
         dist = data["distribution"]
