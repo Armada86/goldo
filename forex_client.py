@@ -181,3 +181,16 @@ class ForexClient:
         referencing the original position/order ID instead."""
         opposite = "sell" if open_direction.lower() == "buy" else "buy"
         return self.place_market_order(opposite, market_name, quantity)
+
+
+if __name__ == "__main__":
+    # Connectivity check only -- logs in, confirms the account/market lookups work, and fetches one
+    # price quote. Deliberately never calls place_market_order()/close_position(), so running this
+    # script cannot place a trade under any circumstances.
+    print(f"[forex_client] Logging in to {BASE_URL} ...")
+    client = ForexClient()
+    print(f"[forex_client] Logged in. trading_account_id={client._trading_account_id} "
+          f"client_account_id={client._client_account_id}")
+    price = client.get_price()
+    print(f"[forex_client] {MARKET_NAME} price: {price}")
+    print("[forex_client] Connectivity check passed -- no order was placed.")
