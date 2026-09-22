@@ -8,11 +8,15 @@ independent third-party client implementations (gcapi-python, the `forexcom` PyP
 archived docs.labs.cityindex.com HTTP-services page) rather than the official spec. Before this module
 is ever used against the real demo account, log in to the docs portal (you have the account for it) and
 confirm:
-  - the exact request/response field names for /session, market search, and /order/newtradeorder
+  - the exact request/response field names for /order/newtradeorder (not yet exercised)
   - whether this account nets an opposite-direction order into a closed position (assumed in
     close_position() below) or requires a dedicated close/cancel call referencing the original order
-  - the exact market name and minimum tradable quantity for spot gold (MARKET_NAME/TRADE_QUANTITY below
-    are guesses, not confirmed values)
+
+Confirmed against the live demo account (connectivity check, 2026-09-22): login, the account lookup,
+/cfd/markets and /market/{id}/tickhistory all work as written. Spot gold is market "XAU/USD" (MarketId
+401153870, min size 0.1, max 1000). /market/search turned out to ignore its MarketName filter entirely and
+return the whole catalog in MarketId order (so the first result was an unrelated stock), which is why the
+lookup below uses /cfd/markets and requires an exact name match rather than taking the first hit.
 
 Nothing in this project imports or calls this module automatically -- it only talks to forex.com when
 something explicitly constructs a ForexClient. See forex_broker.py, which is itself not wired into the
@@ -37,9 +41,10 @@ APP_KEY = os.environ.get("FOREX_APP_KEY")
 # environment turns out to need a different host -- verify against the docs portal before trusting this.
 BASE_URL = os.environ.get("FOREX_API_BASE_URL", "https://ciapi.cityindex.com/TradingAPI")
 
-# Instrument this client trades -- must match forex.com's exact market name for spot gold; confirm the
-# precise string (likely "Spot Gold" or "Gold") via a market search call before first use.
-MARKET_NAME = os.environ.get("FOREX_MARKET_NAME", "Spot Gold")
+# Instrument this client trades -- forex.com's exact market name for spot gold, matched exactly (not as a
+# prefix/substring) against /cfd/markets results, since that search is a loose substring match that also
+# returns "Gold - Cash", gold futures CFDs, gold ETFs, and mining stocks.
+MARKET_NAME = os.environ.get("FOREX_MARKET_NAME", "XAU/USD")
 
 # Trade size, troy oz -- matches broker.py's paper-trading size so P/L stays directly comparable.
 # Confirm this is a valid tradable quantity for the instrument before ever placing a real order.
@@ -65,7 +70,7 @@ class ForexClient:
         self._session_token: str | None = None
         self._trading_account_id: int | None = None
         self._client_account_id: int | None = None
-        self._market_id: int | None = None
+        self._market_ids: dict[str, int] = {}
         self._login()
 
     def _headers(self) -> dict:
@@ -104,20 +109,29 @@ class ForexClient:
 
     @with_retries()
     def _market_id_for(self, market_name: str) -> int:
-        if self._market_id is not None:
-            return self._market_id
+        if market_name in self._market_ids:
+            return self._market_ids[market_name]
         response = requests.get(
-            f"{BASE_URL}/market/search",
+            f"{BASE_URL}/cfd/markets",
             headers=self._headers(),
-            params={"SearchByMarketName": "true", "MarketName": market_name},
+            params={
+                "MarketName": market_name,
+                "MaxResults": 100,
+                "ClientAccountId": self._client_account_id,
+            },
             timeout=10,
         )
         response.raise_for_status()
         markets = response.json().get("Markets") or []
-        if not markets:
-            raise ForexClientError(f"No market found for name {market_name!r}")
-        self._market_id = markets[0]["MarketId"]
-        return self._market_id
+        matches = [m for m in markets if m.get("Name") == market_name]
+        if len(matches) != 1:
+            names = [m.get("Name") for m in markets]
+            raise ForexClientError(
+                f"Expected exactly one market named {market_name!r}, found {len(matches)} "
+                f"(search returned: {names})"
+            )
+        self._market_ids[market_name] = matches[0]["MarketId"]
+        return self._market_ids[market_name]
 
     @with_retries()
     def get_price(self, market_name: str | None = None) -> float:
@@ -191,6 +205,7 @@ if __name__ == "__main__":
     client = ForexClient()
     print(f"[forex_client] Logged in. trading_account_id={client._trading_account_id} "
           f"client_account_id={client._client_account_id}")
+    market_id = client._market_id_for(MARKET_NAME)
     price = client.get_price()
-    print(f"[forex_client] {MARKET_NAME} price: {price}")
+    print(f"[forex_client] {MARKET_NAME} (market_id={market_id}) price: {price}")
     print("[forex_client] Connectivity check passed -- no order was placed.")

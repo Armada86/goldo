@@ -210,9 +210,13 @@ everywhere automatically."
 
 `forex_client.py`'s endpoint paths/JSON field names were reconstructed from third-party client
 implementations, not forex.com's official (login-gated) API reference — its module docstring lists what
-to verify against the real docs portal (exact field names, whether the demo account nets an
-opposite-direction order into a close vs. needing a dedicated close call, the exact tradable market name
-and minimum quantity for spot gold) before it's ever pointed at a live call. Credentials are three
+to verify against the real docs portal (order-placement field names, whether the demo account nets an
+opposite-direction order into a close vs. needing a dedicated close call) before an order is ever placed.
+Login, the account lookup, and the price fetch are confirmed working against the live demo account
+(`python forex_client.py` — connectivity only, never places an order). Spot gold is market `XAU/USD`
+(MarketId 401153870, min size 0.1); the lookup uses `/cfd/markets` with an exact name match, because
+`/market/search` ignores its name filter and returns the whole catalog (it silently resolved "Spot Gold" to
+an unrelated stock). Credentials are three
 optional env vars (`FOREX_USERNAME`/`FOREX_PASSWORD`/`FOREX_APP_KEY`, see `.env.example`) read the same
 `load_dotenv()`-then-`os.environ.get()` way as every other secret in this project — never read by
 `main.py`/`poll_job.py`.
