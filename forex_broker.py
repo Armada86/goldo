@@ -99,10 +99,12 @@ def _track_manual_position(position: dict, now: datetime) -> None:
         )
     else:
         protection = "No TP/SL on forex.com -- it won't close by itself."
-    send_telegram_message(
+    message = (
         f"FOREX BROKER (demo account): now tracking manual {trade_type} {position['Quantity']} oz XAU/USD "
         f"@ ${entry_price:.2f} (order {position['OrderId']}). {protection}"
     )
+    print(f"[forex_broker] {message}")
+    send_telegram_message(message)
 
 
 def _reconcile(client: ForexClient, prices: dict[str, float], now: datetime) -> tuple[dict | None, list[dict]]:
@@ -134,7 +136,14 @@ def check_forex_closes(prices: dict[str, float]) -> None:
     except ForexClientError as e:
         print(f"[forex_broker] Close check skipped: {e}")
         return
-    _reconcile(client, prices, datetime.now(timezone.utc))
+    open_trade, positions = _reconcile(client, prices, datetime.now(timezone.utc))
+    # One status line every poll, so the Actions log shows the check ran even when nothing changed.
+    tracked = (
+        f"tracking {open_trade['rule_name']} {open_trade['trade_type']} order {open_trade['forex_order_id']} "
+        f"@ ${open_trade['entry_price']:.2f}, still open"
+        if open_trade is not None else "no tracked trade"
+    )
+    print(f"[forex_broker] Close check OK: {tracked}; {len(positions)} open XAU/USD position(s) on forex.com.")
 
 
 def _record_platform_close(client: ForexClient, trade: dict, gold_price: float | None, now: datetime) -> None:
@@ -156,7 +165,9 @@ def _record_platform_close(client: ForexClient, trade: dict, gold_price: float |
         note = " (exit price ESTIMATED from the nearer TP/SL level -- not found in forex.com trade history)"
     pnl = _pnl(trade, exit_price)
     close_forex_trade_row(trade["id"], exit_price, close_ts, pnl, close_order_id)
-    send_telegram_message(_close_message(trade, exit_price, pnl, close_order_id) + note)
+    message = _close_message(trade, exit_price, pnl, close_order_id) + note
+    print(f"[forex_broker] {message}")
+    send_telegram_message(message)
 
 
 def check_forex_broker_trades(prices: dict[str, float]) -> None:
