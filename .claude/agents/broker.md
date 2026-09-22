@@ -45,9 +45,16 @@ how many of the 8 (`GOLD_DIRECTION_NAMES` + `INVERSE_DIRECTION_NAMES`) have an a
 this rule requires, and fire if that count is `>= MIN_FLAGGING_COUNT` (6) — see `_match_entry_rule()`.
 
 **Exit**: close the 1 oz position the first time its unrealized P/L reaches **+$10** (take profit) or
-**-$10** (stop loss) — checked every poll against the live spot price, not just when a new alert
-fires. Since size is 1 oz, P/L in dollars is just `spot_now - entry_price` (no multiplier). Implemented
-as `broker.EXIT_THRESHOLD` (10.0) and `broker._pnl()`.
+**-$10** (stop loss). Checked every poll (every 5 minutes), but not against a single live spot-price
+sample — a poll-to-poll gap can hide a spike that touched the target and reversed before the next
+check. Instead, each poll fetches real 1-minute OHLC candles covering the time since the trade opened
+and scans their high/low for the first bar that actually touched +$10 or -$10, closing at that real
+level and timestamp; only if the candle fetch fails does it fall back to comparing the live spot price
+directly, the original behavior. Since size is 1 oz, P/L in dollars is just `spot_now - entry_price`
+(no multiplier). Implemented as `broker.EXIT_THRESHOLD` (10.0), `broker._pnl()`, and
+`broker._find_exit()`/`broker._scan_exit_crossing()` for the candle scan. This still only *detects* a
+crossing at the next poll (up to ~5 minutes after the real event) — it fixes which price/time gets
+recorded, not how fast the Broker notices.
 
 ### `Consensus6of8-sell`
 
