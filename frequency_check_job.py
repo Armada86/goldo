@@ -1,20 +1,23 @@
-"""Scheduled job (weekdays, 6 AM ET, via cron-job.org -> workflow_dispatch,
-same pattern as poll_job.py): run frequency_test.py against the *current*
-INTRAHOUR_SWING_ALERT_THRESHOLD values (twenty-four indicator/window
-combinations -- 15/10/5 min for each of gld/dxy/us10y/iau/gldm/gdx/gdxj/ring)
-and, for any combination whose FREQUENCY_TEST_LOOKBACK_DAYS-day rising-edge
-event count has drifted outside config.FREQUENCY_TEST_TARGET +/-
-config.FREQUENCY_TEST_TOLERANCE, search a new threshold
-(threshold_search.search_threshold) and write it to
-intrahour_swing_thresholds.json.
+"""Scheduled job (weekdays, 6 AM ET, via cron-job.org -> workflow_dispatch, same pattern as
+poll_job.py): recompute frequency_test.py's companion-swing average for all twenty-four
+indicator/window combinations (15/10/5 min for each of gld/dxy/us10y/iau/gldm/gdx/gdxj/ring)
+over the trailing FREQUENCY_TEST_LOOKBACK_DAYS days, and overwrite
+intrahour_swing_thresholds.json with the fresh values.
 
-Unlike the interactive "Standing frequency test workflow" in CLAUDE.md (which
-reports and waits for a human to approve a new threshold), this job applies
-the change itself: it's meant to run fully unattended every weekday, with the
-GitHub Actions workflow (.github/workflows/frequency_check.yml) committing
-the updated JSON file, opening a PR, and merging it automatically when this
-script changes anything. A Telegram message is always sent, listing every
-one of the twenty-four combinations and whether it changed or stayed the same.
+Unlike the target-event-rate search this replaced, there's no off-target check -- every
+threshold is a plain rolling average of what each indicator does when gold itself swings
+GOLD_SWING_THRESHOLDS[window], so every weekday run recomputes and potentially rewrites all
+twenty-four values, keeping them current as market volatility drifts. The GitHub Actions
+workflow (.github/workflows/frequency_check.yml) commits intrahour_swing_thresholds.json,
+opens a PR, and merges it whenever the recomputed values actually differ from what's on disk.
+A Telegram message is always sent, listing every one of the twenty-four combinations and
+whether it changed (old value -> new value) or stayed the same, plus two directional
+co-flagging distributions (frequency_test.py's co_flagging_distribution()) for each of the three
+windows: one across all eight indicators (general research view) and one restricted to
+BROKER_TRADED_NAMES (the seven -- no us10y -- broker.py's live Consensus5of7 rule actually
+trades on -- see .claude/agents/broker.md), which is the one that actually answers "how often
+would Consensus5of7 fire." This is reporting only -- it doesn't feed back into the twenty-four
+thresholds themselves or into broker.py.
 
 Run: python frequency_check_job.py
 """
@@ -23,36 +26,34 @@ import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from config import (
-    DOLLAR_UNIT_NAMES,
-    FREQUENCY_TEST_LOOKBACK_DAYS,
-    FREQUENCY_TEST_TARGET,
-    FREQUENCY_TEST_TOLERANCE,
-    INTRAHOUR_SWING_ALERT_THRESHOLD,
-    INTRAHOUR_SWING_THRESHOLDS_PATH,
-)
+from config import DOLLAR_UNIT_NAMES, INTRAHOUR_SWING_ALERT_THRESHOLD, INTRAHOUR_SWING_THRESHOLDS_PATH
 from frequency_test import run_frequency_test
 from notifier import send_telegram_message
 from storage import init_db, insert_threshold_history_row
-from threshold_search import search_threshold
 
 
 def append_history_row(thresholds: dict[str, dict[int, float]]) -> None:
     """Logs one row -- today's date (America/New_York) plus the final value of all twenty-four
-    indicator/window combinations -- to the `threshold_history` table in Postgres (see storage.py).
-    Runs every weekday regardless of whether check() changed anything, so the table is a complete
-    weekday log. Replaces the old "Threshold history" table that used to live in
-    docs/frequency-test-thresholds.md -- a routine log entry shouldn't need a repo commit."""
+    indicator/window combinations -- to the `threshold_history` table in Postgres (see
+    storage.py). Runs every weekday regardless of whether check() changed anything, so the
+    table is a complete weekday log."""
     today = datetime.now(ZoneInfo("America/New_York")).date()
     insert_threshold_history_row(today, thresholds)
 
 
+def _co_flag_lines(header: str, co_flags: dict[int, dict]) -> list[str]:
+    lines = [header]
+    for window in sorted(co_flags, reverse=True):
+        data = co_flags[window]
+        dist = data["distribution"]
+        counts = ", ".join(f">={n}: {dist[n]}" for n in sorted(dist))
+        lines.append(f"  {window}min ({data['n_events']} events): {counts}")
+    return lines
+
+
 def check() -> None:
     init_db()
-    results = run_frequency_test()
-
-    lo = FREQUENCY_TEST_TARGET - FREQUENCY_TEST_TOLERANCE
-    hi = FREQUENCY_TEST_TARGET + FREQUENCY_TEST_TOLERANCE
+    results, co_flags, co_flags_broker = run_frequency_test()
 
     updated_thresholds = {
         name: dict(by_window) for name, by_window in INTRAHOUR_SWING_ALERT_THRESHOLD.items()
@@ -60,29 +61,32 @@ def check() -> None:
     lines = []
     any_changed = False
 
-    for name, data in results.items():
-        timestamps, prices = data["series"]
+    for name, by_window in results.items():
         unit = "$" if name in DOLLAR_UNIT_NAMES else ""
-        for window, events in sorted(data["windows"].items(), reverse=True):
-            count = len(events)
+        for window, data in sorted(by_window.items(), reverse=True):
             old_threshold = INTRAHOUR_SWING_ALERT_THRESHOLD[name][window]
 
-            if lo <= count <= hi:
+            if data["avg"] is None:
                 lines.append(
-                    f"  {name.upper()} {window}min: unchanged, {unit}{old_threshold:.4f} "
-                    f"({count} events)"
+                    f"  {name.upper()} {window}min: no usable data this run, kept "
+                    f"{unit}{old_threshold:.4f}"
                 )
                 continue
 
-            any_changed = True
-            new_threshold, new_count = search_threshold(
-                timestamps, prices, window, lo, hi, seed=old_threshold
-            )
-            updated_thresholds[name][window] = round(new_threshold, 4)
-            lines.append(
-                f"  {name.upper()} {window}min: {unit}{old_threshold:.4f} ({count} events) -> "
-                f"{unit}{new_threshold:.4f} ({new_count} events)"
-            )
+            new_threshold = round(data["avg"], 4)
+            updated_thresholds[name][window] = new_threshold
+
+            if new_threshold == old_threshold:
+                lines.append(
+                    f"  {name.upper()} {window}min: unchanged, {unit}{old_threshold:.4f} "
+                    f"(n={data['n_used']}/{data['n_total']})"
+                )
+            else:
+                any_changed = True
+                lines.append(
+                    f"  {name.upper()} {window}min: {unit}{old_threshold:.4f} -> "
+                    f"{unit}{new_threshold:.4f} (n={data['n_used']}/{data['n_total']})"
+                )
 
     if any_changed:
         with open(INTRAHOUR_SWING_THRESHOLDS_PATH, "w") as f:
@@ -92,17 +96,16 @@ def check() -> None:
                 indent=2,
             )
             f.write("\n")
-        header = (
-            f"Frequency check: thresholds updated (target {FREQUENCY_TEST_TARGET}+/-"
-            f"{FREQUENCY_TEST_TOLERANCE} events/{FREQUENCY_TEST_LOOKBACK_DAYS} days)"
-        )
+        header = "Frequency check: companion-swing thresholds recomputed (rolling 30-day average)"
     else:
-        header = (
-            f"Frequency check: all 9 indicator/window combos within {lo}-{hi} "
-            f"events/{FREQUENCY_TEST_LOOKBACK_DAYS} days, no changes"
-        )
+        header = "Frequency check: all 24 indicator/window combos unchanged this run"
 
-    message = "\n".join([header] + lines)
+    co_flag_lines = (
+        _co_flag_lines("Co-flagging, Consensus5of7 (broker.py's live 7-indicator rule, no us10y):", co_flags_broker)
+        + [""]
+        + _co_flag_lines("Co-flagging, all eight indicators (general research view):", co_flags)
+    )
+    message = "\n".join([header] + lines + [""] + co_flag_lines)
     print(message)
     send_telegram_message(message)
 

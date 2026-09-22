@@ -22,9 +22,12 @@ implementation.
     point-in-time readings. Note `iau`/`gldm` hold physical gold like `gld`, while `gdx`/`gdxj`/`ring`
     hold gold-**mining company** shares instead (leveraged/noisier exposure, not a physical tracker) —
     don't conflate the two when reasoning about correlation to gold. All five are
-    alerted/frequency-tested exactly like `gld` but deliberately excluded from the Broker's
-    paper-trading rules (`.claude/agents/broker.md`) — don't propose adding any of them there without
-    the user asking.
+    alerted/frequency-tested exactly like `gld`, and are also referenced by the Broker's
+    paper-trading rules (`.claude/agents/broker.md`) — its `Consensus5of7-buy`/`-sell` rules require at
+    least 5 of seven intrahour-swing indicators (these five plus gld/dxy) to flag together within a
+    trailing 10-minute window, not just gld/dxy. `us10y` is alerted/frequency-tested the same way but
+    is deliberately not part of the Broker's indicator set (dropped from the rule, which used to be
+    `Consensus6of8` and included it).
   - `gold` spot — Twelve Data (`fetch_gold_spot_price()`'s endpoint); `GC=F` futures history — yfinance.
   - `inflation`, `financial_stress` — FRED (`config.FRED_SERIES`), same series IDs the project uses.
   This also sidesteps gaps/short history in our own DB (it only has data since we started polling) and

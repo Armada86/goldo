@@ -24,14 +24,16 @@ jobs:
 
       - run: pip install -r requirements.txt
 
-      # frequency_check_job.py rewrites intrahour_swing_thresholds.json in
-      # place when a threshold has drifted off target, always sends the
-      # Telegram report either way (unchanged vs. updated, per combo), and
-      # always logs a row to the threshold_history table in Postgres (not a
-      # file in this repo -- see docs/frequency-test-thresholds.md).
+      # frequency_check_job.py recomputes every threshold fresh (the average companion swing of
+      # each indicator when gold itself moves $5/$10/$15, over a rolling 30-day window) and
+      # rewrites intrahour_swing_thresholds.json with whichever ones actually changed, always
+      # sends the Telegram report either way (unchanged vs. updated, per combo), and always logs
+      # a row to the threshold_history table in Postgres (not a file in this repo -- see
+      # docs/frequency-test-thresholds.md).
       - run: python frequency_check_job.py
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
 
@@ -39,8 +41,8 @@ jobs:
       # branch, open a PR, and merge it -- this is the "updated
       # automatically" half of the workflow; the Telegram message above is
       # the audit trail of what changed and why. Most weekdays this is a
-      # no-op (nothing to commit), since a threshold only moves when it's drifted
-      # off target. This does NOT force past branch protection (no --admin
+      # no-op (nothing to commit), since a threshold only moves when the freshly
+      # recomputed average actually differs from what's on disk. This does NOT force past branch protection (no --admin
       # bypass): if main requires reviews or passing checks, this merge step
       # fails and the PR is left open for a human to merge. Making it merge
       # unattended on a protected branch is a repo-settings choice for the

@@ -1,0 +1,29 @@
+name: Release watch (NFP)
+
+# Triggered externally by cron-job.org calling the workflow_dispatch endpoint, weekdays at 8:29am
+# America/New_York -- a few minutes before NFP's scheduled 8:30am ET release. Same pattern as
+# release_watch_adp.yml, just a separate workflow/cron-job.org job for the other release, per this
+# repo's convention of a dedicated workflow per distinct scheduled job. Most weekday mornings this
+# is a no-op within a second or two, since NFP only prints once a month -- see
+# release_watch_job.py's own docstring.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  release-watch-nfp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -r requirements.txt
+
+      - run: python release_watch_job.py
+        env:
+          RELEASE_WATCH_TARGET: nfp
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}

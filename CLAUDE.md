@@ -23,37 +23,43 @@ python frequency_check_job.py     # one-shot: frequency_test.py + auto-tune off-
 ```
 
 There is no test suite or linter configured in this repo. `frequency_test.py` is the closest thing to
-one — not a correctness test, but a historical backtest against live yfinance data (see its docstring)
-for tuning `INTRAHOUR_SWING_ALERT_THRESHOLD`, one indicator/window combination's worth of updates at a
-time (see `docs/technical-analyst-*-log.md` for what each indicator is and how it's used).
+one — not a correctness test, but a historical backtest (see its docstring) against live Twelve Data
+1-minute bars (gold spot and the six gold ETFs) and yfinance 5-minute bars (dxy/us10y — see
+`docs/data-sources.md` for why those two stay coarser) for computing `INTRAHOUR_SWING_ALERT_THRESHOLD`
+(see `docs/technical-analyst-*-log.md` for what each indicator is and how it's used).
 `INTRAHOUR_SWING_ALERT_THRESHOLD` itself lives in `intrahour_swing_thresholds.json`, not inline in
 `config.py`, specifically so `frequency_check_job.py` can rewrite it programmatically (see below)
 without touching hand-maintained source.
 
-**Two separate frequency-test workflows now exist** — an interactive, human-approved one for ad hoc
-requests in a Claude Code session, and a fully automatic one that runs every weekday morning. Don't
-conflate them:
+**Two separate frequency-test workflows exist** — an interactive, human-approved one for ad hoc
+requests in a Claude Code session, and a fully automatic one that runs every weekday morning. Both run
+the same underlying study, defined in `frequency_test.py`: find every moment gold spot itself swung
+`GOLD_SWING_THRESHOLDS[window]` (a fixed $5/$10/$15 for the 5/10/15-min windows) within that trailing
+window, rising-edge deduped, and restricted to `COMMON_SESSION_START_ET`-`COMMON_SESSION_END_ET`
+(9:30am-2:55pm ET, weekdays) — the trading hours shared by all eight intrahour-swing indicators, so a
+gold move outside that window can't be compared against all eight. At each of those moments, measure
+each indicator's own high-low swing over that identical window and average it across every such moment
+— **that average is the indicator's threshold itself**, not a target to search toward. There is no
+event-count target/tolerance and no search step (unlike the project's original methodology, which this
+replaced): `FREQUENCY_TEST_LOOKBACK_DAYS` (30, a rolling window, not a fixed historical range) is the
+only knob. Don't conflate the two workflows:
 
 - **Interactive ("Standing frequency test workflow")**: when a user asks *you* (in a Claude Code
-  session) to run a frequency test, (1) run `frequency_test.py` against the *current*
-  `INTRAHOUR_SWING_ALERT_THRESHOLD` values and report each indicator/window combination's actual event
-  count over the last `FREQUENCY_TEST_LOOKBACK_DAYS` days (60 — the most 5-min-resolution history
-  yfinance serves for intraday bars); (2) for any combination off-target, search for a new threshold
-  that lands within `FREQUENCY_TEST_TARGET +/- FREQUENCY_TEST_TOLERANCE` rising-edge events (60 +/- 4 —
-  the threshold-vs-event-count curve is non-monotonic, so pick the higher-threshold/post-peak side) and
-  propose it; (3) **do not edit `intrahour_swing_thresholds.json` or commit anything until the user
-  approves the suggested thresholds** — report and wait. This is for a human explicitly asking in a
-  session; it's the only path that touches `config.py` itself (e.g. changing
-  `INTRAHOUR_SWING_WINDOWS_MINUTES` or the target/tolerance), since those aren't things the automatic
-  job below ever rewrites.
-- **Automatic (weekday mornings, unattended)**: `frequency_check_job.py` runs the same backtest each
-  weekday (see Scheduling below) but does *not* wait for approval — for any indicator/window combination outside
-  target, it searches a new threshold itself (`threshold_search.search_threshold`, same
-  post-peak-side convention) and rewrites `intrahour_swing_thresholds.json` in place. The GitHub Actions
-  workflow then commits that file, opens a PR, and merges it — see Scheduling below for exactly how and
-  its limits. A Telegram report is sent every run either way, naming every one of the twenty-four
-  indicator/window combinations and whether it was left unchanged or updated (old threshold/count ->
-  new threshold/count).
+  session) to run a frequency test, (1) run `frequency_test.py` and report each of the twenty-four
+  indicator/window combinations' freshly computed average (companion swing, in dollars/index-points/
+  yield-points as appropriate) alongside its sample size (`n_used`/`n_total` — how many of gold's
+  events actually fell in the common session with enough data to measure); (2) **do not edit
+  `intrahour_swing_thresholds.json` or commit anything until the user approves the new values** — report
+  and wait. This is for a human explicitly asking in a session; it's the only path that touches
+  `config.py` itself (e.g. changing `INTRAHOUR_SWING_WINDOWS_MINUTES`, `GOLD_SWING_THRESHOLDS`, or the
+  common-session window), since those aren't things the automatic job below ever rewrites.
+- **Automatic (weekday mornings, unattended)**: `frequency_check_job.py` reruns the same study each
+  weekday (see Scheduling below) but does *not* wait for approval — it recomputes all twenty-four
+  averages fresh every run and rewrites `intrahour_swing_thresholds.json` with whichever ones actually
+  changed. The GitHub Actions workflow then commits that file, opens a PR, and merges it — see
+  Scheduling below for exactly how and its limits. A Telegram report is sent every run either way,
+  naming every one of the twenty-four indicator/window combinations and whether it was left unchanged
+  or updated (old threshold -> new threshold, with the sample size behind the new value).
 
 Installing/updating deps: `pip install -r requirements.txt` (into `./venv`).
 
@@ -117,9 +123,13 @@ the value from two polls back instead of one).
 - `check_pct_change_alerts` — % move since the *previous poll only* (`PCT_CHANGE_ALERT_THRESHOLD`) —
   inflation
 - `check_abs_change_alerts` — same previous-poll comparison, but a fixed move
-  (`ABS_CHANGE_ALERT_THRESHOLD`) instead of a %. Used for gold only now (flat $ threshold matters more
-  than a % of a ~$4,300 price). `gold` and `inflation` are mutually exclusive between this and
-  `check_pct_change_alerts` — an indicator should only be in one of the two threshold dicts.
+  (`ABS_CHANGE_ALERT_THRESHOLD`) instead of a %. Used for gold only now (flat $5.00 threshold matters
+  more than a % of a ~$4,300 price). `gold` and `inflation` are mutually exclusive between this and
+  `check_pct_change_alerts` — an indicator should only be in one of the two threshold dicts. This
+  alert's message is prefixed with a 🟡 (`rules.XAUUSD_ALERT_PREFIX`), same as `check_sma_crossover`'s
+  and `check_rsi_alerts`' below — every Telegram alert about spot gold (XAU/USD) itself gets this
+  prefix, distinct from the Broker's 🔵 trade alerts (Telegram has no real text-color support, so a
+  colored-circle emoji is the practical substitute).
 - `check_value_change_alerts` — any change at all (`VALUE_CHANGE_ALERT_NAMES`), for indicators like
   `financial_stress` where a % threshold breaks down near zero
 - `check_intrahour_swing_alerts` — absolute high-low range over three independent trailing windows,
@@ -129,22 +139,28 @@ the value from two polls back instead of one).
   check. Uses a rising-edge comparison per window (current window over threshold, the window as of one
   poll ago wasn't) so a sustained swing alerts once per window, not every 5 minutes for the rest of the
   window — so a single poll can produce up to one alert per window (up to 3 per indicator, 24 total
-  across all eight indicators this mechanism covers). This is the mechanism for gld ($1.65/$1.42/$1.08
+  across all eight indicators this mechanism covers). This is the mechanism for gld ($1.77/$1.18/$0.60
   for 15/10/5 min, dollars, see `docs/technical-analyst-gld-log.md`), the two other physically-backed
   gold ETFs iau (see `docs/technical-analyst-iau-log.md`) and gldm
   (`docs/technical-analyst-gldm-log.md`), and the three gold-**mining** ETFs gdx
   (`docs/technical-analyst-gdx-log.md`), gdxj (`docs/technical-analyst-gdxj-log.md`), and ring
   (`docs/technical-analyst-ring-log.md`, holding mining-company shares rather than gold itself, so
   leveraged/noisier than the physical ETFs) — all five added the same way, alerted/frequency-tested
-  identically to gld but deliberately **excluded** from the Broker's paper-trading rules below — dxy
-  (0.102/0.084/0.064 index points, see `docs/technical-analyst-dxy-log.md`), and us10y
-  (0.0140/0.0123/0.0100 yield points, see `docs/technical-analyst-us10y-log.md`) — there is no single
-  60-min window anymore; it was replaced by these three shorter windows so each of these price/rate
-  indicators alerts at multiple timescales.
-  Current values were tuned with `frequency_test.py` (60-day lookback, the max yfinance serves for 5-min
-  bars) to each land at ~60 rising-edge events/60 days, and are kept there automatically:
-  `frequency_check_job.py` re-tunes any off-target value every weekday morning and
-  `.github/workflows/frequency_check.yml` merges the change (see Scheduling below), so the numbers above
+  identically to gld, and — like gld — now also referenced by the Broker's paper-trading rules below
+  (`Consensus5of7-buy`/`-sell`, requiring at least 5 of these seven indicators: the five just listed
+  plus gld and dxy) — dxy (0.0445/0.0223/0.0147 index points, see
+  `docs/technical-analyst-dxy-log.md`), also part of the Broker's seven, and us10y
+  (0.0071/0.0035/0.0025 yield points, see `docs/technical-analyst-us10y-log.md`) — alerted and
+  frequency-tested identically to the other seven, but deliberately **excluded** from the Broker's
+  paper-trading rules (dropped from `Consensus6of8` when it became `Consensus5of7`) — there is no
+  single 60-min window anymore; it was replaced by these three shorter windows so each of these
+  price/rate indicators alerts at multiple timescales.
+  Current values are each the **average companion swing** of that indicator, in that window, at every
+  moment over the trailing `FREQUENCY_TEST_LOOKBACK_DAYS` (30) days gold spot itself swung
+  `GOLD_SWING_THRESHOLDS[window]` ($5/$10/$15 for 5/10/15 min) — see `frequency_test.py` and
+  `docs/frequency-test-thresholds.md` for the full methodology. There is no target event rate to hit;
+  `frequency_check_job.py` simply recomputes this average fresh every weekday morning and
+  `.github/workflows/frequency_check.yml` merges any change (see Scheduling below), so the numbers above
   are current as of the last successful weekday run, not necessarily what's in this file's git history.
   Each Telegram message states the window, direction
   (up/down), the swing size, the threshold, and the current price; the `$` vs. no-unit formatting is
@@ -176,14 +192,21 @@ each notification firing exactly once.
 `main.poll_once()` right after this cycle's alerts are saved, is a fully automated imaginary
 buy/sell engine layered on top of the alert mechanisms above — see `.claude/agents/broker.md`'s
 "Rules" section for the human-readable spec (kept in sync with this code by hand, the same convention
-as `docs/market.md` vs. `config.py`). Currently two mirror-image rules: buy 1 troy oz of gold spot when
-GLD/DXY/US10Y intrahour-swing alerts (any window) land in the `alerts` table within a trailing 15
-minutes in the directions GLD up/DXY down/US10Y down (sell on the exact opposite); close at $10
-unrealized profit or loss either way. Trade state lives in a new Postgres `trades` table (mirrors
+as `docs/market.md` vs. `config.py`). Currently two mirror-image rules (`Consensus5of7-buy`/`-sell`):
+buy 1 troy oz of gold spot when at least 5 of 7 intrahour-swing indicators (any window) land alerts in
+the `alerts` table within a trailing 10 minutes in the required direction — GLD/IAU/GLDM/GDX/GDXJ/RING
+up, DXY down (sell on the exact opposite, and it's 5-of-7, not all 7); US10Y is deliberately excluded
+from this indicator set (still alerted/frequency-tested like the others, just never consulted for a
+Broker entry — was included when this rule was `Consensus6of8`); close at $10 unrealized profit or loss
+either way, using a real 1-minute candle scan (not a single point-in-time price) so a spike that briefly
+touched $10 and reversed before the next poll still closes at the true level (`broker._find_exit()`).
+Trade state lives in a new Postgres `trades` table (mirrors
 `readings`/`alerts` — required since `poll_job.py` is a stateless one-shot run each cloud poll, so
 in-memory state can't survive between polls); only one trade open at a time, and a fresh entry only
 considers alerts newer than the last trade's open time so a stale alert can't retrigger. Every
-open/close sends a Telegram message (`notifier.send_telegram_message`). Deliberately no
+open/close sends a Telegram message (`notifier.send_telegram_message`), prefixed with a 🔵
+(`broker.TRADE_ALERT_PREFIX`) to visually distinguish it from XAU/USD price alerts' 🟡 prefix
+(`rules.XAUUSD_ALERT_PREFIX`) in the chat. Deliberately no
 markdown/doc log of trades — the `trades` table (`id`, `rule_name`, `trade_type`, `entry_price`,
 `open_ts`, `triggering_alerts`, `exit_price`, `close_ts`, `pnl`, `status`) is the only record, so a
 trade never requires a repo commit; `poll.yml` doesn't need write access to the repo for this reason.
@@ -279,6 +302,53 @@ hiccup never blocks the rest of that poll cycle (the remaining alerts and `check
 run). This is the only place project code talks to the Routines API; the Routine itself is still
 never allowed to edit repository files when it fires, live-trigger or scheduled alike.
 
+**Same-minute release detection (`release_watch_job.py`)**: the mechanism above still ultimately
+depends on FRED having ingested the fresh ADP/NFP number, which can lag the real BLS/ADP release by
+anywhere from minutes to hours -- so `check_value_change_alerts`'s detection (and the Routine nudge it
+triggers) is "eventually," not "same-minute." `release_watch_job.py` is a separate, faster, purely
+additive path: triggered by cron-job.org (`.github/workflows/release_watch_adp.yml`/
+`release_watch_nfp.yml`) at 8:14am/8:29am ET weekdays -- a few minutes before ADP's 8:15am and NFP's
+8:30am ET scheduled releases -- it checks FMP's economic-calendar endpoint (`FMP_API_KEY`,
+`config`'s `docs/data-sources.md` has the source comparison) for today's matching release, and if one
+is scheduled, burst-polls that same endpoint every `BURST_POLL_INTERVAL_SECONDS` (15) for up to
+`BURST_POLL_MAX_MINUTES` (6) -- unlike every other job in this repo, this one is not a pure one-shot,
+since cron-job.org itself can't reliably schedule sub-minute triggers. The moment FMP's `actual` field
+goes from `null` to a real number, it sends a Telegram alert (prefixed 🟣, `RELEASE_ALERT_PREFIX`)
+immediately and exits. On the large majority of weekday mornings neither release is scheduled that
+day, so the job is a single FMP call and an immediate no-op. Deliberately does **not** write to
+`nfp_reports`/`adp_reports` or fire `routine_trigger.trigger_release_analysis()` itself -- the existing
+Routine still owns recording the release and sending its recommendation message, and its own no-op
+check keys off whether the release is already in those tables; writing the row here first would make
+the Routine think its job was already done and skip its recommendation entirely. This job only adds a
+faster "the number just printed" alert on top of that unchanged pipeline.
+
+**API Weekly Crude Oil Stock data (`oil_weekly_reports` table)**: the first indicator in this project
+sourced from neither FRED/yfinance/Twelve Data nor the regular poll loop at all -- see
+`docs/fundamental-analyst-oil-weekly-log.md`. FRED has no matching series (checked directly; only the
+official EIA report exists there, not the API's, and this project doesn't track EIA's either), so this
+one is FMP-only (`/stable/economic-calendar`, same endpoint `release_watch_job.py` uses). Real-world
+release timing is Tuesday evenings but at a much less precise minute than ADP/NFP (observed anywhere
+from ~19:00-22:00 UTC / 3pm-6pm ET), so a short burst-poll like `release_watch_job.py`'s doesn't fit --
+instead `oil_weekly_job.py` is a pure one-shot (check FMP once, act or exit) that cron-job.org triggers
+repeatedly across that whole window (`.github/workflows/oil_weekly_watch.yml`), same philosophy as
+`poll.yml`'s own repeated-external-trigger pattern, just scoped to Tuesday evenings instead of running
+continuously. Unlike `release_watch_job.py`, this job **does** write directly to Postgres -- there's no
+competing Routine for this indicator, so it's the sole source of truth: the moment `actual` appears for
+a week not already in `oil_weekly_reports`, it sends a Telegram alert (🟣, same prefix as the ADP/NFP
+same-minute alerts) and records the release (`storage.insert_oil_weekly_report()`) in one step.
+`storage.oil_weekly_report_exists()` plus the table's `UNIQUE (week_ending)` constraint make repeated
+invocations after the real release (there will be several, since the job fires on a schedule not tied
+to the actual release minute) a safe no-op rather than a duplicate alert. `week_ending` is a real `DATE`
+(parsed from FMP's event-name suffix, e.g. `(Sep/18)`), not a text label like `nfp_reports`/
+`adp_reports`' `data_month` -- the natural per-release key for a weekly report.
+`backfill_oil_weekly_reports.py` loaded the last 52 weeks, fetched live from FMP (paginated in ~85-day
+chunks around a silent per-call history cap FMP's economic-calendar endpoint turned out to have,
+confirmed empirically -- see `docs/data-sources.md`) -- unlike the original 12-row NFP/ADP backfills,
+this one needed no manual research, since FMP already has clean structured history for this specific
+event. `gold_at_release` and the reaction columns are left `NULL` for every backfilled row (fillable
+later via `storage.update_oil_weekly_report_reaction()`); only the release figures themselves
+(`previous_value`/`expected_value`/`actual_value`/`week_ending`) are backfilled.
+
 **Weekday threshold audit trail (`threshold_history` table)**: same move as the two tables above —
 `docs/frequency-test-thresholds.md` used to have a "Threshold history" table that
 `frequency_check_job.py` appended one row to every weekday run (the date plus that run's final value for
@@ -331,16 +401,23 @@ trigger it — this is the actual scheduler. `.github/workflows/frequency_check.
 pattern for `frequency_check_job.py`, but weekday mornings (6 AM America/New_York, Monday–Friday)
 instead of every 5 min — same reasoning for avoiding GitHub's own `schedule:` (UTC-only, no DST
 handling), plus cron-job.org lets both the specific time and the weekday-only restriction be set
-directly, in `America/New_York`, without any code in this repo. Both workflows need their own
+directly, in `America/New_York`, without any code in this repo.
+`.github/workflows/release_watch_adp.yml`/`release_watch_nfp.yml` follow the same pattern for
+`release_watch_job.py` (see "Same-minute release detection" above), weekdays at 8:14am/8:29am
+America/New_York respectively. `.github/workflows/oil_weekly_watch.yml` follows the same pattern again
+for `oil_weekly_job.py` (see "API Weekly Crude Oil Stock data" above), but triggered *repeatedly* —
+roughly every 10 minutes across a Tuesday-evening window (~3pm-6pm ET) — rather than once, since that
+report's release minute is far less precise than ADP/NFP's. All five workflows need their own
 cron-job.org job pointed at their `workflow_dispatch` endpoint — that setup (including the weekday
-exclusion) lives in the cron-job.org account, not in this repo.
-`frequency_check_job.py` runs `frequency_test.py` against the live `INTRAHOUR_SWING_ALERT_THRESHOLD`
-values, and for any indicator/window combination outside `FREQUENCY_TEST_TARGET +/-
-FREQUENCY_TEST_TOLERANCE` searches a new threshold (`threshold_search.search_threshold`) and rewrites
-`intrahour_swing_thresholds.json` with just the changed entries — see the "Automatic (weekday mornings,
+exclusion, the two release-watch workflows' specific 8:14am/8:29am trigger times, and the oil-weekly
+workflow's Tuesday-only repeated-trigger window) lives in the cron-job.org account, not in this repo.
+`frequency_check_job.py` reruns `frequency_test.py`'s companion-swing study fresh (see the "Two
+separate frequency-test workflows" entry above for the full methodology) and rewrites
+`intrahour_swing_thresholds.json` with whichever of the twenty-four indicator/window combinations'
+newly computed averages actually differ from what's on disk — see the "Automatic (weekday mornings,
 unattended)" workflow above for how this differs from an interactive session's frequency test. A
 Telegram message is sent every run either way, listing all twenty-four indicator/window combinations and
-whether each was left unchanged or updated (old threshold/count -> new threshold/count).
+whether each was left unchanged or updated (old threshold -> new threshold).
 `.github/workflows/frequency_check.yml` is what actually applies the change: after the script runs, if
 `intrahour_swing_thresholds.json` changed, the workflow commits it on a new branch, opens a PR, and
 merges it (`gh pr merge --squash`, no `--admin` bypass) — so on a `main` with branch protection
@@ -392,11 +469,14 @@ both files together. It's invoked on demand like `technical-analyst`.
 sales, jobless claims, etc.) and how they move gold. Unlike `technical-analyst`, it *is* meant to query
 Postgres — release-by-release data (e.g. the `nfp_reports` table) lives there, not in markdown, per the
 "NFP fundamental-analysis data" entry above. It reads `docs/fundamental-analyst-*.md` for
-context/methodology (currently just `docs/fundamental-analyst-nfp-log.md`; more will be added the same
-way as other releases get their own research), the same way `technical-analyst` reads
-`docs/technical-analyst-*-log.md`. It's read-only and plans-then-asks for everything **except** one
-pre-approved live action: when a release just printed, its "New-release recommendation workflow" lets it
-send exactly one Telegram message (`notifier.send_telegram_message()`) recommending gold's likely
+context/methodology (`docs/fundamental-analyst-nfp-log.md`, `docs/fundamental-analyst-adp-log.md`, and
+`docs/fundamental-analyst-oil-weekly-log.md`; more will be added the same way as other releases get
+their own research), the same way `technical-analyst` reads `docs/technical-analyst-*-log.md`. It's
+read-only and plans-then-asks for everything **except** one pre-approved live action, scoped to
+`nfp_reports`/`adp_reports` only (not `oil_weekly_reports` — see "API Weekly Crude Oil Stock data"
+above for why that one's fully automated instead): when a release just printed, its "New-release
+recommendation workflow" lets it send exactly one Telegram message (`notifier.send_telegram_message()`)
+recommending gold's likely
 5/10/15-minute move, and record the release in `nfp_reports` via `storage.insert_nfp_report()`/
 `update_nfp_report_reaction()` — without stopping to ask first, since the user has already authorized
 that specific pairing of actions. It still never touches any other table, edits any file, or sends
