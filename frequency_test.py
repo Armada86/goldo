@@ -113,7 +113,15 @@ def _fetch_yfinance_5min(name: str, lookback_days: int) -> tuple[list[datetime],
     history = yf.Ticker(symbol).history(period=f"{lookback_days + 5}d", interval="5m")
     close = history["Close"].dropna()
     timestamps = list(close.index.tz_convert("UTC").to_pydatetime())
-    prices = list(close.values)
+    # float(p), not just list(close.values): pandas/numpy hand back numpy.float64 scalars, not
+    # plain Python floats. That distinction is invisible almost everywhere in this module (numpy
+    # 2.x's float64 still behaves like a float for arithmetic/comparisons) -- but storage.py's
+    # insert_threshold_history_row() passes these numbers straight through as psycopg2 query
+    # parameters, and psycopg2 renders an unrecognized numpy.float64 using its repr(), which numpy
+    # 2.x changed to "np.float64(0.0034)" -- Postgres then parses that literally and fails with
+    # "schema np does not exist". Casting here, at the one place dxy/us10y prices enter this
+    # module, keeps every value a real float for the rest of the pipeline.
+    prices = [float(p) for p in close.values]
     return timestamps, prices
 
 
