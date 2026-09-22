@@ -253,7 +253,10 @@ account's open positions from `/order/openpositions` attached). `forex_broker.py
 a Telegram warning to check the demo account, and records nothing in `forex_trades`. Credentials are three
 optional env vars (`FOREX_USERNAME`/`FOREX_PASSWORD`/`FOREX_APP_KEY`, see `.env.example`) read the same
 `load_dotenv()`-then-`os.environ.get()` way as every other secret in this project — never read by
-`main.py`/`poll_job.py`.
+`main.py`/`poll_job.py`. `poll.yml` already passes all three through from repo secrets of the same names,
+in preparation for wiring the Forex broker into the poll; until it's wired in, nothing in that job reads
+them, and until the repo secrets exist they arrive empty (so a wired-in `ForexClient()` would raise
+`ForexClientError` and `forex_broker.py` would skip trading with only a log line).
 
 **NFP fundamental-analysis data (`nfp_reports` table)**: `docs/fundamental-analyst-nfp-log.md` used to
 hold a hand-maintained markdown table of Non-Farm Payrolls release data (previous/expected/actual
