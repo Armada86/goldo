@@ -206,9 +206,19 @@ def _pick_side(zones: list[dict], price: float, min_gap: float) -> list[dict]:
         return zone["low"] - price if zone["low"] > price else price - zone["high"]
 
     picked: list[dict] = []
+    dropped: list[dict] = []
     for zone in sorted(zones, key=lambda z: (-_weight(z), distance(z))):
         if all(_zone_gap(zone, other) >= min_gap for other in picked):
-            picked.append(zone)
+            picked.append({**zone, "nearby": []})
+        else:
+            dropped.append(zone)
+    # A dropped zone isn't lost: it's attached to the closest kept zone as "nearby", so e.g. a 1h
+    # EMA200 hidden by an equally weighted pivot $6 away still shows up on that pivot's line.
+    for zone in dropped:
+        host = min(picked, key=lambda z: _zone_gap(zone, z))
+        host["nearby"].append({"low": zone["low"], "high": zone["high"], "labels": zone["labels"]})
+    for zone in picked:
+        zone["nearby"].sort(key=distance)
     return sorted(picked, key=distance)[:LEVELS_PER_SIDE]
 
 
@@ -421,7 +431,10 @@ def render(snap: dict, bias: tuple, resistances, supports, scenarios, review_lin
         plan_lines.append(f"- [{tag}] {_describe_scenario(sc)}.")
 
     def level_line(z):
-        return f"  {_fmt_zone(z):>11}  ({', '.join(z['labels'])})"
+        nearby = "".join(
+            f"; nearby {_fmt_zone(n)}: {', '.join(n['labels'])}" for n in z.get("nearby", [])
+        )
+        return f"  {_fmt_zone(z):>11}  ({', '.join(z['labels'])}{nearby})"
 
     p = ind["pivot"]
     out = [
