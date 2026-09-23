@@ -1,0 +1,25 @@
+name: Backfill ta_forecasts diagram_svg
+
+# Manual, one-off maintenance trigger for backfill_ta_forecast_diagram.py -- same reasoning as every
+# other workflow_dispatch in this repo: no scheduled trigger, just a way to run the script against the
+# real DATABASE_URL from an environment with normal network egress (this repo's sandboxed dev sessions
+# don't have raw Postgres access, only HTTPS). Safe to re-run: the script only touches rows still
+# missing a diagram.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -r requirements.txt
+
+      - run: python backfill_ta_forecast_diagram.py
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
