@@ -399,7 +399,10 @@ to `diagram_svg` alongside `analysis`/`levels`, not sent to Telegram (Telegram o
 caught up to yet -- `dashboard.py` just skips the forecast section entirely in that case, same as an
 empty table. `--dry-run` prints the text without any DB read/write or diagram render, and is how the
 read-only `technical-analyst` subagent can run it. Triggered through `.github/workflows/ta_forecast.yml`
-(`workflow_dispatch` only; its cron-job.org entry fires weekdays at 7:00am America/New_York). After
+(`workflow_dispatch` only; two cron-job.org entries fire it weekdays at 7:00am and 12:00pm
+America/New_York). The header labels each run Morning or Midday by its ET hour (`session_label()`, also
+stored as `levels.session`); each run grades whichever row came before it, so the midday run grades the
+morning plan and the next morning's run grades the midday one. After
 saving the row, it sends the analysis text (not the diagram) to Telegram with the 🟡
 `rules.XAUUSD_ALERT_PREFIX`, split on line boundaries if it exceeds Telegram's length limit. The row is
 saved first, so a Telegram failure never loses the forecast. Full methodology, the reference
@@ -484,7 +487,8 @@ directly, in `America/New_York`, without any code in this repo.
 `.github/workflows/release_watch_adp.yml`/`release_watch_nfp.yml` follow the same pattern for
 `release_watch_job.py` (see "Same-minute release detection" above), weekdays at 8:14am/8:29am
 America/New_York respectively. `.github/workflows/ta_forecast.yml` follows the same pattern for `ta_forecast_job.py` (see "XAU/USD
-technical forecast" above), weekdays at 7:00am America/New_York. `.github/workflows/oil_weekly_watch.yml` follows the same pattern again
+technical forecast" above), weekdays at 7:00am and 12:00pm America/New_York (two cron-job.org
+entries for the same workflow). `.github/workflows/oil_weekly_watch.yml` follows the same pattern again
 for `oil_weekly_job.py` (see "API Weekly Crude Oil Stock data" above), but triggered *repeatedly* —
 roughly every 10 minutes across a Tuesday-evening window (~3pm-6pm ET) — rather than once, since that
 report's release minute is far less precise than ADP/NFP's. All six workflows need their own
