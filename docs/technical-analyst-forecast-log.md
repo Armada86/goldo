@@ -74,10 +74,13 @@ near-empty Sat/Sun bars plus today's still-forming bar), and 15min for the revie
 - **Levels:** candidate levels come from the 1h EMA200, the 4h EMA100, daily SMA20/50, prior-day
   high/low, 20-day high/low, the pivots, 4h fractal swing highs/lows (a bar beating the 5 bars on each
   side, over about the last 30 trading days), and $50 round numbers. Candidates within $6 merge into
-  one zone that keeps all its source labels. Walking outward from price, zones are kept at least
-  0.15 x daily ATR apart; when two are closer than that, the heavier one wins (20-day high/low = 3;
-  prior-day high/low, the moving averages and pivot P = 2; everything else = 1). Up to 4 zones are
-  listed on each side.
+  one zone that keeps all its source labels. Each zone's weight is the sum of its labels' weights
+  (20-day high/low = 3; prior-day high/low, the moving averages and pivot P = 2; everything else = 1).
+  Per side, zones are accepted strongest-first (ties: nearer price first), each only if it's at least
+  0.15 x daily ATR from every zone already accepted; then the nearest 4 are listed. (The first version
+  compared each zone only with its neighbour while walking outward, which let a chain of close levels
+  slide the pick away from a cluster, e.g. 4256 -> 4253 -> 4238, leaving a $45 hole in the ladder.
+  Fixed 2026-09-23.)
 - **Bias:** a score from -6 to +6, one point each for price vs 1h EMA200, price vs 4h EMA100, price vs
   daily SMA50, 1h EMA20 vs EMA50, 1h MACD histogram sign, and 1h RSI (>55 bullish, <45 bearish). A
   score of >= 3 is Bullish, 1..2 Neutral-to-bullish, 0 Neutral, -1..-2 Neutral-to-bearish, and <= -3
