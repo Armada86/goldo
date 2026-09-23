@@ -3,8 +3,9 @@
 Reference for every external data source this project reads from -- what it's used for in production
 code, what it's actually capable of, and the real limitations/challenges run into while using it (both
 in production and during ad hoc analysis sessions, e.g. the frequency-test/companion-swing studies run
-from Claude Code). All four sources below (yfinance, Twelve Data, FRED, FMP) are wired into production
-code today.
+from Claude Code). All five sources below (yfinance, Twelve Data, FRED, FMP, forex.com) are wired into
+production code today -- though forex.com only for the Forex broker's trading/close-check, not for any
+indicator's price data (see its row and "forex.com as a candidate gold data source" below).
 
 | Source | Used for (production) | Capabilities | Challenges / limitations encountered |
 |---|---|---|---|
@@ -12,6 +13,7 @@ code today.
 | **Twelve Data** | `gold`'s live spot price (`fetch_gold_spot_price()`, `GOLD_SPOT_SYMBOL = "XAU/USD"`); gold's 15-min RSI candles (`fetch_gold_candles()`, used every poll by `rules.check_rsi_alerts`); `frequency_test.py`'s backtest data for gold spot and all six gold ETFs (GLD/IAU/GLDM/GDX/GDXJ/RING), true 1-minute bars paginated back `FREQUENCY_TEST_LOOKBACK_DAYS` (30) days. | Real spot-gold pricing (yfinance has no true spot symbol anymore -- see `CLAUDE.md`), true 1-minute bars for forex/commodities/most equities, full OHLC per bar. `time_series` supports `start_date`/`end_date` pagination, so a 30-day 1-minute history is obtainable in ~2-9 paginated calls per symbol depending on how many hours/day the instrument trades. | **Free-tier rate limit is 8 credits/minute** -- paginating 30 days of 1-min XAU/USD data (needing ~9 calls) hit a 429 mid-pull and required a ~65s cool-down plus 8-9s pacing between subsequent calls; `frequency_test.py` paces every call by 9s for exactly this reason. **Default response timestamps are not UTC** -- confirmed empirically (a batch with no `timezone` param came back ~10 hours ahead of real UTC); every pull passes `timezone=UTC` explicitly to avoid silently misaligning against yfinance data when cross-referencing timestamps. **No real Dollar Index or Treasury-yield symbol at accessible tiers**: `DXY` is rejected outright as an invalid symbol; `USDX` and `DX` *do* return prices, but `symbol_search` confirms they resolve to unrelated tickers (SGI Enhanced Core ETF and Dynex Capital Inc, a REIT) -- a real trap, since the prices looked plausible enough at a glance to use by mistake. `TNX` (real 10-year yield) exists but is gated behind a higher ("Grow"/"Venture") plan than currently subscribed -- this is why `dxy`/`us10y` stay on yfinance in production. |
 | **FRED** | `inflation` (T10YIE, daily), `financial_stress` (STLFSI4, weekly), plus the other `config.FRED_SERIES` scheduled-release indicators (`adp_employment`, `nonfarm_payrolls`, etc.). | Official, authoritative US government/Fed economic data. Free, reliable, no rate-limit issues encountered. | Update frequency is **daily/weekly at best**, never intraday -- by design, not a limitation to work around (this is why `financial_stress` uses `check_value_change_alerts` rather than an intrahour mechanism, and why `inflation`/FRED series are excluded from `INTRAHOUR_SWING_ALERT_THRESHOLD`). No historical intraday backtest is possible against FRED series for this reason. |
 | **FMP** (Financial Modeling Prep) | `release_watch_job.py`'s same-minute ADP/NFP release detection; `oil_weekly_job.py`'s detection **and recording** of the weekly API Crude Oil Stock Change report (the first indicator not sourced from FRED/yfinance/Twelve Data at all -- see `docs/fundamental-analyst-oil-weekly-log.md`); `backfill_oil_weekly_reports.py`'s 52-week historical seed. All three use `/stable/economic-calendar` -- see `CLAUDE.md`'s "Same-minute release detection"/"API Weekly Crude Oil Stock data" entries. Not used for any price data in production; `frequency_test.py` evaluated FMP for the gold/ETF backtest data (see "Net effect" below) but stayed on Twelve Data instead. | Under the subscribed plan: clean 5-minute OHLC bars for equity ETFs (GLD/IAU/GLDM/GDX/GDXJ/RING all confirmed) with **no rate-limit friction observed** across 10+ rapid back-to-back calls -- notably smoother than Twelve Data's free-tier pacing requirements. The **economic calendar** (`/stable/economic-calendar`) is genuinely useful and now load-bearing in production: real ADP/NFP/API-oil release dates *and* times (confirmed: ADP consistently 12:15 UTC / 8:15am ET, NFP 12:30 UTC / 8:30am ET, API oil Tuesdays ~19:00-22:00 UTC, matching `CLAUDE.md`'s documented schedules), `actual` flips from `null` to a real number the moment a release prints (confirmed live against a past NFP date and against the live-pending API oil release), and it lists future scheduled releases in advance so the watch jobs know in advance which day to watch. The `previous`/`estimate` fields are also something the project has no other automated source for (`nfp_reports`/`adp_reports` rows are otherwise filled in by hand during one-off research; `oil_weekly_reports`' 52-week backfill needed none of that, since FMP's calendar already had clean structured history). | Most `/api/v3/` and `/api/v4/` endpoints are **deprecated/legacy** and return 403 for any subscription started after August 31, 2025 -- only the newer `/stable/` endpoint family works. **1-minute intraday data is restricted above the current plan tier** for every symbol tested (XAUUSD and all 6 gold ETFs all returned 402 "Restricted Endpoint"), so only 5-minute resolution is actually usable for price bars. **No Dollar Index instrument at all** (`DXY` returns an empty list, not an error). **No intraday Treasury yield** -- `/stable/treasury-rates` only returns one value per day (a `year10` field), no intraday resolution whatsoever. Would need proxy instruments (UUP for DXY, IEF/TLT for US10Y -- inversely related to yield) to cover those two gaps for backtest purposes, which was evaluated but not adopted (see below) -- none of this affects the economic-calendar use case, which has no such gaps. **`/stable/economic-calendar` silently caps history per call to roughly the last ~90 days regardless of how far back `from` is set** -- confirmed empirically while building `backfill_oil_weekly_reports.py`: requesting a full year in one call fails outright (402, "Premium Query Parameter"), and even a wide `from`/fixed-`to`-at-today window silently truncates to ~90 days of actual data; paginating in ~85-day chunks (both `from` and `to` moved together) works around it cleanly. **Exact FMP-side latency between a real-world release and `actual` populating is unverified** -- no live ADP/NFP release happened during development to observe end-to-end (a live-pending API oil release was observed with `actual: null`, but not caught at the exact moment it flipped), so the watch jobs' polling windows are safety margins, not measured bounds. |
+| **forex.com** (GAIN Capital TradingAPI, demo account) | Not an indicator data source. Used only by the Forex broker (`forex_client.py`/`forex_broker.py`): order placement and TP/SL attachment on XAU/USD, and the poll's read-only close-check (`/order/openpositions`, `/order/tradehistory`). Its XAU/USD quote (`/market/{id}/tickhistory`) is read only as the price quoted on an order and for the connectivity check. | Live prices and historical OHLC candles (`/market/{id}/barhistory`, older pages via `/barhistorybefore`) for every market it lists: spot gold (XAU/USD, MarketId 401153870), GLD, IAU, GDX, GDXJ (and many other stocks/ETFs/FX pairs). Candle history (XAU/USD, checked 2026-09-22): **1-minute ~30 days** (4,000 bars/call, 8 paged calls), 15-minute ~2 months and hourly ~8 months in one call, **daily back to 2015**. Same login as trading, so no separate key or plan. | **Undocumented for this project** -- the official API reference is login-gated, so every endpoint/field was confirmed by live testing (see `forex_client.py`'s docstring). **`/market/search` ignores its name filter** and returns the whole catalog -- use `/cfd/markets` with an exact name match. **No Dollar Index or Treasury yield** (only ETFs tracking them, e.g. Invesco DB US Dollar Bullish, Treasury bond ETFs), **no GLDM** found (RING not checked), no economic data. **Prices are forex.com's own CFD quotes**, not an exchange/consolidated feed (see comparison below). **Depends on the demo account staying active**; rate limits unknown (8-10 back-to-back calls were fine). Candle timestamps are labelled one minute earlier than Twelve Data's. Demo-account margin for XAU/USD is a flat 22% (~4.5:1 leverage; ~$962 for 1 oz at $4,374), min size 0.1 oz -- a live account may differ. |
 
 ## Net effect on frequency_test.py
 
@@ -26,3 +28,37 @@ above), not just an evaluated-but-unused capability.
 No proxy instruments (UUP for DXY, IEF/TLT for US10Y) were adopted -- by explicit choice, those two
 stay on yfinance's real (if coarser) data rather than substituting a correlated-but-different
 instrument.
+
+## forex.com as a candidate gold data source (evaluated 2026-09-22, not adopted)
+
+Evaluated whether forex.com could replace Twelve Data for gold (live price, 15-min RSI candles,
+the Broker's 1-minute exit scan) and yfinance's `GC=F` futures for the SMA crossover. **Decision: keep
+the existing sources for now** and revisit later; nothing in production reads forex.com prices.
+
+**Price comparison**, forex.com vs. Twelve Data XAU/USD 1-minute closes, 2,859 matched minutes over
+2026-09-20 to 09-22 (after shifting forex.com's timestamps by one minute to line up):
+
+| Measure | Result |
+|---|---|
+| Mean difference (forex.com - Twelve Data) | -$0.14 |
+| Median / 95th-percentile / max absolute difference | $0.42 / $1.76 / $6.03 |
+| Price correlation | 0.9987 |
+| Minute-to-minute change correlation | 0.60 |
+| 15-min windows with a >= $10 swing | Twelve Data 567, forex.com 506, both 471 |
+
+Price levels are nearly identical, but the two feeds tick differently minute to minute: about 1 in 6
+of Twelve Data's $10 moves didn't reach $10 on forex.com. Switching the source would shift some
+gold alerts and Broker exits, add some, and drop others.
+
+**What switching would offer**: relief from Twelve Data's 800-requests/day free-tier cap; the Forex
+broker's decisions made on the same prices its TP/SL orders actually execute on; and 11 years of daily
+*spot* history, so the SMA crossover could use spot instead of `GC=F` futures. 1-minute history just
+covers `FREQUENCY_TEST_LOOKBACK_DAYS` (30), with no margin.
+
+**Against**: single dependency on the demo account for both data and trading; undocumented API and
+unknown rate limits; forex.com's quote is a broker CFD price including its spread; the comparison
+covers only ~3 days. yfinance/FMP remain the only options for DXY/US10Y, and ETFs gain nothing
+(forex.com prices them only during US market hours, same as yfinance).
+
+**Options considered**: (1) keep as is -- chosen; (2) gold price/candles from forex.com with Twelve
+Data as automatic fallback; (3) only the SMA crossover moved to forex.com daily spot.
