@@ -3,10 +3,15 @@ name: Backfill ta_forecasts diagram_svg
 # Manual, one-off maintenance trigger for backfill_ta_forecast_diagram.py -- same reasoning as every
 # other workflow_dispatch in this repo: no scheduled trigger, just a way to run the script against the
 # real DATABASE_URL from an environment with normal network egress (this repo's sandboxed dev sessions
-# don't have raw Postgres access, only HTTPS). Safe to re-run: the script only touches rows still
-# missing a diagram.
+# don't have raw Postgres access, only HTTPS). Safe to re-run: with `force` left false (the default),
+# the script only touches rows still missing a diagram.
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Regenerate every row's diagram (not just rows missing one) -- e.g. after a render_diagram_svg() layout change"
+        type: boolean
+        default: false
 
 jobs:
   backfill:
@@ -20,6 +25,6 @@ jobs:
 
       - run: pip install -r requirements.txt
 
-      - run: python backfill_ta_forecast_diagram.py
+      - run: python backfill_ta_forecast_diagram.py ${{ inputs.force && '--force' || '' }}
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
