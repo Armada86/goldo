@@ -14,8 +14,10 @@ section is computed, not self-reported.
 `analysis` holds the readable text; `levels` (JSONB) holds the same numbers structured, which is what
 the next run's review reads back.
 
-Triggered externally by cron-job.org via .github/workflows/ta_forecast.yml at 7:00am ET on weekdays,
-same pattern as every other scheduled job in this repo. Uses 4 Twelve Data calls per run (5 when grading a previous
+Triggered externally by cron-job.org via .github/workflows/ta_forecast.yml twice each weekday --
+7:00am ET (Morning) and 12:00pm ET (Midday) -- same pattern as every other scheduled job in this repo.
+Each run grades whichever forecast came before it, so the midday run grades the morning plan and the
+next morning's run grades the midday one. Uses 4 Twelve Data calls per run (5 when grading a previous
 forecast) -- negligible against the 800/day cap.
 
 The saved text is also sent to Telegram (prefixed with rules.XAUUSD_ALERT_PREFIX, like every other
@@ -39,6 +41,7 @@ from notifier import send_telegram_message
 from rules import XAUUSD_ALERT_PREFIX
 
 DISPLAY_TZ = ZoneInfo("America/New_York")
+MIDDAY_FROM_HOUR_ET = 10     # runs from 10:00 ET on are labelled Midday, earlier ones Morning
 TELEGRAM_MAX_CHARS = 4000    # Telegram's hard limit is 4096 per message
 
 # Diagram sizing -- a fixed mobile width (dashboard.py embeds this raw, no horizontal scroll), not
@@ -379,7 +382,8 @@ def review_previous(prev: dict | None) -> tuple[list[str], dict | None]:
     then = prev["levels"].get("price")
     hi, lo = float(bars["high"].max()), float(bars["low"].min())
     lines = [
-        f"Previous forecast {since.astimezone(DISPLAY_TZ):%Y-%m-%d %H:%M ET} "
+        f"Previous forecast ({prev['levels'].get('session') or session_label(since)}) "
+        f"{since.astimezone(DISPLAY_TZ):%Y-%m-%d %H:%M ET} "
         f"(bias {prev['levels'].get('bias', '?')}, price then {_fmt_price(then)}). "
         f"Since then: high {hi:,.2f}, low {lo:,.2f}."
     ]
@@ -393,6 +397,13 @@ def review_previous(prev: dict | None) -> tuple[list[str], dict | None]:
 
 # ---------------------------------------------------------------------------------------------------
 # Text
+
+
+def session_label(ts: datetime) -> str:
+    """'Morning' or 'Midday', from the run's ET hour, so the two daily Telegram messages are easy to
+    tell apart. Picked by clock time rather than passed in by the workflow, so a manual run (or a
+    late cron trigger) still gets a sensible label."""
+    return "Midday" if ts.astimezone(DISPLAY_TZ).hour >= MIDDAY_FROM_HOUR_ET else "Morning"
 
 
 def _fmt_price(v) -> str:
@@ -458,7 +469,7 @@ def render(snap: dict, bias: tuple, resistances, supports, scenarios, review_lin
 
     p = ind["pivot"]
     out = [
-        f"XAU/USD technical forecast -- {now.astimezone(DISPLAY_TZ):%Y-%m-%d %H:%M ET}",
+        f"XAU/USD technical forecast ({session_label(now)}) -- {now.astimezone(DISPLAY_TZ):%Y-%m-%d %H:%M ET}",
         f"Price {_fmt_price(price)} (Twelve Data 1h close).",
         "",
         f"SUMMARY: {label} (score {score:+d}/6). Price is {ema_note}, "
@@ -649,6 +660,7 @@ def main(dry_run: bool) -> None:
 
     analysis = render(snap, bias, resistances, supports, scenarios, review_lines, _macro_context(), now)
     levels = {
+        "session": session_label(now),
         "price": price,
         "price_ts": snap["price_ts"],
         "bias": bias[1],
