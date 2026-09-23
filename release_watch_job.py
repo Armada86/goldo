@@ -48,7 +48,8 @@ BURST_POLL_INTERVAL_SECONDS = 15
 BURST_POLL_MAX_MINUTES = 6
 
 # Prefix for this job's Telegram alerts -- distinct from XAU/USD price alerts' 🟡
-# (rules.XAUUSD_ALERT_PREFIX) and the Broker's trade alerts' 🔵 (broker.TRADE_ALERT_PREFIX).
+# (rules.XAUUSD_ALERT_PREFIX), RSI alerts' 🟠 (rules.RSI_ALERT_PREFIX), and the Broker's trade
+# alerts' 🔵 (broker.TRADE_ALERT_PREFIX).
 RELEASE_ALERT_PREFIX = "\U0001f7e3 "  # purple circle
 
 # FMP economic-calendar event-name prefixes that uniquely identify each release (country=US).
