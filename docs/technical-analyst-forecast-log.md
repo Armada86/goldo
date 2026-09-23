@@ -32,15 +32,19 @@ from it and grades it.
 
 `ta_forecast_job.py`'s `render_diagram_svg(price, resistances, supports, scenarios)` turns the same
 zones/price/stops the text forecast already computed into an SVG price ladder: resistance zones above
-price as red bands, support zones below as green bands, a gold price marker, and dashed lines at the
+price as red bands, support zones below as green bands, a thin gold price line, and dashed lines at the
 two breakout/breakdown stop levels (`sell_resistance`'s and `buy_support`'s `stop`), each zone labelled
 with its price and a couple of source labels (`+N` for the rest, with the full list in a `<title>`
 tooltip). It's modelled on the ladder diagram in the "Gold Forecast Anatomy" artifact
 (https://claude.ai/artifact/V2EkjQF9nomRqGnqAyWjYZ, 2026-09-23), which hand-placed every coordinate for
 one specific run's numbers -- this version computes a proportional price-axis scale fresh from
 whatever the run's real zones/price/stops are, at a fixed mobile width (`DIAGRAM_WIDTH` = 380px) matching
-`dashboard.py`'s phone-first layout, with zone *label rows* (not the bands themselves) nudged apart by
-`DIAGRAM_MIN_LABEL_GAP` when real zones land too close together to keep both labels legible. It has no
+`dashboard.py`'s phone-first layout, with *label rows* (not the bands themselves) nudged apart by
+`DIAGRAM_MIN_LABEL_GAP` when two rows land too close together to keep both labels legible -- the price
+row goes through that same layout pass as the zones (it's common for price to sit within a few dollars
+of the nearest zone), and is deliberately a hairline rather than a filled badge, so it can never cover
+whatever zone/label happens to be at the same height (the original version used a solid badge there;
+changed 2026-09-23 after it was covering the nearest zone on the live dashboard). It has no
 external dependency (no matplotlib/plotly): just an f-string building SVG markup. `dashboard.py` shows
 it as-is at the top of the page (see CLAUDE.md's "Dashboard layout"); it is not sent to Telegram.
 Simplifications versus the reference diagram, given it has to render unattended every morning rather

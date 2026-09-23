@@ -389,8 +389,10 @@ and 15min for grading), with yfinance DXY/US10Y for context. Each run also grade
 four scenarios against the 15-min candles since it was written (triggered? stop or which targets
 first?), which is why the structured `levels` JSONB is stored alongside the text. `render_diagram_svg()`
 turns that same price/resistances/supports/scenarios data into a self-contained SVG price ladder --
-resistance zones above price in red, support zones below in green, the price marker, and the two
-breakout/breakdown stop lines, at a fixed mobile width rather than hand-placed per-run coordinates --
+resistance zones above price in red, support zones below in green, a thin price line (laid out in the
+same label pass as the zones, not a filled badge, so it never covers a zone/label it happens to land
+on), and the two breakout/breakdown stop lines, at a fixed mobile width rather than hand-placed
+per-run coordinates --
 which `dashboard.py` displays as-is at the top of the page (see "Dashboard layout" below); it's saved
 to `diagram_svg` alongside `analysis`/`levels`, not sent to Telegram (Telegram only ever got the text).
 `diagram_svg` is `NULL` on rows written before this column existed, or on any row the dashboard hasn't
