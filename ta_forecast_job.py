@@ -70,6 +70,8 @@ SWING_WING = 5               # a swing high/low must beat this many 4h bars (~20
 ROUND_NUMBER_STEP = 50       # $4,300 / $4,350 style psychological levels
 MIN_STOP_BUFFER = 5.0        # stop distance beyond a zone, floored here, else 10% of daily ATR
 MIN_LEVEL_GAP_ATR = 0.15     # listed zones at least this x daily ATR apart (~$15 at a $100 ATR)
+DAILY_SWING_LOOKBACK = 125   # ~6 months of finished weekday daily bars scanned for daily swing points
+DAILY_SWING_WING = 3         # a daily swing high/low must beat this many days on each side
 
 # How much a level source counts when two candidate zones are too close to both be listed -- the
 # heavier one is kept. Longer-timeframe / more widely watched levels weigh more.
@@ -77,7 +79,11 @@ LABEL_WEIGHTS = {
     "20-day high": 3, "20-day low": 3,
     "prior-day high": 2, "prior-day low": 2,
     "1h EMA200": 2, "4h EMA100": 2, "daily SMA20": 2, "daily SMA50": 2, "pivot P": 2,
+    "daily SMA100": 2, "daily SMA200": 3,
 }
+# Daily swing labels carry their date and role ("Jul 6 swing high, now support"), so they're weighted
+# by prefix rather than an exact LABEL_WEIGHTS key.
+DAILY_SWING_WEIGHT = 2
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -97,17 +103,36 @@ def _atr(daily: pd.DataFrame, period: int = 14) -> float:
     return float(tr.ewm(alpha=1 / period, adjust=False).mean().iloc[-1])
 
 
-def _swing_levels(bars: pd.DataFrame) -> tuple[list[float], list[float]]:
-    """Fractal swing highs/lows: a bar whose high (low) beats SWING_WING bars on each side."""
+def _swing_levels(bars: pd.DataFrame, wing: int = SWING_WING) -> tuple[list[float], list[float]]:
+    """Fractal swing highs/lows: a bar whose high (low) beats `wing` bars on each side."""
     highs, lows = bars["high"].to_numpy(), bars["low"].to_numpy()
     swing_highs, swing_lows = [], []
-    for i in range(SWING_WING, len(bars) - SWING_WING):
-        window = slice(i - SWING_WING, i + SWING_WING + 1)
+    for i in range(wing, len(bars) - wing):
+        window = slice(i - wing, i + wing + 1)
         if highs[i] == highs[window].max():
             swing_highs.append(float(highs[i]))
         if lows[i] == lows[window].min():
             swing_lows.append(float(lows[i]))
     return swing_highs, swing_lows
+
+
+def _daily_swing_candidates(daily: pd.DataFrame, price: float) -> list[tuple[float, str]]:
+    """Daily-chart swing highs/lows over the last ~6 months, dated, with role reversal spelled out --
+    an old swing high now below price is support ("Jul 6 swing high, now support"), an old swing low
+    now above it is resistance. Gives the ladder real levels beyond the ~30-day reach of the 4h swings,
+    where it otherwise only had round numbers (a third-party reference used exactly these: the Jul 6
+    high $4,202 and the Jul 29 low $3,996)."""
+    bars = daily.tail(DAILY_SWING_LOOKBACK).reset_index(drop=True)
+    out = []
+    for i in range(DAILY_SWING_WING, len(bars) - DAILY_SWING_WING):
+        window = bars.iloc[i - DAILY_SWING_WING:i + DAILY_SWING_WING + 1]
+        day = f"{bars['datetime'].iloc[i]:%b} {bars['datetime'].iloc[i].day}"
+        high, low = float(bars["high"].iloc[i]), float(bars["low"].iloc[i])
+        if high == window["high"].max():
+            out.append((high, f"{day} swing high" + (", now support" if high < price else "")))
+        if low == window["low"].min():
+            out.append((low, f"{day} swing low" + (", now resistance" if low > price else "")))
+    return out
 
 
 def _completed_weekday_bars(daily: pd.DataFrame) -> pd.DataFrame:
@@ -121,7 +146,9 @@ def _completed_weekday_bars(daily: pd.DataFrame) -> pd.DataFrame:
 def compute_snapshot() -> dict:
     h1 = fetch_candles(GOLD_SPOT_SYMBOL, "1h", 500)
     h4 = fetch_candles(GOLD_SPOT_SYMBOL, "4h", 300)
-    daily_all = fetch_candles(GOLD_SPOT_SYMBOL, "1day", 120)
+    # 400 calendar bars (Twelve Data's daily XAU/USD series includes weekend stubs) leaves ~280 finished
+    # weekdays -- enough for the 200-day SMA plus the daily RSI's warm-up.
+    daily_all = fetch_candles(GOLD_SPOT_SYMBOL, "1day", 400)
     daily = _completed_weekday_bars(daily_all)
 
     price = float(h1["close"].iloc[-1])
@@ -145,6 +172,10 @@ def compute_snapshot() -> dict:
         "sma100_4h": round(float(c4.rolling(100).mean().iloc[-1]), 2),
         "sma20_1d": round(float(cd.rolling(20).mean().iloc[-1]), 2),
         "sma50_1d": round(float(cd.rolling(50).mean().iloc[-1]), 2),
+        "sma100_1d": round(float(cd.rolling(100).mean().iloc[-1]), 2),
+        "sma200_1d": round(float(cd.rolling(200).mean().iloc[-1]), 2),
+        "rsi_1d": round(float(compute_rsi(cd).iloc[-1]), 1),
+        "rsi_1d_prev": round(float(compute_rsi(cd).iloc[-2]), 1),
         "rsi_1h": round(float(compute_rsi(c1).iloc[-1]), 1),
         "rsi_4h": round(float(compute_rsi(c4).iloc[-1]), 1),
         "macd_1h": round(float(macd.iloc[-1]), 2),
@@ -169,6 +200,8 @@ def compute_snapshot() -> dict:
         (ind["ema100_4h"], "4h EMA100"),
         (ind["sma20_1d"], "daily SMA20"),
         (ind["sma50_1d"], "daily SMA50"),
+        (ind["sma100_1d"], "daily SMA100"),
+        (ind["sma200_1d"], "daily SMA200"),
         (ind["prev_day"]["high"], "prior-day high"),
         (ind["prev_day"]["low"], "prior-day low"),
         (ind["range_20d"]["high"], "20-day high"),
@@ -177,6 +210,7 @@ def compute_snapshot() -> dict:
     candidates += [(v, f"pivot {k}") for k, v in ind["pivot"].items() if k != "session"]
     candidates += [(v, "4h swing high") for v in swing_highs]
     candidates += [(v, "4h swing low") for v in swing_lows]
+    candidates += _daily_swing_candidates(daily, price)
     base = int(price // ROUND_NUMBER_STEP) * ROUND_NUMBER_STEP
     candidates += [(float(base + k * ROUND_NUMBER_STEP), "round number") for k in range(-3, 5)]
 
@@ -209,8 +243,14 @@ def _merge_zones(candidates: list[tuple[float, str]]) -> list[dict]:
     return zones
 
 
+def _label_weight(label: str) -> int:
+    if " swing " in label and not label.startswith("4h"):
+        return DAILY_SWING_WEIGHT
+    return LABEL_WEIGHTS.get(label, 1)
+
+
 def _weight(zone: dict) -> int:
-    return sum(LABEL_WEIGHTS.get(label, 1) for label in zone["labels"])
+    return sum(_label_weight(label) for label in zone["labels"])
 
 
 def _zone_gap(a: dict, b: dict) -> float:
@@ -440,6 +480,25 @@ def _macro_context() -> list[str]:
     return lines
 
 
+def _big_picture_lines(price: float, ind: dict) -> list[str]:
+    """The daily-chart view, kept out of the -6..+6 bias score (all short-term inputs) so that score
+    stays comparable day to day. Reads the long-term trend off the 200-day SMA and daily momentum off
+    the daily RSI -- the frame a third-party reference used when short-term and long-term disagreed."""
+    sma200 = ind["sma200_1d"]
+    gap = price - sma200
+    trend = "up" if gap > 0 else "down"
+    rsi, rsi_prev = ind["rsi_1d"], ind["rsi_1d_prev"]
+    rsi_side = "above" if rsi >= 50 else "below"
+    rsi_dir = "rising" if rsi > rsi_prev else "falling"
+    return [
+        "BIG PICTURE (daily chart, finished days)",
+        f"- Price is ${abs(gap):,.0f} ({abs(gap) / sma200:.1%}) {'above' if gap > 0 else 'below'} the 200-day SMA "
+        f"({sma200:,.0f}): long-term trend {trend}.",
+        f"- 50/100/200-day SMAs: {ind['sma50_1d']:,.0f} / {ind['sma100_1d']:,.0f} / {sma200:,.0f}.",
+        f"- Daily RSI(14) {rsi} ({rsi_side} 50, {rsi_dir} from {rsi_prev}).",
+    ]
+
+
 def render(snap: dict, bias: tuple, resistances, supports, scenarios, review_lines, macro_lines, now) -> str:
     price, ind = snap["price"], snap["indicators"]
     score, label, reasons = bias
@@ -476,6 +535,8 @@ def render(snap: dict, bias: tuple, resistances, supports, scenarios, review_lin
         f"{'above' if price > ind['ema100_4h'] else 'below'} the 4h EMA100 ({ind['ema100_4h']:,.0f}). "
         f"20-day range {r20['low']:,.0f}-{r20['high']:,.0f}; price is in its {third} third.",
         "",
+        *_big_picture_lines(price, ind),
+        "",
         f"KEY LEVELS (sources within ${ZONE_MERGE_DOLLARS:.0f} merged into one zone; zones >= ${MIN_LEVEL_GAP_ATR * ind['atr14_1d']:.0f} apart)",
         "Resistance:",
         *[level_line(z) for z in resistances],
@@ -487,7 +548,8 @@ def render(snap: dict, bias: tuple, resistances, supports, scenarios, review_lin
         "INDICATORS",
         f"- 1h EMA20/50/100/200: {ema[20]:,.2f} / {ema[50]:,.2f} / {ema[100]:,.2f} / {ema[200]:,.2f}",
         f"- 4h EMA100 {ind['ema100_4h']:,.2f}, 4h SMA100 {ind['sma100_4h']:,.2f}; "
-        f"daily SMA20 {ind['sma20_1d']:,.2f}, SMA50 {ind['sma50_1d']:,.2f}",
+        f"daily SMA20 {ind['sma20_1d']:,.2f}, SMA50 {ind['sma50_1d']:,.2f}, "
+        f"SMA100 {ind['sma100_1d']:,.2f}, SMA200 {ind['sma200_1d']:,.2f}",
         f"- RSI(14): 1h {ind['rsi_1h']}, 4h {ind['rsi_4h']}",
         f"- MACD(12,26,9) 1h: {ind['macd_1h']:+.2f} vs signal {ind['macd_signal_1h']:+.2f} "
         f"(histogram {ind['macd_hist_1h']:+.2f}, {hist_dir})",

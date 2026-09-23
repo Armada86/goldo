@@ -89,23 +89,45 @@ reviewed the previous day's calls.
   zones ("4318/4315", which also absorbs a few dollars of feed difference), and a review of the
   previous plan. Our review is **computed from candles**, not self-reported.
 
+**3. Daily-chart outlook (news-site technical note, 23 Sep 18:37 GMT).** "Gold failed at the top of a
+'bullish wedge' and dropped beneath the 100-day and 50-day SMAs at $4,313 and $4,306, below $4,300. RSI
+bearish below 50 and aiming lower; structure still tilted up, so wait for confirmation. Bearish below
+the Sep 16 swing low $4,235, then the Jul 6 high-turned-support $4,202, then the Jul 29 pivot low
+$3,996. Upside: the wedge top ~$4,365-4,370, then $4,400, $4,500 and the 200-day SMA at $4,541."
+- Checked: its 50/100-day SMAs match ours exactly when today's still-forming daily bar is included
+  ($4,306.26 / $4,313.13); 200-day SMA $4,543.6 (≈$4,541); Jul 6 high $4,202.0 and Jul 29 low
+  $3,996.3 exact; Sep 16 low $4,238.4 (≈$4,235); daily RSI 44.3 and falling; falling highs 4,399 ->
+  4,375 -> 4,370 consistent with a wedge top near $4,365-4,370.
+- Weak points: says gold must "surpass" the Sep 16 low for a bearish move (means break below); the
+  wedge line itself can't be reproduced exactly; structure-up vs momentum-down is left unresolved
+  (honestly, as "wait for confirmation").
+- **Taken from it (2026-09-23):** daily SMA100/SMA200 as level candidates; daily swing highs/lows over
+  ~6 months, dated and labelled with role reversal ("Jul 6 swing high, now support"); a BIG PICTURE
+  section (price vs the 200-day SMA, daily RSI). **Not yet:** a "mixed signals" flag when short-term
+  bias and the daily view disagree; an extended target beyond the ladder; wedge/trend-line detection;
+  switching SMAs to include today's unfinished bar (ours stay finished-days-only, hence $4,301.78 vs
+  their $4,306 for the 50-day).
+
 ## How each section is computed
 
 All from Twelve Data XAU/USD candles (`data_fetcher.fetch_candles`, UTC): 1h (500 bars), 4h (300),
-1day (120, filtered to finished weekday sessions, because Twelve Data's daily series includes
+1day (400, filtered to finished weekday sessions -- ~280 days, enough for the 200-day SMA -- because Twelve Data's daily series includes
 near-empty Sat/Sun bars plus today's still-forming bar), and 15min for the review.
 
 - **Indicators:** 1h EMA20/50/100/200; 4h EMA100 and SMA100 (the second reference's "100-period MA on
-  the four-hour chart"); daily SMA20/50; Wilder RSI(14) on 1h and 4h (`data_fetcher.compute_rsi`,
+  the four-hour chart"); daily SMA20/50/100/200; Wilder RSI(14) on 1h, 4h and daily (`data_fetcher.compute_rsi`,
   the same one used for RSI alerts); 1h MACD(12,26,9); daily ATR(14).
 - **Pivot:** classic floor pivot (P, R1/R2, S1/S2) from the previous finished UTC weekday session.
   Different sites cut the "day" differently (NY 5pm vs UTC), which is why reference 1's $4,358 pivot
   doesn't match ours. We state the session instead of hiding the choice.
-- **Levels:** candidate levels come from the 1h EMA200, the 4h EMA100, daily SMA20/50, prior-day
-  high/low, 20-day high/low, the pivots, 4h fractal swing highs/lows (a bar beating the 5 bars on each
-  side, over about the last 30 trading days), and $50 round numbers. Candidates within $6 merge into
+- **Levels:** candidate levels come from the 1h EMA200, the 4h EMA100, daily SMA20/50/100/200,
+  prior-day high/low, 20-day high/low, the pivots, 4h fractal swing highs/lows (a bar beating the 5
+  bars on each side, over about the last 30 trading days), daily swing highs/lows (a day beating the 3
+  days each side, over the last ~125 finished days, labelled with their date and, when price has
+  crossed them, their flipped role: "Jul 6 swing high, now support"), and $50 round numbers. Candidates within $6 merge into
   one zone that keeps all its source labels. Each zone's weight is the sum of its labels' weights
-  (20-day high/low = 3; prior-day high/low, the moving averages and pivot P = 2; everything else = 1).
+  (20-day high/low and the daily SMA200 = 3; prior-day high/low, the other moving averages, pivot P and
+  daily swing points = 2; everything else = 1).
   Per side, zones are accepted strongest-first (ties: nearer price first), each only if it's at least
   0.15 x daily ATR from every zone already accepted; then the nearest 4 are listed. A zone dropped by
   that spacing rule isn't discarded: it's attached to the closest kept zone and printed on its line as
@@ -114,6 +136,9 @@ near-empty Sat/Sun bars plus today's still-forming bar), and 15min for the revie
   compared each zone only with its neighbour while walking outward, which let a chain of close levels
   slide the pick away from a cluster, e.g. 4256 -> 4253 -> 4238, leaving a $45 hole in the ladder.
   Fixed 2026-09-23.)
+- **Big picture:** a separate daily-chart block -- price vs the 200-day SMA ($ and %, long-term trend
+  up/down), the 50/100/200-day SMAs, and daily RSI(14) vs 50 with its direction. Deliberately kept out of
+  the bias score, so the score stays a short-term reading comparable from day to day.
 - **Bias:** a score from -6 to +6, one point each for price vs 1h EMA200, price vs 4h EMA100, price vs
   daily SMA50, 1h EMA20 vs EMA50, 1h MACD histogram sign, and 1h RSI (>55 bullish, <45 bearish). A
   score of >= 3 is Bullish, 1..2 Neutral-to-bullish, 0 Neutral, -1..-2 Neutral-to-bearish, and <= -3

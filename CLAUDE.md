@@ -381,10 +381,12 @@ later via `storage.update_oil_weekly_report_reaction()`); only the release figur
 **XAU/USD technical forecast (`ta_forecast_job.py`, `ta_forecasts` table)**: a one-shot generator
 that writes one row per run to `ta_forecasts` (`id`, `forecast_date` (ET date), `ts`, `analysis` TEXT,
 `levels` JSONB, `diagram_svg` TEXT) via `storage.insert_ta_forecast()`/`get_latest_ta_forecast()`.
-It's modelled on two third-party analysis styles the user supplied: an indicator snapshot (1h
-EMA20/50/100/200, RSI(14), MACD(12,26,9), pivot, bias) and a conditional trading plan (fade the
+It's modelled on third-party analysis styles the user supplied: an indicator snapshot (1h
+EMA20/50/100/200, RSI(14), MACD(12,26,9), pivot, bias), a conditional trading plan (fade the
 nearest resistance/support zone with a hard stop, where that stop is also the breakout trigger the
-other way, plus target ladders). Everything is computed from Twelve Data XAU/USD candles (1h/4h/daily,
+other way, plus target ladders), and a daily-chart outlook (daily SMA50/100/200 and ~6 months of dated
+daily swing points as levels, plus a BIG PICTURE block -- price vs the 200-day SMA, daily RSI -- kept
+out of the short-term bias score). Everything is computed from Twelve Data XAU/USD candles (1h/4h/daily,
 and 15min for grading), with yfinance DXY/US10Y for context. Each run also grades the previous row's
 four scenarios against the 15-min candles since it was written (triggered? stop or which targets
 first?), which is why the structured `levels` JSONB is stored alongside the text. `render_diagram_svg()`
