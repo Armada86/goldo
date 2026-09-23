@@ -25,8 +25,10 @@ Run: python ta_forecast_job.py            # generate + save to Postgres + send t
      python ta_forecast_job.py --dry-run  # generate + print only (no DB, no Telegram)
 """
 
+import math
 import sys
 from datetime import datetime, timezone
+from html import escape
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -38,6 +40,24 @@ from rules import XAUUSD_ALERT_PREFIX
 
 DISPLAY_TZ = ZoneInfo("America/New_York")
 TELEGRAM_MAX_CHARS = 4000    # Telegram's hard limit is 4096 per message
+
+# Diagram sizing -- a fixed mobile width (dashboard.py embeds this raw, no horizontal scroll), not
+# the hand-placed per-run coordinates a static reference image would use, so it renders unattended.
+DIAGRAM_WIDTH = 380
+DIAGRAM_PLOT_HEIGHT = 340
+DIAGRAM_TOP = 26
+DIAGRAM_AXIS_X = 46
+DIAGRAM_BAND_X = 52
+DIAGRAM_BAND_WIDTH = 80
+DIAGRAM_LABEL_X = 140
+DIAGRAM_MIN_LABEL_GAP = 13   # px between stacked zone-label rows, so close zones never overlap
+DIAGRAM_LEGEND_HEIGHT = 50
+DIAGRAM_COLOR_RESISTANCE = "#cf222e"  # same red/green as dashboard.py's up/down cells
+DIAGRAM_COLOR_SUPPORT = "#1a7f37"
+DIAGRAM_COLOR_PRICE = "#9c700c"
+DIAGRAM_COLOR_MUTED = "#767c82"
+DIAGRAM_COLOR_INK = "#1c2125"
+DIAGRAM_COLOR_RULE = "#d5d9d1"
 
 EMA_PERIODS = (20, 50, 100, 200)
 ZONE_MERGE_DOLLARS = 6.0     # candidate levels this close together are shown as one "4318/4315" zone
@@ -475,6 +495,120 @@ def render(snap: dict, bias: tuple, resistances, supports, scenarios, review_lin
     return "\n".join(out)
 
 
+# ---------------------------------------------------------------------------------------------------
+# Diagram
+
+
+def _short_zone_label(zone: dict) -> str:
+    """First couple of source labels plus a '+N' count of anything else (other sources on this zone,
+    or levels folded into it as 'nearby') -- the full list is still in the <title> tooltip."""
+    shown = ", ".join(zone["labels"][:2])
+    extra = len(zone["labels"]) - 2 + len(zone.get("nearby", []))
+    return f"{shown} +{extra}" if extra > 0 else shown
+
+
+def render_diagram_svg(price: float, resistances: list[dict], supports: list[dict], scenarios: list[dict]) -> str:
+    """Self-contained SVG price ladder: resistance zones above price in red, support zones below in
+    green, the price marker, and the two breakout/breakdown stop lines -- modelled on the reference
+    diagram in docs/technical-analyst-forecast-log.md, redrawn from each run's real zones/price/stops
+    at a fixed mobile width instead of that diagram's hand-tuned per-run coordinates. Zone bands sit
+    at their true proportional price position; only the label rows are nudged apart (never more than
+    DIAGRAM_MIN_LABEL_GAP) to stay legible when two zones land close together. `title` tags carry
+    each zone's full label list (and any 'nearby' levels folded into it) as a hover tooltip -- inert
+    on mobile, but free."""
+    zones = [(z, True) for z in resistances] + [(z, False) for z in supports]
+    stops = {sc["name"]: sc for sc in scenarios}
+    stop_lines = [
+        s for s in (stops.get("sell_resistance", {}).get("stop"), stops.get("buy_support", {}).get("stop"))
+        if s is not None
+    ]
+
+    values = [price] + [v for z, _ in zones for v in (z["low"], z["high"])] + stop_lines
+    lo, hi = min(values), max(values)
+    pad = max((hi - lo) * 0.1, 5.0)
+    lo, hi = lo - pad, hi + pad
+
+    def y_of(p: float) -> float:
+        return DIAGRAM_TOP + (hi - p) / (hi - lo) * DIAGRAM_PLOT_HEIGHT
+
+    span = hi - lo
+    step = 100 if span > 500 else 50 if span > 200 else 25 if span > 80 else 10
+    ticks = []
+    t = math.ceil(lo / step) * step
+    while t <= hi:
+        ticks.append(t)
+        t += step
+
+    bands, labels = [], []
+    prev_label_y = None
+    for zone, is_resistance in sorted(zones, key=lambda item: -item[0]["low"]):
+        color = DIAGRAM_COLOR_RESISTANCE if is_resistance else DIAGRAM_COLOR_SUPPORT
+        y_top, y_bot = y_of(zone["high"]), y_of(zone["low"])
+        bands.append(
+            f'<rect x="{DIAGRAM_BAND_X}" y="{y_top:.1f}" width="{DIAGRAM_BAND_WIDTH}" '
+            f'height="{max(3.0, y_bot - y_top):.1f}" fill="{color}" fill-opacity="0.22" '
+            f'stroke="{color}" stroke-width="1"/>'
+        )
+        label_y = (y_top + y_bot) / 2 + 3.3
+        if prev_label_y is not None and label_y - prev_label_y < DIAGRAM_MIN_LABEL_GAP:
+            label_y = prev_label_y + DIAGRAM_MIN_LABEL_GAP
+        prev_label_y = label_y
+        tooltip = ", ".join(zone["labels"])
+        if zone.get("nearby"):
+            tooltip += "; nearby " + "; ".join(f"{_fmt_zone(n)}: {', '.join(n['labels'])}" for n in zone["nearby"])
+        labels.append(
+            f'<text x="{DIAGRAM_LABEL_X}" y="{label_y:.1f}" font-size="9.5" fill="{DIAGRAM_COLOR_INK}">'
+            f'<tspan font-family="IBM Plex Mono, ui-monospace, monospace" font-weight="600" '
+            f'fill="{color}">{_fmt_zone(zone)}</tspan> {escape(_short_zone_label(zone))}'
+            f'<title>{escape(tooltip)}</title></text>'
+        )
+
+    axis_ticks = "".join(
+        f'<line x1="{DIAGRAM_AXIS_X - 4}" x2="{DIAGRAM_AXIS_X}" y1="{y_of(tk):.1f}" y2="{y_of(tk):.1f}" '
+        f'stroke="{DIAGRAM_COLOR_RULE}"/>'
+        f'<text x="{DIAGRAM_AXIS_X - 6}" y="{y_of(tk) + 3:.1f}" font-size="9" fill="{DIAGRAM_COLOR_MUTED}" '
+        f'text-anchor="end">{tk:,.0f}</text>'
+        for tk in ticks
+    )
+    stop_svg = "".join(
+        f'<line x1="{DIAGRAM_BAND_X}" x2="{DIAGRAM_BAND_X + DIAGRAM_BAND_WIDTH}" y1="{y_of(s):.1f}" '
+        f'y2="{y_of(s):.1f}" stroke="{DIAGRAM_COLOR_MUTED}" stroke-width="1" stroke-dasharray="4 3"/>'
+        f'<text x="{DIAGRAM_BAND_X + 2}" y="{y_of(s) - 2:.1f}" font-size="7.5" fill="{DIAGRAM_COLOR_MUTED}">'
+        f'{s:,.0f}</text>'
+        for s in stop_lines
+    )
+
+    price_y = y_of(price)
+    height = DIAGRAM_TOP + DIAGRAM_PLOT_HEIGHT + DIAGRAM_LEGEND_HEIGHT
+
+    return (
+        f'<svg viewBox="0 0 {DIAGRAM_WIDTH} {height}" xmlns="http://www.w3.org/2000/svg" '
+        f'font-family="IBM Plex Sans, Arial, sans-serif" role="img" '
+        f'aria-label="Gold price ladder: resistance above {price:,.2f}, support below">'
+        f'<line x1="{DIAGRAM_AXIS_X}" x2="{DIAGRAM_AXIS_X}" y1="{DIAGRAM_TOP}" '
+        f'y2="{DIAGRAM_TOP + DIAGRAM_PLOT_HEIGHT}" stroke="{DIAGRAM_COLOR_RULE}"/>'
+        f'{axis_ticks}{"".join(bands)}{stop_svg}'
+        f'<line x1="{DIAGRAM_AXIS_X}" x2="{DIAGRAM_BAND_X + DIAGRAM_BAND_WIDTH}" y1="{price_y:.1f}" '
+        f'y2="{price_y:.1f}" stroke="{DIAGRAM_COLOR_PRICE}" stroke-width="2"/>'
+        f'<rect x="{DIAGRAM_AXIS_X}" y="{price_y - 9:.1f}" width="86" height="16" rx="3" '
+        f'fill="{DIAGRAM_COLOR_PRICE}"/>'
+        f'<text x="{DIAGRAM_AXIS_X + 43}" y="{price_y + 3.5:.1f}" text-anchor="middle" font-size="9.5" '
+        f'font-weight="600" fill="#fff">{price:,.2f}</text>'
+        f'{"".join(labels)}'
+        f'<g font-size="9" fill="{DIAGRAM_COLOR_MUTED}">'
+        f'<rect x="4" y="{height - 32}" width="10" height="10" fill="{DIAGRAM_COLOR_RESISTANCE}" fill-opacity="0.5"/>'
+        f'<text x="18" y="{height - 23}">Resistance</text>'
+        f'<rect x="90" y="{height - 32}" width="10" height="10" fill="{DIAGRAM_COLOR_SUPPORT}" fill-opacity="0.5"/>'
+        f'<text x="104" y="{height - 23}">Support</text>'
+        f'<rect x="170" y="{height - 32}" width="10" height="10" fill="{DIAGRAM_COLOR_PRICE}"/>'
+        f'<text x="184" y="{height - 23}">Price</text>'
+        f'<line x1="4" x2="18" y1="{height - 8}" y2="{height - 8}" stroke="{DIAGRAM_COLOR_MUTED}" '
+        f'stroke-dasharray="4 3"/>'
+        f'<text x="22" y="{height - 5}">Breakout/breakdown stop</text>'
+        f'</g></svg>'
+    )
+
+
 def main(dry_run: bool) -> None:
     now = datetime.now(timezone.utc)
     snap = compute_snapshot()
@@ -508,7 +642,8 @@ def main(dry_run: bool) -> None:
     print(analysis)
     if dry_run:
         return
-    insert_ta_forecast(now, now.astimezone(DISPLAY_TZ).date(), analysis, levels)
+    diagram_svg = render_diagram_svg(price, resistances, supports, scenarios)
+    insert_ta_forecast(now, now.astimezone(DISPLAY_TZ).date(), analysis, levels, diagram_svg)
     print("[ta_forecast_job] Saved to ta_forecasts")
     # Saved first, so a Telegram hiccup can't lose the forecast (or its grading of the next one).
     for chunk in _telegram_chunks(XAUUSD_ALERT_PREFIX + analysis):

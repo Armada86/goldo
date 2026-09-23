@@ -380,17 +380,25 @@ later via `storage.update_oil_weekly_report_reaction()`); only the release figur
 
 **XAU/USD technical forecast (`ta_forecast_job.py`, `ta_forecasts` table)**: a one-shot generator
 that writes one row per run to `ta_forecasts` (`id`, `forecast_date` (ET date), `ts`, `analysis` TEXT,
-`levels` JSONB) via `storage.insert_ta_forecast()`/`get_latest_ta_forecast()`. It's modelled on two
-third-party analysis styles the user supplied: an indicator snapshot (1h EMA20/50/100/200, RSI(14),
-MACD(12,26,9), pivot, bias) and a conditional trading plan (fade the nearest resistance/support zone
-with a hard stop, where that stop is also the breakout trigger the other way, plus target ladders).
-Everything is computed from Twelve Data XAU/USD candles (1h/4h/daily, and 15min for grading), with
-yfinance DXY/US10Y for context. Each run also grades the previous row's four scenarios against the
-15-min candles since it was written (triggered? stop or which targets first?), which is why the
-structured `levels` JSONB is stored alongside the text. `--dry-run` prints without any DB read or write,
-and is how the read-only `technical-analyst` subagent can run it. Triggered through
-`.github/workflows/ta_forecast.yml` (`workflow_dispatch` only; its cron-job.org entry fires weekdays
-at 7:00am America/New_York). After saving the row, it sends the same text to Telegram with the 🟡
+`levels` JSONB, `diagram_svg` TEXT) via `storage.insert_ta_forecast()`/`get_latest_ta_forecast()`.
+It's modelled on two third-party analysis styles the user supplied: an indicator snapshot (1h
+EMA20/50/100/200, RSI(14), MACD(12,26,9), pivot, bias) and a conditional trading plan (fade the
+nearest resistance/support zone with a hard stop, where that stop is also the breakout trigger the
+other way, plus target ladders). Everything is computed from Twelve Data XAU/USD candles (1h/4h/daily,
+and 15min for grading), with yfinance DXY/US10Y for context. Each run also grades the previous row's
+four scenarios against the 15-min candles since it was written (triggered? stop or which targets
+first?), which is why the structured `levels` JSONB is stored alongside the text. `render_diagram_svg()`
+turns that same price/resistances/supports/scenarios data into a self-contained SVG price ladder --
+resistance zones above price in red, support zones below in green, the price marker, and the two
+breakout/breakdown stop lines, at a fixed mobile width rather than hand-placed per-run coordinates --
+which `dashboard.py` displays as-is at the top of the page (see "Dashboard layout" below); it's saved
+to `diagram_svg` alongside `analysis`/`levels`, not sent to Telegram (Telegram only ever got the text).
+`diagram_svg` is `NULL` on rows written before this column existed, or on any row the dashboard hasn't
+caught up to yet -- `dashboard.py` just skips the forecast section entirely in that case, same as an
+empty table. `--dry-run` prints the text without any DB read/write or diagram render, and is how the
+read-only `technical-analyst` subagent can run it. Triggered through `.github/workflows/ta_forecast.yml`
+(`workflow_dispatch` only; its cron-job.org entry fires weekdays at 7:00am America/New_York). After
+saving the row, it sends the analysis text (not the diagram) to Telegram with the 🟡
 `rules.XAUUSD_ALERT_PREFIX`, split on line boundaries if it exceeds Telegram's length limit. The row is
 saved first, so a Telegram failure never loses the forecast. Full methodology, the reference
 analyses, and known gaps are in `docs/technical-analyst-forecast-log.md`.
@@ -421,7 +429,18 @@ and `frequency_check.yml`'s automated commits are both now purely "when a value 
 (uncached, called every poll) — `dashboard.py` no longer fetches candles or renders RSI/ADX itself (see
 "Dashboard layout" below), so the Twelve Data fetch/retry logic that helper wraps has a single caller.
 
-**Dashboard layout (`dashboard.py`)**: no charts — the dashboard is a single compact HTML table (built
+**Dashboard layout (`dashboard.py`)**: at the very top, above everything else, an optional "Today's
+Forecast" section shows the latest `ta_forecasts` row's `diagram_svg` (see "XAU/USD technical forecast"
+above) via `st.markdown(..., unsafe_allow_html=True)`, exactly as generated -- `dashboard.py` doesn't
+touch the SVG itself, just embeds it. A caption above the diagram gives the forecast's date/time
+(converted to `DISPLAY_TZ` like everything else), price, and bias/score pulled straight from `levels`;
+a closed-by-default `st.expander("Full forecast text")` below it holds the same `analysis` text
+Telegram got, for anyone who wants the numbers behind the picture. The whole section is skipped --
+no header, no empty-state message -- when there's no forecast row yet or its `diagram_svg` is `NULL`
+(an old row, or the DB read failing), so a fresh deploy or a pre-migration row doesn't leave a
+broken-looking gap above the always-present table below. This is the one chart on the dashboard by
+design (see "XAU/USD technical forecast" for why it isn't the old Plotly kind); everything below it is
+still deliberately chart-free — the symbols table is a single compact HTML table (built
 by hand and rendered via `st.markdown(..., unsafe_allow_html=True)`, not `st.dataframe`/`st.metric`, for
 tight control over font size and column widths) with one row per `DASHBOARD_INDICATOR_NAMES` entry and
 a column each for the current price and the price/percentage change over five trailing windows —

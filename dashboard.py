@@ -18,7 +18,7 @@ if "DATABASE_URL" not in os.environ and "DATABASE_URL" in st.secrets:
     os.environ["DATABASE_URL"] = st.secrets["DATABASE_URL"]
 
 from config import DASHBOARD_INDICATOR_NAMES, DOLLAR_UNIT_NAMES
-from storage import get_connection
+from storage import get_connection, get_latest_ta_forecast
 
 st.set_page_config(page_title="Goldo", layout="wide")
 st.markdown('<meta http-equiv="refresh" content="60">', unsafe_allow_html=True)
@@ -52,6 +52,29 @@ DISPLAY_TZ = ZoneInfo("America/New_York")
 st.title("Goldo")
 now_local = datetime.now(timezone.utc).astimezone(DISPLAY_TZ)
 st.caption(f"Page refreshes every 60s · last loaded {now_local.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+
+# The daily XAU/USD technical forecast (ta_forecast_job.py, 7am ET weekdays) -- shown at the very top,
+# above the symbols table, per the user's request. diagram_svg is None on forecasts saved before that
+# column existed, or if no forecast has run yet, so this section is skipped entirely rather than
+# showing an empty-state placeholder above the always-present table below.
+try:
+    forecast = get_latest_ta_forecast()
+except Exception as e:
+    st.error(f"Could not load today's forecast: {e}")
+    forecast = None
+
+if forecast and forecast.get("diagram_svg"):
+    levels = forecast["levels"] or {}
+    forecast_local = forecast["ts"].astimezone(DISPLAY_TZ)
+    st.subheader("Today's Forecast")
+    st.caption(
+        f"{forecast_local.strftime('%Y-%m-%d %H:%M %Z')} · "
+        f"${levels.get('price', 0):,.2f} · {levels.get('bias', '?')} "
+        f"(score {levels.get('bias_score', 0):+d}/6)"
+    )
+    st.markdown(forecast["diagram_svg"], unsafe_allow_html=True)
+    with st.expander("Full forecast text"):
+        st.text(forecast["analysis"])
 
 # (name, minutes) columns shown next to each symbol's current price.
 CHANGE_WINDOWS = [("5m", 5), ("10m", 10), ("15m", 15), ("30m", 30), ("1h", 60)]

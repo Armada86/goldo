@@ -22,10 +22,31 @@ part is computed, where it's stored, and what it doesn't do yet. Like the other
 | `ts` | TIMESTAMPTZ | exact run time (UTC) |
 | `analysis` | TEXT | the human-readable forecast (format below) |
 | `levels` | JSONB | the same forecast as numbers: price, bias/score, indicators, resistance/support zones, the four scenarios (entry/trigger, stop, target zones), and the review of the previous row |
+| `diagram_svg` | TEXT | a self-contained SVG price ladder built from that same price/resistances/supports/scenarios data (see "The diagram" below); `NULL` on rows written before this column existed |
 
 `storage.insert_ta_forecast()`/`get_latest_ta_forecast()` are the write and read paths. The `levels`
 column is what makes the review section possible, because the next run reads the previous plan back
 from it and grades it.
+
+## The diagram
+
+`ta_forecast_job.py`'s `render_diagram_svg(price, resistances, supports, scenarios)` turns the same
+zones/price/stops the text forecast already computed into an SVG price ladder: resistance zones above
+price as red bands, support zones below as green bands, a gold price marker, and dashed lines at the
+two breakout/breakdown stop levels (`sell_resistance`'s and `buy_support`'s `stop`), each zone labelled
+with its price and a couple of source labels (`+N` for the rest, with the full list in a `<title>`
+tooltip). It's modelled on the ladder diagram in the "Gold Forecast Anatomy" artifact
+(https://claude.ai/artifact/V2EkjQF9nomRqGnqAyWjYZ, 2026-09-23), which hand-placed every coordinate for
+one specific run's numbers -- this version computes a proportional price-axis scale fresh from
+whatever the run's real zones/price/stops are, at a fixed mobile width (`DIAGRAM_WIDTH` = 380px) matching
+`dashboard.py`'s phone-first layout, with zone *label rows* (not the bands themselves) nudged apart by
+`DIAGRAM_MIN_LABEL_GAP` when real zones land too close together to keep both labels legible. It has no
+external dependency (no matplotlib/plotly): just an f-string building SVG markup. `dashboard.py` shows
+it as-is at the top of the page (see CLAUDE.md's "Dashboard layout"); it is not sent to Telegram.
+Simplifications versus the reference diagram, given it has to render unattended every morning rather
+than being hand-tuned per run: a zone's "nearby" levels are folded into its `+N` count rather than
+drawn as their own dashed boxes, and a zone's label is a single truncated line rather than the
+reference's occasional 2-3 line multi-reason text.
 
 ## Reference analyses it was modelled on (collected 2026-09-23)
 

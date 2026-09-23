@@ -169,10 +169,14 @@ def init_db() -> None:
                 forecast_date DATE NOT NULL,
                 ts TIMESTAMPTZ NOT NULL,
                 analysis TEXT NOT NULL,
-                levels JSONB
+                levels JSONB,
+                diagram_svg TEXT
             )
             """
         )
+        # diagram_svg was added after ta_forecasts already existed in production, so a fresh
+        # CREATE TABLE above isn't enough to bring an existing Neon DB's table up to date.
+        cur.execute("ALTER TABLE ta_forecasts ADD COLUMN IF NOT EXISTS diagram_svg TEXT")
 
 
 def save_readings(prices: dict[str, float]) -> None:
@@ -713,24 +717,34 @@ def get_threshold_history() -> list[dict]:
     return [{"date": r[0], **dict(zip(columns, r[1:]))} for r in rows]
 
 
-def insert_ta_forecast(ts: datetime, forecast_date: date, analysis: str, levels: dict) -> None:
+def insert_ta_forecast(
+    ts: datetime, forecast_date: date, analysis: str, levels: dict, diagram_svg: str | None = None
+) -> None:
     """One generated XAU/USD technical forecast (ta_forecast_job.py) -- `analysis` is the
     human-readable text, `levels` the same forecast's numbers (indicators, level zones, scenario
-    triggers/stops/targets) as JSONB, so the next run can grade this one against real candles."""
+    triggers/stops/targets) as JSONB, so the next run can grade this one against real candles.
+    `diagram_svg` is the self-contained price-ladder SVG rendered from those same zones/price/stops
+    (see ta_forecast_job.py's render_diagram_svg()), which dashboard.py displays as-is."""
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO ta_forecasts (forecast_date, ts, analysis, levels) VALUES (%s, %s, %s, %s)",
-            (forecast_date, ts, analysis, Json(levels)),
+            "INSERT INTO ta_forecasts (forecast_date, ts, analysis, levels, diagram_svg) "
+            "VALUES (%s, %s, %s, %s, %s)",
+            (forecast_date, ts, analysis, Json(levels), diagram_svg),
         )
 
 
 def get_latest_ta_forecast() -> dict | None:
-    """Most recent ta_forecasts row, or None if the table is empty."""
+    """Most recent ta_forecasts row, or None if the table is empty. `diagram_svg` is None on rows
+    written before that column existed."""
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "SELECT id, forecast_date, ts, analysis, levels FROM ta_forecasts ORDER BY ts DESC LIMIT 1"
+            "SELECT id, forecast_date, ts, analysis, levels, diagram_svg "
+            "FROM ta_forecasts ORDER BY ts DESC LIMIT 1"
         )
         row = cur.fetchone()
     if row is None:
         return None
-    return {"id": row[0], "forecast_date": row[1], "ts": row[2], "analysis": row[3], "levels": row[4]}
+    return {
+        "id": row[0], "forecast_date": row[1], "ts": row[2], "analysis": row[3], "levels": row[4],
+        "diagram_svg": row[5],
+    }
