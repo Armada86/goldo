@@ -77,7 +77,10 @@ near-empty Sat/Sun bars plus today's still-forming bar), and 15min for the revie
   one zone that keeps all its source labels. Each zone's weight is the sum of its labels' weights
   (20-day high/low = 3; prior-day high/low, the moving averages and pivot P = 2; everything else = 1).
   Per side, zones are accepted strongest-first (ties: nearer price first), each only if it's at least
-  0.15 x daily ATR from every zone already accepted; then the nearest 4 are listed. (The first version
+  0.15 x daily ATR from every zone already accepted; then the nearest 4 are listed. A zone dropped by
+  that spacing rule isn't discarded: it's attached to the closest kept zone and printed on its line as
+  `nearby <zone>: <labels>` (also stored under that zone's `nearby` key in `levels`), so e.g. a 1h
+  EMA200 hidden by an equally weighted pivot $6 away is still visible. (The first version
   compared each zone only with its neighbour while walking outward, which let a chain of close levels
   slide the pick away from a cluster, e.g. 4256 -> 4253 -> 4238, leaving a $45 hole in the ladder.
   Fixed 2026-09-23.)
