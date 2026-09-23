@@ -5,7 +5,7 @@ import logging  # logging library like print but with levels and timestamps
 from apscheduler.schedulers.blocking import BlockingScheduler   #runs in the foreground and blocks execution until the job finishes
 
 from broker import check_broker_trades
-from config import POLL_INTERVAL_MINUTES #goes to config page and gets the value of POLL_INTERVAL_MINUTES
+from config import INTRAHOUR_SWING_SEND_TELEGRAM, POLL_INTERVAL_MINUTES #goes to config page and gets the value of POLL_INTERVAL_MINUTES
 from data_fetcher import fetch_latest_prices
 from forex_broker import check_forex_closes
 from market_hours import check_market_hours_alert
@@ -43,11 +43,17 @@ def poll_once() -> None:
     alerts = check_pct_change_alerts(prices)
     alerts += check_abs_change_alerts(prices)
     alerts += check_value_change_alerts(prices)
-    alerts += check_intrahour_swing_alerts(prices)
     alerts += check_sma_crossover()
     alerts += check_rsi_alerts()
+    swing_alerts = check_intrahour_swing_alerts(prices)
 
     log.info("Prices: %s", prices)
+    # Always saved (broker.py's entry rules read them from the alerts table); Telegram only if enabled.
+    for alert in swing_alerts:
+        log.info("ALERT: %s", alert)
+        save_alert(alert)
+        if INTRAHOUR_SWING_SEND_TELEGRAM:
+            send_telegram_message(alert)
     for alert in alerts:
         log.info("ALERT: %s", alert)
         save_alert(alert)

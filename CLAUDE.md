@@ -162,7 +162,9 @@ the value from two polls back instead of one).
   `frequency_check_job.py` simply recomputes this average fresh every weekday morning and
   `.github/workflows/frequency_check.yml` merges any change (see Scheduling below), so the numbers above
   are current as of the last successful weekday run, not necessarily what's in this file's git history.
-  Each Telegram message states the window, direction
+  **Telegram is off for this mechanism**: `config.INTRAHOUR_SWING_SEND_TELEGRAM = False`, so
+  `main.poll_once()` still saves every swing alert to the `alerts` table (the Broker's entry rules depend
+  on it) but doesn't send it. Each alert message states the window, direction
   (up/down), the swing size, the threshold, and the current price; the `$` vs. no-unit formatting is
   picked per-name via `config.DOLLAR_UNIT_NAMES`, not hardcoded per file.
 - `check_sma_crossover` — 20/50-day SMA crossover on gold futures daily closes, no config threshold

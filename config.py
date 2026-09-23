@@ -114,6 +114,11 @@ with open(INTRAHOUR_SWING_THRESHOLDS_PATH) as _f:
     }
 del _f
 
+# Whether check_intrahour_swing_alerts' alerts (gld/iau/gldm/gdx/gdxj/ring/dxy/us10y) are sent to
+# Telegram. Off: they're still saved to the alerts table every poll, since broker.py's entry rules
+# read them from there -- only the Telegram message is skipped.
+INTRAHOUR_SWING_SEND_TELEGRAM = False
+
 # Dollar move gold spot itself must swing, within the matching window, to count as a "gold
 # event" for frequency_test.py's companion-swing study -- $5 in 5 min, $10 in 10 min, $15 in
 # 15 min. Each of the eight indicators' thresholds is then the average of what that indicator
