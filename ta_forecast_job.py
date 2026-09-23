@@ -509,13 +509,16 @@ def _short_zone_label(zone: dict) -> str:
 
 def render_diagram_svg(price: float, resistances: list[dict], supports: list[dict], scenarios: list[dict]) -> str:
     """Self-contained SVG price ladder: resistance zones above price in red, support zones below in
-    green, the price marker, and the two breakout/breakdown stop lines -- modelled on the reference
+    green, a thin price line, and the two breakout/breakdown stop lines -- modelled on the reference
     diagram in docs/technical-analyst-forecast-log.md, redrawn from each run's real zones/price/stops
-    at a fixed mobile width instead of that diagram's hand-tuned per-run coordinates. Zone bands sit
-    at their true proportional price position; only the label rows are nudged apart (never more than
-    DIAGRAM_MIN_LABEL_GAP) to stay legible when two zones land close together. `title` tags carry
-    each zone's full label list (and any 'nearby' levels folded into it) as a hover tooltip -- inert
-    on mobile, but free."""
+    at a fixed mobile width instead of that diagram's hand-tuned per-run coordinates. Zone bands (and
+    the price line) sit at their true proportional price position; only the label rows are nudged
+    apart (never more than DIAGRAM_MIN_LABEL_GAP) to stay legible when two rows land close together --
+    price is laid out in that same pass, as just another row, since it commonly sits within a few
+    dollars of the nearest zone. The price row is deliberately a hairline plus a label rather than a
+    filled badge: an opaque block that width would sit on top of, and hide, whatever zone happens to
+    be at the same height. `title` tags carry each zone's full label list (and any 'nearby' levels
+    folded into it) as a hover tooltip -- inert on mobile, but free."""
     zones = [(z, True) for z in resistances] + [(z, False) for z in supports]
     stops = {sc["name"]: sc for sc in scenarios}
     stop_lines = [
@@ -539,9 +542,33 @@ def render_diagram_svg(price: float, resistances: list[dict], supports: list[dic
         ticks.append(t)
         t += step
 
+    # Price is laid out in the same top-to-bottom pass as the zones (not drawn separately afterward)
+    # so it gets the same DIAGRAM_MIN_LABEL_GAP anti-collision nudging -- it's common for price to sit
+    # within a few dollars of the nearest zone.
+    rows = [("zone", z, True) for z in resistances] + [("zone", z, False) for z in supports]
+    rows.append(("price", None, None))
+
     bands, labels = [], []
     prev_label_y = None
-    for zone, is_resistance in sorted(zones, key=lambda item: -item[0]["low"]):
+    for kind, zone, is_resistance in sorted(rows, key=lambda r: -(price if r[0] == "price" else r[1]["low"])):
+        if kind == "price":
+            y = y_of(price)
+            # A thin line, not a filled badge -- a solid block that width would sit on top of (and
+            # hide) whatever zone band/label happens to be at the same height.
+            bands.append(
+                f'<line x1="{DIAGRAM_AXIS_X}" x2="{DIAGRAM_BAND_X + DIAGRAM_BAND_WIDTH}" y1="{y:.1f}" '
+                f'y2="{y:.1f}" stroke="{DIAGRAM_COLOR_PRICE}" stroke-width="1.25"/>'
+            )
+            label_y = y + 3.3
+            if prev_label_y is not None and label_y - prev_label_y < DIAGRAM_MIN_LABEL_GAP:
+                label_y = prev_label_y + DIAGRAM_MIN_LABEL_GAP
+            prev_label_y = label_y
+            labels.append(
+                f'<text x="{DIAGRAM_LABEL_X}" y="{label_y:.1f}" font-size="9.5" fill="{DIAGRAM_COLOR_INK}">'
+                f'<tspan font-family="IBM Plex Mono, ui-monospace, monospace" font-weight="700" '
+                f'fill="{DIAGRAM_COLOR_PRICE}">{price:,.2f}</tspan> current price</text>'
+            )
+            continue
         color = DIAGRAM_COLOR_RESISTANCE if is_resistance else DIAGRAM_COLOR_SUPPORT
         y_top, y_bot = y_of(zone["high"]), y_of(zone["low"])
         bands.append(
@@ -578,7 +605,6 @@ def render_diagram_svg(price: float, resistances: list[dict], supports: list[dic
         for s in stop_lines
     )
 
-    price_y = y_of(price)
     height = DIAGRAM_TOP + DIAGRAM_PLOT_HEIGHT + DIAGRAM_LEGEND_HEIGHT
 
     return (
@@ -588,20 +614,15 @@ def render_diagram_svg(price: float, resistances: list[dict], supports: list[dic
         f'<line x1="{DIAGRAM_AXIS_X}" x2="{DIAGRAM_AXIS_X}" y1="{DIAGRAM_TOP}" '
         f'y2="{DIAGRAM_TOP + DIAGRAM_PLOT_HEIGHT}" stroke="{DIAGRAM_COLOR_RULE}"/>'
         f'{axis_ticks}{"".join(bands)}{stop_svg}'
-        f'<line x1="{DIAGRAM_AXIS_X}" x2="{DIAGRAM_BAND_X + DIAGRAM_BAND_WIDTH}" y1="{price_y:.1f}" '
-        f'y2="{price_y:.1f}" stroke="{DIAGRAM_COLOR_PRICE}" stroke-width="2"/>'
-        f'<rect x="{DIAGRAM_AXIS_X}" y="{price_y - 9:.1f}" width="86" height="16" rx="3" '
-        f'fill="{DIAGRAM_COLOR_PRICE}"/>'
-        f'<text x="{DIAGRAM_AXIS_X + 43}" y="{price_y + 3.5:.1f}" text-anchor="middle" font-size="9.5" '
-        f'font-weight="600" fill="#fff">{price:,.2f}</text>'
         f'{"".join(labels)}'
         f'<g font-size="9" fill="{DIAGRAM_COLOR_MUTED}">'
         f'<rect x="4" y="{height - 32}" width="10" height="10" fill="{DIAGRAM_COLOR_RESISTANCE}" fill-opacity="0.5"/>'
         f'<text x="18" y="{height - 23}">Resistance</text>'
         f'<rect x="90" y="{height - 32}" width="10" height="10" fill="{DIAGRAM_COLOR_SUPPORT}" fill-opacity="0.5"/>'
         f'<text x="104" y="{height - 23}">Support</text>'
-        f'<rect x="170" y="{height - 32}" width="10" height="10" fill="{DIAGRAM_COLOR_PRICE}"/>'
-        f'<text x="184" y="{height - 23}">Price</text>'
+        f'<line x1="170" x2="184" y1="{height - 27}" y2="{height - 27}" stroke="{DIAGRAM_COLOR_PRICE}" '
+        f'stroke-width="1.25"/>'
+        f'<text x="188" y="{height - 23}">Price</text>'
         f'<line x1="4" x2="18" y1="{height - 8}" y2="{height - 8}" stroke="{DIAGRAM_COLOR_MUTED}" '
         f'stroke-dasharray="4 3"/>'
         f'<text x="22" y="{height - 5}">Breakout/breakdown stop</text>'
