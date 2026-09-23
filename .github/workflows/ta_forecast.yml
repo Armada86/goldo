@@ -2,9 +2,9 @@ name: TA forecast (XAU/USD)
 
 # Triggered externally by cron-job.org calling the workflow_dispatch endpoint -- same reasoning as
 # every other workflow in this repo (GitHub's own schedule: cron proved unreliable, and cron-job.org
-# handles America/New_York time + the weekday restriction directly). Suggested cadence: weekdays
-# around 7:00am ET (before the US session), optionally again mid-session. Each run writes one row to
-# the ta_forecasts table and grades the previous row's plan against the candles since.
+# handles America/New_York time + the weekday restriction directly). Schedule: weekdays (Mon-Fri) at
+# 7:00am America/New_York. Each run writes one row to the ta_forecasts table, grades the previous
+# row's plan against the candles since, and sends the forecast to Telegram.
 on:
   workflow_dispatch: {}
 
@@ -24,3 +24,5 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}

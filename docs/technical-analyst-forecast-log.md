@@ -7,11 +7,12 @@ part is computed, where it's stored, and what it doesn't do yet. Like the other
 ## Where it lives
 
 - **Generator:** `ta_forecast_job.py`, a one-shot job. `python ta_forecast_job.py` generates a
-  forecast and saves it. `--dry-run` generates and prints only, with no DB read or write, so the
+  forecast, saves it, and then sends the same text to Telegram with the 🟡 XAU/USD prefix, split into
+  several messages only if it exceeds Telegram's length limit. `--dry-run` generates and prints only, with no DB read or write, so the
   read-only `technical-analyst` subagent can run it too.
 - **Schedule:** `.github/workflows/ta_forecast.yml` runs only when triggered through
-  `workflow_dispatch`. Like every other job, it needs its own cron-job.org entry; the suggested time is
-  weekdays around 7:00am ET.
+  `workflow_dispatch`. Like every other job, it needs its own cron-job.org entry: weekdays (Mon-Fri)
+  at 7:00am America/New_York.
 - **Table:** `ta_forecasts` in Neon, created by `storage.init_db()`:
 
 | column | type | meaning |
@@ -105,4 +106,10 @@ near-empty Sat/Sun bars plus today's still-forming bar), and 15min for the revie
   few dollars from price.
 - The bias weights and level weights are hand-picked, not backtested. The `levels` JSONB history is
   what a future backtest of hit rate per scenario would use.
-- No Telegram message: the forecast is only written to `ta_forecasts`.
+
+## Adding a new reference analysis
+
+The user periodically pastes third-party analyses they've chosen; see CLAUDE.md's "Standing
+reference-analysis workflow". Each one gets checked against candles, then added above under
+"Reference analyses" with its date, what checked out, its weak points, and what (if anything) was
+taken from it.

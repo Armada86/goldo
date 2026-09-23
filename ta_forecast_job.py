@@ -14,12 +14,15 @@ section is computed, not self-reported.
 `analysis` holds the readable text; `levels` (JSONB) holds the same numbers structured, which is what
 the next run's review reads back.
 
-Triggered externally by cron-job.org via .github/workflows/ta_forecast.yml, same pattern as every
-other scheduled job in this repo. Uses 4 Twelve Data calls per run (5 when grading a previous
+Triggered externally by cron-job.org via .github/workflows/ta_forecast.yml at 7:00am ET on weekdays,
+same pattern as every other scheduled job in this repo. Uses 4 Twelve Data calls per run (5 when grading a previous
 forecast) -- negligible against the 800/day cap.
 
-Run: python ta_forecast_job.py            # generate + save to Postgres
-     python ta_forecast_job.py --dry-run  # generate + print only (no DB read or write)
+The saved text is also sent to Telegram (prefixed with rules.XAUUSD_ALERT_PREFIX, like every other
+spot-gold message), after the row is saved.
+
+Run: python ta_forecast_job.py            # generate + save to Postgres + send to Telegram
+     python ta_forecast_job.py --dry-run  # generate + print only (no DB, no Telegram)
 """
 
 import sys
@@ -30,8 +33,11 @@ import pandas as pd
 
 from config import GOLD_SPOT_SYMBOL
 from data_fetcher import compute_rsi, fetch_candles, fetch_daily_history
+from notifier import send_telegram_message
+from rules import XAUUSD_ALERT_PREFIX
 
 DISPLAY_TZ = ZoneInfo("America/New_York")
+TELEGRAM_MAX_CHARS = 4000    # Telegram's hard limit is 4096 per message
 
 EMA_PERIODS = (20, 50, 100, 200)
 ZONE_MERGE_DOLLARS = 6.0     # candidate levels this close together are shown as one "4318/4315" zone
@@ -488,6 +494,23 @@ def main(dry_run: bool) -> None:
         return
     insert_ta_forecast(now, now.astimezone(DISPLAY_TZ).date(), analysis, levels)
     print("[ta_forecast_job] Saved to ta_forecasts")
+    # Saved first, so a Telegram hiccup can't lose the forecast (or its grading of the next one).
+    for chunk in _telegram_chunks(XAUUSD_ALERT_PREFIX + analysis):
+        send_telegram_message(chunk)
+
+
+def _telegram_chunks(text: str) -> list[str]:
+    """Split on line boundaries into messages under Telegram's length limit -- a normal forecast is
+    ~2-3k chars and fits in one, but a long review section shouldn't make the send fail."""
+    chunks, current = [], ""
+    for line in text.split("\n"):
+        if current and len(current) + len(line) + 1 > TELEGRAM_MAX_CHARS:
+            chunks.append(current)
+            current = ""
+        current = f"{current}\n{line}" if current else line
+    if current:
+        chunks.append(current)
+    return chunks
 
 
 if __name__ == "__main__":

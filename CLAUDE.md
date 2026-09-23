@@ -387,9 +387,23 @@ yfinance DXY/US10Y for context. Each run also grades the previous row's four sce
 15-min candles since it was written (triggered? stop or which targets first?), which is why the
 structured `levels` JSONB is stored alongside the text. `--dry-run` prints without any DB read or write,
 and is how the read-only `technical-analyst` subagent can run it. Triggered through
-`.github/workflows/ta_forecast.yml` (`workflow_dispatch` only; needs its own cron-job.org entry,
-suggested weekdays ~7am ET). It sends no Telegram message. Full methodology, the two reference
+`.github/workflows/ta_forecast.yml` (`workflow_dispatch` only; its cron-job.org entry fires weekdays
+at 7:00am America/New_York). After saving the row, it sends the same text to Telegram with the 🟡
+`rules.XAUUSD_ALERT_PREFIX`, split on line boundaries if it exceeds Telegram's length limit. The row is
+saved first, so a Telegram failure never loses the forecast. Full methodology, the reference
 analyses, and known gaps are in `docs/technical-analyst-forecast-log.md`.
+
+**Standing reference-analysis workflow**: the user periodically pastes a third-party XAU/USD technical
+analysis of their choosing, to steer `ta_forecast_job.py`. Don't search online for analyses
+yourself; the user picks the sources. For each one:
+1. Verify its levels and indicators against Twelve Data candles, and report what checks out and what
+   doesn't (stale price, levels that can't be reproduced, contradictions).
+2. Add it, dated, to the "Reference analyses" section of `docs/technical-analyst-forecast-log.md`,
+   with what checked out, its weak points, and what's worth taking from it.
+3. Propose the concrete generator changes it suggests (a new level source, a different stop or target
+   rule, a new section), and only edit `ta_forecast_job.py` after the user approves. Where the
+   `ta_forecasts` review history has enough rows, use its graded outcomes to support or argue
+   against the change.
 
 **Weekday threshold audit trail (`threshold_history` table)**: same move as the two tables above —
 `docs/frequency-test-thresholds.md` used to have a "Threshold history" table that
@@ -447,7 +461,7 @@ directly, in `America/New_York`, without any code in this repo.
 `.github/workflows/release_watch_adp.yml`/`release_watch_nfp.yml` follow the same pattern for
 `release_watch_job.py` (see "Same-minute release detection" above), weekdays at 8:14am/8:29am
 America/New_York respectively. `.github/workflows/ta_forecast.yml` follows the same pattern for `ta_forecast_job.py` (see "XAU/USD
-technical forecast" above). `.github/workflows/oil_weekly_watch.yml` follows the same pattern again
+technical forecast" above), weekdays at 7:00am America/New_York. `.github/workflows/oil_weekly_watch.yml` follows the same pattern again
 for `oil_weekly_job.py` (see "API Weekly Crude Oil Stock data" above), but triggered *repeatedly* —
 roughly every 10 minutes across a Tuesday-evening window (~3pm-6pm ET) — rather than once, since that
 report's release minute is far less precise than ADP/NFP's. All six workflows need their own

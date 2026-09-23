@@ -57,7 +57,7 @@ implementation.
   what checked out and what didn't. When asked for a forecast or a level-based view of gold, follow
   that format. `python ta_forecast_job.py --dry-run` generates one from live Twelve Data/yfinance
   data without touching the database, so it's within your read-only Bash use. Don't run it without
-  `--dry-run` (that writes to Neon).
+  `--dry-run` (that writes to Neon and sends to Telegram).
 
 ## How you work
 
