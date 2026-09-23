@@ -376,6 +376,21 @@ event. `gold_at_release` and the reaction columns are left `NULL` for every back
 later via `storage.update_oil_weekly_report_reaction()`); only the release figures themselves
 (`previous_value`/`expected_value`/`actual_value`/`week_ending`) are backfilled.
 
+**XAU/USD technical forecast (`ta_forecast_job.py`, `ta_forecasts` table)**: a one-shot generator
+that writes one row per run to `ta_forecasts` (`id`, `forecast_date` (ET date), `ts`, `analysis` TEXT,
+`levels` JSONB) via `storage.insert_ta_forecast()`/`get_latest_ta_forecast()`. It's modelled on two
+third-party analysis styles the user supplied: an indicator snapshot (1h EMA20/50/100/200, RSI(14),
+MACD(12,26,9), pivot, bias) and a conditional trading plan (fade the nearest resistance/support zone
+with a hard stop, where that stop is also the breakout trigger the other way, plus target ladders).
+Everything is computed from Twelve Data XAU/USD candles (1h/4h/daily, and 15min for grading), with
+yfinance DXY/US10Y for context. Each run also grades the previous row's four scenarios against the
+15-min candles since it was written (triggered? stop or which targets first?), which is why the
+structured `levels` JSONB is stored alongside the text. `--dry-run` prints without any DB read or write,
+and is how the read-only `technical-analyst` subagent can run it. Triggered through
+`.github/workflows/ta_forecast.yml` (`workflow_dispatch` only; needs its own cron-job.org entry,
+suggested weekdays ~7am ET). It sends no Telegram message. Full methodology, the two reference
+analyses, and known gaps are in `docs/technical-analyst-forecast-log.md`.
+
 **Weekday threshold audit trail (`threshold_history` table)**: same move as the two tables above —
 `docs/frequency-test-thresholds.md` used to have a "Threshold history" table that
 `frequency_check_job.py` appended one row to every weekday run (the date plus that run's final value for
@@ -431,10 +446,11 @@ handling), plus cron-job.org lets both the specific time and the weekday-only re
 directly, in `America/New_York`, without any code in this repo.
 `.github/workflows/release_watch_adp.yml`/`release_watch_nfp.yml` follow the same pattern for
 `release_watch_job.py` (see "Same-minute release detection" above), weekdays at 8:14am/8:29am
-America/New_York respectively. `.github/workflows/oil_weekly_watch.yml` follows the same pattern again
+America/New_York respectively. `.github/workflows/ta_forecast.yml` follows the same pattern for `ta_forecast_job.py` (see "XAU/USD
+technical forecast" above). `.github/workflows/oil_weekly_watch.yml` follows the same pattern again
 for `oil_weekly_job.py` (see "API Weekly Crude Oil Stock data" above), but triggered *repeatedly* —
 roughly every 10 minutes across a Tuesday-evening window (~3pm-6pm ET) — rather than once, since that
-report's release minute is far less precise than ADP/NFP's. All five workflows need their own
+report's release minute is far less precise than ADP/NFP's. All six workflows need their own
 cron-job.org job pointed at their `workflow_dispatch` endpoint — that setup (including the weekday
 exclusion, the two release-watch workflows' specific 8:14am/8:29am trigger times, and the oil-weekly
 workflow's Tuesday-only repeated-trigger window) lives in the cron-job.org account, not in this repo.

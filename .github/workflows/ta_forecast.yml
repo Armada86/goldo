@@ -1,0 +1,26 @@
+name: TA forecast (XAU/USD)
+
+# Triggered externally by cron-job.org calling the workflow_dispatch endpoint -- same reasoning as
+# every other workflow in this repo (GitHub's own schedule: cron proved unreliable, and cron-job.org
+# handles America/New_York time + the weekday restriction directly). Suggested cadence: weekdays
+# around 7:00am ET (before the US session), optionally again mid-session. Each run writes one row to
+# the ta_forecasts table and grades the previous row's plan against the candles since.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  ta-forecast:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -r requirements.txt
+
+      - run: python ta_forecast_job.py
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
