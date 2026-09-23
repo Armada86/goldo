@@ -18,11 +18,15 @@ from config import (
 from data_fetcher import compute_rsi, fetch_daily_history, fetch_gold_candles
 from storage import get_previous_reading, get_recent_readings
 
-# Prefix for every Telegram alert about spot gold (XAU/USD) itself -- check_abs_change_alerts,
-# check_sma_crossover, check_rsi_alerts. Telegram's Bot API has no real text-color support, so a
+# Prefix for every Telegram alert about spot gold (XAU/USD) price itself -- check_abs_change_alerts,
+# check_sma_crossover. RSI alerts get their own prefix (RSI_ALERT_PREFIX). Telegram's Bot API has no real text-color support, so a
 # colored-circle emoji is the practical substitute for visually distinguishing alert categories
 # in the chat. Broker trade alerts use their own prefix -- see broker.TRADE_ALERT_PREFIX.
 XAUUSD_ALERT_PREFIX = "\U0001f7e1 "  # yellow circle
+
+# Prefix for check_rsi_alerts' messages -- kept apart from XAUUSD_ALERT_PREFIX so a momentum signal
+# reads differently in the chat from a gold price move.
+RSI_ALERT_PREFIX = "\U0001f7e0 "  # orange circle
 
 
 def check_value_change_alerts(prices: dict[str, float]) -> list[str]:
@@ -168,12 +172,12 @@ def check_rsi_alerts() -> list[str]:
     alerts = []
     if prev_rsi < RSI_OVERBOUGHT_THRESHOLD <= curr_rsi:
         alerts.append(
-            f"{XAUUSD_ALERT_PREFIX}XAU/USD: RSI({RSI_PERIOD}) entered overbought territory: {curr_rsi:.1f} "
+            f"{RSI_ALERT_PREFIX}XAU/USD: RSI({RSI_PERIOD}) entered overbought territory: {curr_rsi:.1f} "
             f"(>= {RSI_OVERBOUGHT_THRESHOLD})"
         )
     if prev_rsi > RSI_OVERSOLD_THRESHOLD >= curr_rsi:
         alerts.append(
-            f"{XAUUSD_ALERT_PREFIX}XAU/USD: RSI({RSI_PERIOD}) entered oversold territory: {curr_rsi:.1f} "
+            f"{RSI_ALERT_PREFIX}XAU/USD: RSI({RSI_PERIOD}) entered oversold territory: {curr_rsi:.1f} "
             f"(<= {RSI_OVERSOLD_THRESHOLD})"
         )
     return alerts

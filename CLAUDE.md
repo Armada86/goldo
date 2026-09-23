@@ -127,9 +127,9 @@ the value from two polls back instead of one).
   more than a % of a ~$4,300 price). `gold` and `inflation` are mutually exclusive between this and
   `check_pct_change_alerts` — an indicator should only be in one of the two threshold dicts. This
   alert's message is prefixed with a 🟡 (`rules.XAUUSD_ALERT_PREFIX`), same as `check_sma_crossover`'s
-  and `check_rsi_alerts`' below — every Telegram alert about spot gold (XAU/USD) itself gets this
-  prefix, distinct from the Broker's 🔵 trade alerts (Telegram has no real text-color support, so a
-  colored-circle emoji is the practical substitute).
+  below — every Telegram alert about spot gold (XAU/USD) price itself gets this prefix, distinct from
+  `check_rsi_alerts`' 🟠 (`rules.RSI_ALERT_PREFIX`) and the Broker's 🔵 trade alerts (Telegram has no
+  real text-color support, so a colored-circle emoji is the practical substitute).
 - `check_value_change_alerts` — any change at all (`VALUE_CHANGE_ALERT_NAMES`), for indicators like
   `financial_stress` where a % threshold breaks down near zero
 - `check_intrahour_swing_alerts` — absolute high-low range over three independent trailing windows,
@@ -172,7 +172,7 @@ the value from two polls back instead of one).
   two most recent RSI values), not a poll-to-poll or rising-edge-window comparison, so it fires once
   when RSI crosses above `RSI_OVERBOUGHT_THRESHOLD` (70) or below `RSI_OVERSOLD_THRESHOLD` (30), not on
   every poll spent past the threshold. The Telegram message states the RSI value and which threshold it
-  crossed.
+  crossed, prefixed with a 🟠 (`rules.RSI_ALERT_PREFIX`) rather than the 🟡 gold-price prefix.
 
 **Weekly market open/close notification (`market_hours.py`)**: `check_market_hours_alert()`, called
 from `main.poll_once()` before the price fetch (so it still fires even if prices are briefly
