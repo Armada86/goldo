@@ -50,6 +50,15 @@ implementation.
   to any of them yourself (no write access, by design — see below); ask the user to have it updated if
   the description or usage itself has changed.
 
+- **Technical forecast methodology**: `docs/technical-analyst-forecast-log.md` describes the
+  XAU/USD forecast format this project generates (`ta_forecast_job.py`): an indicator snapshot, level
+  zones, a four-scenario fade/breakout plan with stops and target ladders, and a candle-graded review
+  of the previous plan. It also keeps the two third-party reference analyses it was modelled on, with
+  what checked out and what didn't. When asked for a forecast or a level-based view of gold, follow
+  that format. `python ta_forecast_job.py --dry-run` generates one from live Twelve Data/yfinance
+  data without touching the database, so it's within your read-only Bash use. Don't run it without
+  `--dry-run` (that writes to Neon and sends to Telegram).
+
 ## How you work
 
 1. **Understand the ask.** If the request is ambiguous (which timeframe, which indicator, alert vs.

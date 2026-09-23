@@ -4,6 +4,7 @@ import os
 from datetime import date, datetime, timezone
 
 import psycopg2
+from psycopg2.extras import Json
 from dotenv import load_dotenv
 
 from retry import with_retries
@@ -158,6 +159,17 @@ def init_db() -> None:
                 gold_2h DOUBLE PRECISION,
                 notes TEXT,
                 UNIQUE (week_ending)
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ta_forecasts (
+                id SERIAL PRIMARY KEY,
+                forecast_date DATE NOT NULL,
+                ts TIMESTAMPTZ NOT NULL,
+                analysis TEXT NOT NULL,
+                levels JSONB
             )
             """
         )
@@ -699,3 +711,26 @@ def get_threshold_history() -> list[dict]:
         cur.execute(f"SELECT date, {', '.join(columns)} FROM threshold_history ORDER BY date")
         rows = cur.fetchall()
     return [{"date": r[0], **dict(zip(columns, r[1:]))} for r in rows]
+
+
+def insert_ta_forecast(ts: datetime, forecast_date: date, analysis: str, levels: dict) -> None:
+    """One generated XAU/USD technical forecast (ta_forecast_job.py) -- `analysis` is the
+    human-readable text, `levels` the same forecast's numbers (indicators, level zones, scenario
+    triggers/stops/targets) as JSONB, so the next run can grade this one against real candles."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO ta_forecasts (forecast_date, ts, analysis, levels) VALUES (%s, %s, %s, %s)",
+            (forecast_date, ts, analysis, Json(levels)),
+        )
+
+
+def get_latest_ta_forecast() -> dict | None:
+    """Most recent ta_forecasts row, or None if the table is empty."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, forecast_date, ts, analysis, levels FROM ta_forecasts ORDER BY ts DESC LIMIT 1"
+        )
+        row = cur.fetchone()
+    if row is None:
+        return None
+    return {"id": row[0], "forecast_date": row[1], "ts": row[2], "analysis": row[3], "levels": row[4]}
