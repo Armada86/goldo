@@ -190,23 +190,26 @@ def _weight(zone: dict) -> int:
     return sum(LABEL_WEIGHTS.get(label, 1) for label in zone["labels"])
 
 
+def _zone_gap(a: dict, b: dict) -> float:
+    """Distance between two zones' nearest edges (0 if they overlap)."""
+    return max(0.0, max(a["low"], b["low"]) - min(a["high"], b["high"]))
+
+
 def _pick_side(zones: list[dict], price: float, min_gap: float) -> list[dict]:
-    """Walk outward from price (`zones` nearest-first), keeping zones at least `min_gap` apart; when
-    two are closer than that, keep the heavier one -- otherwise every minor 4h swing makes the
-    ladder a $5-step scalp list rather than the $15-30 steps the reference analyses use."""
+    """Keep zones at least `min_gap` apart -- otherwise every minor 4h swing makes the ladder a
+    $5-step scalp list rather than the $15-30 steps the reference analyses use. Zones are accepted
+    strongest-first (ties: nearer price first), each only if it clears every zone already accepted,
+    then listed nearest-first. Strongest-first matters: comparing each zone only with its neighbour
+    let a heavier zone replace a lighter one and then be replaced in turn, so a chain of close
+    levels (e.g. 4256 -> 4253 -> 4238) could slide the pick far from the cluster and leave a gap."""
+    def distance(zone: dict) -> float:
+        return zone["low"] - price if zone["low"] > price else price - zone["high"]
+
     picked: list[dict] = []
-    for zone in zones:
-        edge = zone["low"] if zone["low"] > price else zone["high"]
-        prev_edge = None
-        if picked:
-            last = picked[-1]
-            prev_edge = last["high"] if zone["low"] > price else last["low"]
-        if prev_edge is not None and abs(edge - prev_edge) < min_gap:
-            if _weight(zone) > _weight(picked[-1]):
-                picked[-1] = zone
-            continue
-        picked.append(zone)
-    return picked[:LEVELS_PER_SIDE]
+    for zone in sorted(zones, key=lambda z: (-_weight(z), distance(z))):
+        if all(_zone_gap(zone, other) >= min_gap for other in picked):
+            picked.append(zone)
+    return sorted(picked, key=distance)[:LEVELS_PER_SIDE]
 
 
 def _split_zones(zones: list[dict], price: float, min_gap: float) -> tuple[list[dict], list[dict]]:
@@ -214,7 +217,7 @@ def _split_zones(zones: list[dict], price: float, min_gap: float) -> tuple[list[
     resistance if price is in its lower half, support otherwise."""
     above = [z for z in zones if (z["low"] + z["high"]) / 2 > price]
     below = [z for z in zones if (z["low"] + z["high"]) / 2 <= price]
-    return _pick_side(above, price, min_gap), _pick_side(below[::-1], price, min_gap)
+    return _pick_side(above, price, min_gap), _pick_side(below, price, min_gap)
 
 
 def _bias(price: float, ind: dict) -> tuple[int, str, list[str]]:
