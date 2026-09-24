@@ -213,7 +213,9 @@ in-memory state can't survive between polls); only one trade open at a time, and
 considers alerts newer than the last trade's open time so a stale alert can't retrigger. Every
 open/close sends a Telegram message (`notifier.send_telegram_message`), prefixed with a 🔵
 (`broker.TRADE_ALERT_PREFIX`) and labeled "BROKER A" (distinguishing it from Broker B below, and from
-XAU/USD price alerts' 🟡 prefix, `rules.XAUUSD_ALERT_PREFIX`) in the chat. Deliberately no
+XAU/USD price alerts' 🟡 prefix, `rules.XAUUSD_ALERT_PREFIX`) in the chat. Close messages add a second
+marker right after the broker's own: 🟢 for a profit, 🔴 for a loss (`broker._result_marker()`, shared
+with Broker B) — so an open is `🔵`, a close is `🔵🟢`/`🔵🔴`. Deliberately no
 markdown/doc log of trades — the `trades` table (`id`, `rule_name`, `trade_type`, `entry_price`,
 `open_ts`, `triggering_alerts`, `exit_price`, `close_ts`, `pnl`, `status`) is the only record, so a
 trade never requires a repo commit; `poll.yml` doesn't need write access to the repo for this reason.
@@ -238,8 +240,10 @@ stop-loss as Broker A (`broker._find_exit()`, imported directly rather than reim
 engines' exit math can't drift apart), same 1 oz size. Entirely separate Postgres `broker_b_trades`
 table (`trades`' columns plus `ta_forecast_id`, so a trade can be traced back to the exact forecast
 row/zone that produced it) and separate open-trade tracking — Broker A and Broker B never see or
-affect each other's positions. Telegram messages are prefixed 🟢 (`broker_b.TRADE_ALERT_PREFIX`,
-green — distinct from Broker A's blue at a glance) and labeled "BROKER B".
+affect each other's positions. Telegram messages are prefixed 🟦 (`broker_b.TRADE_ALERT_PREFIX`, a
+deep-blue square — same blue family as Broker A's 🔵 but a different shape, since there's no darker-blue
+circle emoji) and labeled "BROKER B"; closes add the same 🟢/🔴 profit/loss marker as Broker A
+(`🟦🟢`/`🟦🔴`).
 
 **Forex broker (`forex_broker.py`, `forex_client.py`) — built but deliberately disconnected**: a third
 paper-trading engine, the "Forex" broker, that runs the *identical* entry rules (exits differ — see below) as `broker.py`'s
