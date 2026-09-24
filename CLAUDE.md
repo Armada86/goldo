@@ -574,11 +574,16 @@ file rather than per-element `style=` (the per-cell `style=` that remains is jus
 up/down color, computed from the sign of each change). The `$` unit shown on price/change cells is
 picked per-name (`DOLLAR_UNIT_NAMES`) the same way `rules.py` picks it for alert messages. Below the
 symbols table sit two more `st.dataframe` tables (not the hand-built HTML above — no per-cell layout
-control is needed here, so the plain Streamlit widget is enough): "Recent Trades" (`load_trades()`, the
-`trades` table Broker's `broker.py` writes — see "Broker automated paper-trading" above — most recent
-20 by `open_ts`, columns renamed for display and `$`-formatted; `exit_price`/`close_ts`/`pnl` are `—`
-for the still-open trade, if any) above "Recent Alerts" (`load_alerts()`, unchanged). `readings`/
-`alerts`/`trades` timestamps are all stored as UTC (`storage.py`'s `datetime.now(timezone.utc)`)
+control is needed here, so the plain Streamlit widget is enough): "Recent Trades" (`load_trades()` —
+Broker A's `trades` and Broker B's `broker_b_trades` (see "Broker A"/"Broker B automated paper-trading"
+above) `UNION ALL`-ed into one combined timeline, not two separate tables, since a single feed of what
+both engines are doing is more useful at a glance than having to check two tables — most recent 20
+combined by `open_ts`, with an extra `broker` column (`'Broker A'`/`'Broker B'`, a SQL literal, not a
+real column on either table) so `rule_name` alone doesn't have to be the only way to tell which engine
+opened a row; columns renamed for display and `$`-formatted, `exit_price`/`close_ts`/`pnl` are `—` for
+the still-open trade, if any) above "Recent Alerts" (`load_alerts()`, unchanged). `readings`/
+`alerts`/`trades`/`broker_b_trades` timestamps are all stored as UTC (`storage.py`'s
+`datetime.now(timezone.utc)`)
 regardless of where the poll job or dashboard happen to run — the "last loaded" caption and the Recent
 Trades/Recent Alerts tables are the only places that convert to a human timezone for display, all
 through the shared `to_display_str()` helper, to `DISPLAY_TZ` (`America/New_York`, matching the
