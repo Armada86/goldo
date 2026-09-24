@@ -1,9 +1,13 @@
-"""Automated paper-trading engine for the Broker's rules.
+"""Automated paper-trading engine for Broker A's rules (Consensus5of7).
 
 This is the code implementation of the rules documented in `.claude/agents/broker.md`'s "Rules"
 section -- that file is the human-readable spec, this module is what actually executes it every poll.
 The two must be kept in sync by hand when the rules change (same convention as `docs/market.md` vs.
 `config.py`): a rule change here without the matching prose update there is an incomplete change.
+See broker_b.py for Broker B -- a completely independent second engine (own table, own Telegram
+identity) trading the TA forecast's price zones instead of this module's alert-consensus signal, but
+sharing this module's exit logic (_pnl/_exit_levels/_scan_exit_crossing/_find_exit) and the
+TA-forecast bias gate (_bias_allows()) both engines apply to their entries.
 
 Every trade lives only in the `trades` table in Postgres (see storage.py) -- there is deliberately no
 markdown/doc mirror to keep in sync, so a trade never requires a repo commit.
@@ -32,6 +36,7 @@ from notifier import send_telegram_message
 from storage import (
     close_trade_row,
     get_last_trade_open_ts,
+    get_latest_ta_forecast,
     get_open_trade,
     get_recent_alerts,
     insert_trade,
@@ -62,6 +67,31 @@ TRADE_ALERT_PREFIX = "\U0001f535 "  # blue circle
 GOLD_DIRECTION_NAMES = ["gld", "iau", "gldm", "gdx", "gdxj", "ring"]
 INVERSE_DIRECTION_NAMES = ["dxy"]
 MIN_FLAGGING_COUNT = 5
+
+
+def _latest_bias_score() -> float:
+    """Latest ta_forecasts row's overall directional bias score (positive = bullish-leaning,
+    negative = bearish-leaning, 0/no forecast yet = neutral). Shared TA-forecast gate applied to
+    every entry rule in both Broker A (here) and Broker B (broker_b.py, which fetches its own
+    forecast row anyway and calls _bias_allows() directly rather than this wrapper). Fails open (0,
+    i.e. no restriction) on a DB hiccup or before the first forecast run ever completes, so a
+    problem reading ta_forecasts never blocks Broker A from trading entirely."""
+    try:
+        forecast = get_latest_ta_forecast()
+    except Exception:
+        return 0.0
+    if forecast is None or not forecast.get("levels"):
+        return 0.0
+    return forecast["levels"].get("bias_score", 0.0)
+
+
+def _bias_allows(trade_type: str, bias_score: float) -> bool:
+    """The TA bias gate: a Sell only opens when the latest forecast's bias isn't bullish (score
+    <= 0), a Buy only when it isn't bearish (score >= 0) -- score 0 (Neutral) allows either. See
+    .claude/agents/broker.md's "TA bias gate" section."""
+    if trade_type == "Sell":
+        return bias_score <= 0
+    return bias_score >= 0
 
 
 def _has_alert(alerts: list[tuple[datetime, str]], name: str, direction: str) -> bool:
@@ -175,7 +205,7 @@ def _find_exit(trade: dict, fallback_price: float, fallback_ts: datetime) -> tup
 
 def _open_message(trade_type: str, rule_name: str, price: float, triggering_text: str) -> str:
     return (
-        f"{TRADE_ALERT_PREFIX}BROKER: opened {trade_type} 1 oz XAU/USD @ ${price:.2f} (rule {rule_name}).\n"
+        f"{TRADE_ALERT_PREFIX}BROKER A: opened {trade_type} 1 oz XAU/USD @ ${price:.2f} (rule {rule_name}).\n"
         f"Trigger: {triggering_text}"
     )
 
@@ -183,7 +213,7 @@ def _open_message(trade_type: str, rule_name: str, price: float, triggering_text
 def _close_message(trade: dict, exit_price: float, pnl: float) -> str:
     result = "profit" if pnl >= 0 else "loss"
     return (
-        f"{TRADE_ALERT_PREFIX}BROKER: closed {trade['trade_type']} 1 oz XAU/USD @ ${exit_price:.2f} "
+        f"{TRADE_ALERT_PREFIX}BROKER A: closed {trade['trade_type']} 1 oz XAU/USD @ ${exit_price:.2f} "
         f"(opened @ ${trade['entry_price']:.2f}, rule {trade['rule_name']}) -- "
         f"{result} of ${abs(pnl):.2f}"
     )
@@ -194,8 +224,9 @@ def check_broker_trades(prices: dict[str, float]) -> None:
     moment its unrealized P/L reaches the $10 take-profit/stop-loss, then looks for a fresh
     Consensus5of7-buy/-sell entry signal -- at least MIN_FLAGGING_COUNT (5) of the seven
     intrahour-swing indicators, in the required directions, landing in the alerts table within the
-    trailing ENTRY_WINDOW_MINUTES (10) minutes. See .claude/agents/broker.md for the rules
-    themselves."""
+    trailing ENTRY_WINDOW_MINUTES (10) minutes -- gated by _bias_allows(): a signal against the
+    latest TA forecast's overall bias (e.g. a Buy while the forecast reads bearish) is skipped, not
+    opened. See .claude/agents/broker.md for the rules themselves."""
     gold_price = prices.get("gold")
     if gold_price is None:
         return
@@ -218,7 +249,7 @@ def check_broker_trades(prices: dict[str, float]) -> None:
             alerts = [(ts, message) for ts, message in alerts if ts > watermark]
 
         trade_type, rule_name = _match_entry_rule(alerts)
-        if trade_type is not None:
+        if trade_type is not None and _bias_allows(trade_type, _latest_bias_score()):
             triggering_text = _triggering_text(alerts, trade_type)
             insert_trade(rule_name, trade_type, gold_price, now, triggering_text)
             send_telegram_message(_open_message(trade_type, rule_name, gold_price, triggering_text))

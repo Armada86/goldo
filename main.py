@@ -5,6 +5,7 @@ import logging  # logging library like print but with levels and timestamps
 from apscheduler.schedulers.blocking import BlockingScheduler   #runs in the foreground and blocks execution until the job finishes
 
 from broker import check_broker_trades
+from broker_b import check_broker_b_trades
 from config import INTRAHOUR_SWING_SEND_TELEGRAM, POLL_INTERVAL_MINUTES #goes to config page and gets the value of POLL_INTERVAL_MINUTES
 from data_fetcher import fetch_latest_prices
 from forex_broker import check_forex_closes
@@ -67,6 +68,14 @@ def poll_once() -> None:
     # Runs after alerts are saved: check_broker_trades() looks for its entry signal in the alerts
     # table this same cycle's swing alerts just landed in.
     check_broker_trades(prices)
+
+    # Broker B -- fully independent of Broker A above (own table, own open-trade tracking), trading
+    # the latest TA forecast's price zones instead of the alert-consensus signal. Isolated in its own
+    # try/except so a Twelve Data/DB hiccup in this newer path can never break the rest of the poll.
+    try:
+        check_broker_b_trades(prices)
+    except Exception:
+        log.exception("Broker B check failed")
 
     # Read-only toward forex.com (never places an order): records Forex-broker positions its TP/SL
     # closed and starts tracking manual ones, alerting on each. Isolated so a forex.com/credentials
