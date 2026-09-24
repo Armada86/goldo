@@ -1,7 +1,7 @@
 """Streamlit dashboard reading the same Postgres DB that the poll job populates."""
 
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -19,6 +19,7 @@ if "DATABASE_URL" not in os.environ and "DATABASE_URL" in st.secrets:
 
 from config import DASHBOARD_INDICATOR_NAMES, DOLLAR_UNIT_NAMES
 from storage import get_connection, get_latest_ta_forecast
+from ta_forecast_job import render_diagram_svg
 
 st.set_page_config(page_title="Goldo", layout="wide")
 st.markdown('<meta http-equiv="refresh" content="60">', unsafe_allow_html=True)
@@ -53,28 +54,122 @@ st.title("Goldo")
 now_local = datetime.now(timezone.utc).astimezone(DISPLAY_TZ)
 st.caption(f"Page refreshes every 60s · last loaded {now_local.strftime('%Y-%m-%d %H:%M:%S %Z')}")
 
-# The daily XAU/USD technical forecast (ta_forecast_job.py, 7am ET weekdays) -- shown at the very top,
-# above the symbols table, per the user's request. diagram_svg is None on forecasts saved before that
-# column existed, or if no forecast has run yet, so this section is skipped entirely rather than
-# showing an empty-state placeholder above the always-present table below.
-try:
-    forecast = get_latest_ta_forecast()
-except Exception as e:
-    st.error(f"Could not load today's forecast: {e}")
-    forecast = None
+# The daily XAU/USD technical forecast (ta_forecast_job.py, 7am/midday ET weekdays) -- shown at the
+# very top, above the symbols table, per the user's request. Always re-rendered here via
+# render_diagram_svg() from that row's stored `levels` (never the job's own cached `diagram_svg`
+# column, which only ever covers the "today, no candle" case) -- one code path for both "today" and a
+# browsed historical date, and it always reflects the diagram code's current look even for an old row.
+FORECAST_DATE_KEY = "forecast_date_picker"
 
-if forecast and forecast.get("diagram_svg"):
-    levels = forecast["levels"] or {}
-    forecast_local = forecast["ts"].astimezone(DISPLAY_TZ)
-    st.subheader("Today's Forecast")
-    st.caption(
-        f"{forecast_local.strftime('%Y-%m-%d %H:%M %Z')} · "
-        f"${levels.get('price', 0):,.2f} · {levels.get('bias', '?')} "
-        f"(score {levels.get('bias_score', 0):+d}/6)"
-    )
-    st.markdown(forecast["diagram_svg"], unsafe_allow_html=True)
-    with st.expander("Full forecast text"):
-        st.text(forecast["analysis"])
+
+def load_forecast_for_date(d) -> dict | None:
+    """The Morning forecast for a specific ET date, or None if there isn't one (a weekend/holiday, or
+    a day the job didn't run) -- historical date browsing always shows the Morning run, since it's the
+    one that pairs with the full day's OHLC candle; the Midday run is for same-day use only."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT ts, analysis, levels FROM ta_forecasts "
+            "WHERE forecast_date = %s AND levels->>'session' = 'Morning' ORDER BY ts LIMIT 1",
+            (d,),
+        )
+        row = cur.fetchone()
+    return {"ts": row[0], "analysis": row[1], "levels": row[2]} if row else None
+
+
+def load_forecast_date_bounds():
+    """Earliest forecast_date in ta_forecasts, for the date picker's min_value; None if the table's
+    still empty (e.g. right after a fresh deploy, before the first scheduled run)."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT MIN(forecast_date) FROM ta_forecasts")
+        row = cur.fetchone()
+    return row[0] if row else None
+
+
+def load_gold_day_ohlc(d):
+    """Open/high/low/close for gold spot readings within one ET calendar day -- the historical-date
+    candle overlay. None if there are no readings that day (before polling started, or a quiet
+    weekend)."""
+    start = pd.Timestamp(d, tz=DISPLAY_TZ)
+    end = start + pd.Timedelta(days=1)
+    with get_connection() as conn:
+        df = pd.read_sql(
+            "SELECT price FROM readings WHERE name = 'gold' AND ts >= %s AND ts < %s ORDER BY ts",
+            conn, params=(start.tz_convert("UTC"), end.tz_convert("UTC")),
+        )
+    if df.empty:
+        return None
+    return {
+        "open": float(df["price"].iloc[0]), "high": float(df["price"].max()),
+        "low": float(df["price"].min()), "close": float(df["price"].iloc[-1]),
+    }
+
+
+try:
+    min_forecast_date = load_forecast_date_bounds()
+except Exception as e:
+    st.error(f"Could not load the forecast date range: {e}")
+    min_forecast_date = None
+
+if min_forecast_date is not None:
+    today_et = now_local.date()
+    if FORECAST_DATE_KEY not in st.session_state:
+        st.session_state[FORECAST_DATE_KEY] = today_et
+
+    nav_prev, nav_date, nav_next = st.columns([1, 5, 1])
+    with nav_prev:
+        if st.button("◀", key="forecast_date_prev",
+                     disabled=st.session_state[FORECAST_DATE_KEY] <= min_forecast_date):
+            st.session_state[FORECAST_DATE_KEY] -= timedelta(days=1)
+    with nav_next:
+        if st.button("▶", key="forecast_date_next",
+                     disabled=st.session_state[FORECAST_DATE_KEY] >= today_et):
+            st.session_state[FORECAST_DATE_KEY] += timedelta(days=1)
+    with nav_date:
+        st.date_input(
+            "Forecast date", min_value=min_forecast_date, max_value=today_et,
+            key=FORECAST_DATE_KEY, label_visibility="collapsed",
+        )
+    selected_date = st.session_state[FORECAST_DATE_KEY]
+
+    try:
+        if selected_date == today_et:
+            forecast = get_latest_ta_forecast()
+            candle = None
+        else:
+            forecast = load_forecast_for_date(selected_date)
+            candle = load_gold_day_ohlc(selected_date) if forecast else None
+    except Exception as e:
+        st.error(f"Could not load the forecast for {selected_date}: {e}")
+        forecast, candle = None, None
+
+    if forecast and forecast.get("levels"):
+        levels = forecast["levels"] or {}
+        forecast_local = forecast["ts"].astimezone(DISPLAY_TZ)
+        st.subheader("Today's Forecast" if selected_date == today_et else f"Forecast — {selected_date:%b %d, %Y}")
+        # "\$" everywhere here, not "$" -- st.caption() renders markdown, and Streamlit treats a pair
+        # of literal $ as inline LaTeX; two or more dollar amounts in the same string (the candle line
+        # below) silently mangled into math notation before this was escaped.
+        caption = (
+            f"{forecast_local.strftime('%Y-%m-%d %H:%M %Z')} ({levels.get('session', '?')}) · "
+            f"\\${levels.get('price', 0):,.2f} · {levels.get('bias', '?')} "
+            f"(score {levels.get('bias_score', 0):+d}/6)"
+        )
+        if candle:
+            caption += (
+                f" · Day: O \\${candle['open']:,.2f} H \\${candle['high']:,.2f} "
+                f"L \\${candle['low']:,.2f} C \\${candle['close']:,.2f}"
+            )
+        st.caption(caption)
+        st.markdown(
+            render_diagram_svg(
+                levels["price"], levels["resistances"], levels["supports"], levels["scenarios"], candle
+            ),
+            unsafe_allow_html=True,
+        )
+        with st.expander("Full forecast text"):
+            st.text(forecast["analysis"])
+    elif selected_date != today_et:
+        st.caption(f"No forecast recorded for {selected_date:%Y-%m-%d} (weekend, holiday, or a day the job didn't run).")
 
 # (name, minutes) columns shown next to each symbol's current price.
 CHANGE_WINDOWS = [("5m", 5), ("10m", 10), ("15m", 15), ("30m", 30), ("1h", 60)]

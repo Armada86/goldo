@@ -55,8 +55,10 @@ DIAGRAM_BAND_WIDTH = 80
 DIAGRAM_LABEL_X = 140
 DIAGRAM_MIN_LABEL_GAP = 13   # px between stacked zone-label rows, so close zones never overlap
 DIAGRAM_LEGEND_HEIGHT = 50
-DIAGRAM_COLOR_RESISTANCE = "#cf222e"  # same red/green as dashboard.py's up/down cells
-DIAGRAM_COLOR_SUPPORT = "#1a7f37"
+DIAGRAM_CANDLE_MARGIN = 55           # extra viewBox width reserved for the optional day-candle column
+DIAGRAM_CANDLE_BODY_WIDTH = 14
+DIAGRAM_COLOR_RESISTANCE = "#cf222e"  # same red/green as dashboard.py's up/down cells, and (below) a
+DIAGRAM_COLOR_SUPPORT = "#1a7f37"     # bearish/bullish day candle
 DIAGRAM_COLOR_PRICE = "#9c700c"
 DIAGRAM_COLOR_MUTED = "#767c82"
 DIAGRAM_COLOR_INK = "#1c2125"
@@ -580,7 +582,13 @@ def _short_zone_label(zone: dict) -> str:
     return f"{shown} +{extra}" if extra > 0 else shown
 
 
-def render_diagram_svg(price: float, resistances: list[dict], supports: list[dict], scenarios: list[dict]) -> str:
+def render_diagram_svg(
+    price: float,
+    resistances: list[dict],
+    supports: list[dict],
+    scenarios: list[dict],
+    candle: dict | None = None,
+) -> str:
     """Self-contained SVG price ladder: resistance zones above price in red, support zones below in
     green, a thin price line, and the two breakout/breakdown stop lines -- modelled on the reference
     diagram in docs/technical-analyst-forecast-log.md, redrawn from each run's real zones/price/stops
@@ -591,7 +599,13 @@ def render_diagram_svg(price: float, resistances: list[dict], supports: list[dic
     dollars of the nearest zone. The price row is deliberately a hairline plus a label rather than a
     filled badge: an opaque block that width would sit on top of, and hide, whatever zone happens to
     be at the same height. `title` tags carry each zone's full label list (and any 'nearby' levels
-    folded into it) as a hover tooltip -- inert on mobile, but free."""
+    folded into it) as a hover tooltip -- inert on mobile, but free.
+
+    `candle`, if given, is one day's {open, high, low, close} for gold spot (dashboard.py's historical
+    date view overlays it; a live/current forecast never has one, since the day isn't finished) --
+    drawn as an actual OHLC candlestick (wick + body, green if close >= open else red, the same colors
+    as the resistance/support bands) in a dedicated column to the right of the zone labels, widening
+    the diagram by DIAGRAM_CANDLE_MARGIN so it can never overlap zone/price label text."""
     zones = [(z, True) for z in resistances] + [(z, False) for z in supports]
     stops = {sc["name"]: sc for sc in scenarios}
     stop_lines = [
@@ -600,6 +614,8 @@ def render_diagram_svg(price: float, resistances: list[dict], supports: list[dic
     ]
 
     values = [price] + [v for z, _ in zones for v in (z["low"], z["high"])] + stop_lines
+    if candle:
+        values += [candle["open"], candle["high"], candle["low"], candle["close"]]
     lo, hi = min(values), max(values)
     pad = max((hi - lo) * 0.1, 5.0)
     lo, hi = lo - pad, hi + pad
@@ -678,15 +694,40 @@ def render_diagram_svg(price: float, resistances: list[dict], supports: list[dic
         for s in stop_lines
     )
 
+    width = DIAGRAM_WIDTH + (DIAGRAM_CANDLE_MARGIN if candle else 0)
+    candle_svg = ""
+    if candle:
+        candle_x = DIAGRAM_WIDTH + DIAGRAM_CANDLE_MARGIN / 2
+        bull = candle["close"] >= candle["open"]
+        candle_color = DIAGRAM_COLOR_SUPPORT if bull else DIAGRAM_COLOR_RESISTANCE
+        y_open, y_close = y_of(candle["open"]), y_of(candle["close"])
+        y_high, y_low = y_of(candle["high"]), y_of(candle["low"])
+        body_top, body_bottom = min(y_open, y_close), max(y_open, y_close)
+        candle_svg = (
+            f'<line x1="{candle_x:.1f}" x2="{candle_x:.1f}" y1="{y_high:.1f}" y2="{y_low:.1f}" '
+            f'stroke="{candle_color}" stroke-width="1.5"/>'
+            f'<rect x="{candle_x - DIAGRAM_CANDLE_BODY_WIDTH / 2:.1f}" y="{body_top:.1f}" '
+            f'width="{DIAGRAM_CANDLE_BODY_WIDTH}" height="{max(2.0, body_bottom - body_top):.1f}" '
+            f'fill="{candle_color}" stroke="{candle_color}"/>'
+        )
+
     height = DIAGRAM_TOP + DIAGRAM_PLOT_HEIGHT + DIAGRAM_LEGEND_HEIGHT
 
+    candle_legend = (
+        f'<line x1="256" x2="256" y1="{height - 11}" y2="{height - 3}" stroke="{DIAGRAM_COLOR_INK}" '
+        f'stroke-width="1.2"/>'
+        f'<rect x="252" y="{height - 9}" width="8" height="4" fill="{DIAGRAM_COLOR_INK}"/>'
+        f'<text x="264" y="{height - 5}">Day candle</text>'
+        if candle else ""
+    )
+
     return (
-        f'<svg viewBox="0 0 {DIAGRAM_WIDTH} {height}" xmlns="http://www.w3.org/2000/svg" '
+        f'<svg viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg" '
         f'font-family="IBM Plex Sans, Arial, sans-serif" role="img" '
         f'aria-label="Gold price ladder: resistance above {price:,.2f}, support below">'
         f'<line x1="{DIAGRAM_AXIS_X}" x2="{DIAGRAM_AXIS_X}" y1="{DIAGRAM_TOP}" '
         f'y2="{DIAGRAM_TOP + DIAGRAM_PLOT_HEIGHT}" stroke="{DIAGRAM_COLOR_RULE}"/>'
-        f'{axis_ticks}{"".join(bands)}{stop_svg}'
+        f'{axis_ticks}{"".join(bands)}{stop_svg}{candle_svg}'
         f'{"".join(labels)}'
         f'<g font-size="9" fill="{DIAGRAM_COLOR_MUTED}">'
         f'<rect x="4" y="{height - 32}" width="10" height="10" fill="{DIAGRAM_COLOR_RESISTANCE}" fill-opacity="0.5"/>'
@@ -699,6 +740,7 @@ def render_diagram_svg(price: float, resistances: list[dict], supports: list[dic
         f'<line x1="4" x2="18" y1="{height - 8}" y2="{height - 8}" stroke="{DIAGRAM_COLOR_MUTED}" '
         f'stroke-dasharray="4 3"/>'
         f'<text x="22" y="{height - 5}">Breakout/breakdown stop</text>'
+        f'{candle_legend}'
         f'</g></svg>'
     )
 
