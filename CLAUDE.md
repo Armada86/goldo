@@ -231,20 +231,25 @@ the **latest** `ta_forecasts` row's price zones instead of Broker A's alert-cons
 `.claude/agents/broker.md`'s "Broker B" section for the full spec. **Trades all four** of the
 forecast's scenarios, not just the two fade zones — `sell_resistance`/`buy_support` (`TA-Zone-sell`/
 `TA-Zone-buy`) *and* their mirrored breakout scenarios `bull_breakout`/`bear_breakdown`
-(`TA-Breakout-buy`/`TA-Breakout-sell`), each entering at the exact level price the moment a real
-1-minute candle touches it (same candle-scan technique as Broker A's exit, applied to an entry instead
-— `broker_b._scan_zone_entry()`) rather than at whatever the live spot price is when the poll notices,
-since that level is the price a resting order would actually fill at. The two fade rules are
+(`TA-Breakout-buy`/`TA-Breakout-sell`), each entering the moment a real 1-minute candle comes within
+`broker_b.ENTRY_TOLERANCE_DOLLARS` ($2) of the level (same candle-scan technique as Broker A's exit,
+applied to an entry instead — `broker_b._scan_zone_entry()`), at that tolerance-adjusted price (level
+∓ $2, a price that actually traded) rather than at whatever the live spot price is when the poll
+notices — the $2 absorbs the routine $1–2 gap between Twelve Data and a broker platform's feed, which
+made an exact-touch rule miss a level the platform's chart showed being reached (24 Sep 2026).
+Candles at or before the last Broker B trade's close are ignored (`storage.get_last_close_ts_b()`), so
+a touch can never open a back-dated trade. The two fade rules are
 invalidated (no trade) if price already broke the zone's far side (the scenario's `stop`)
 before/without a clean touch; the two breakout rules have no such invalidation, since crossing the
 trigger is the entire signal. **Deliberately does not apply `broker._bias_allows()`** — unlike Broker
 A, Broker B trades whichever of the four levels price actually reaches, buy or sell, regardless of
 what the forecast's overall bias score says (this bias check and the breakout scenarios were both
 added/removed at the user's explicit request; see `.claude/agents/broker.md`'s "TA bias gate (Broker A
-only)" section). Fires **at most once per (forecast row, rule)** — `storage.trade_b_exists_for_forecast()`
-blocks a rule from re-firing off the same forecast row even after Broker B goes flat again, until the
-next `ta_forecast_job.py` run supplies fresh levels — so a choppy session can't rack up repeated losses
-re-trading the same level. Still only **one Broker B position open at a time, across all four rules** —
+only)" section). Fires **up to `MAX_TRADES_PER_LEVEL` (3) times per (forecast row, rule), re-arming only after a
+win**: `storage.trade_b_level_history()` returns that level's trade count and whether any was stopped
+out, and the first stop-out retires the rule for that forecast row (the level broke; a fade stopped out
+above resistance would otherwise re-enter at once), until the next `ta_forecast_job.py` run supplies
+fresh levels. Still only **one Broker B position open at a time, across all four rules** —
 a rule can't fire while any other already has an open trade. When more than one rule's level is touched
 within the same poll's candle window, whichever was reached earliest chronologically wins, not any fixed
 rule priority. Same $10 flat take-profit/stop-loss as Broker A (`broker._find_exit()`, imported directly

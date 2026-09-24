@@ -815,16 +815,28 @@ def close_trade_row_b(trade_id: int, exit_price: float, close_ts: datetime, pnl:
         )
 
 
-def trade_b_exists_for_forecast(ta_forecast_id: int, rule_name: str) -> bool:
-    """True if Broker B has already opened a trade for this exact (forecast, rule) pair -- the
-    dedup check that stops a zone from re-firing off the same forecast row once it's already been
-    traded (see broker_b.py's module docstring)."""
+def trade_b_level_history(ta_forecast_id: int, rule_name: str) -> dict:
+    """What Broker B has already done at one (forecast, rule) level -- the re-arm check in
+    broker_b.py: how many trades it has opened there, whether any of them was stopped out (a loss
+    means the level broke, so it's never re-traded off this forecast), and when the latest one
+    closed (a re-entry only counts touches after that, never the touch that opened the last trade)."""
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "SELECT 1 FROM broker_b_trades WHERE ta_forecast_id = %s AND rule_name = %s LIMIT 1",
+            "SELECT COUNT(*), COALESCE(BOOL_OR(pnl < 0), FALSE), MAX(close_ts) FROM broker_b_trades "
+            "WHERE ta_forecast_id = %s AND rule_name = %s",
             (ta_forecast_id, rule_name),
         )
-        return cur.fetchone() is not None
+        count, stopped_out, last_close_ts = cur.fetchone()
+    return {"count": count, "stopped_out": stopped_out, "last_close_ts": last_close_ts}
+
+
+def get_last_close_ts_b() -> datetime | None:
+    """When Broker B's most recently closed trade closed -- the entry scan ignores candles at or
+    before it, so a touch that happened while a previous position was still open (or the very touch
+    that opened it) can never open a new, back-dated trade once Broker B is flat again."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT MAX(close_ts) FROM broker_b_trades")
+        return cur.fetchone()[0]
 
 
 def get_all_trades_b() -> list[dict]:

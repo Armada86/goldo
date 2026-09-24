@@ -16,16 +16,19 @@ zone" scenarios (`sell_resistance`/`buy_support`) *and* their mirrored breakout 
 (`bull_breakout`/`bear_breakdown`) -- see ZONE_SCENARIOS below for the name/trade-type/rule-name
 mapping. Only one trade open at a time, across all four rules, same as Broker A -- a fresh entry is
 never opened while a Broker B position is already open, no matter which of the four levels it is.
+**Each level re-arms after a win**: up to MAX_TRADES_PER_LEVEL (3) trades per (forecast, level), but
+the first stop-out at a level retires it for that forecast (trade_b_level_history()).
 
 **Entry is a candle scan, mirroring Broker A's exit scan exactly (same technique, same reasoning).**
 check_broker_b_trades() runs once per poll (every 5 minutes); a naive "is the live spot price at the
 level right now" check could miss a real touch entirely if price crossed it and back between polls.
 _scan_zone_entry() fetches real 1-minute OHLC candles (fetch_candles(), Twelve Data) covering the last
-ENTRY_CANDLE_LOOKBACK_MINUTES and scans each bar's high/low for the first point that actually reached
-the level -- the trade opens at that exact level (the price a resting order would have filled at, the
-same way a real platform would fill it -- see broker._exit_levels()'s "exit_price is the level, not
-the overshoot" convention, which this mirrors for entries), not at whatever the live spot price happens
-to be when the poll notices. For the two fade scenarios only, a level reached after price already blew
+ENTRY_CANDLE_LOOKBACK_MINUTES and scans each bar's high/low for the first point that came within
+ENTRY_TOLERANCE_DOLLARS ($2) of the level -- the trade opens at that tolerance-adjusted price (level
+minus $2 for a rising approach, plus $2 for a falling one: a price that actually traded, the way a
+resting order placed $2 inside the level would fill), not at whatever the live spot price happens to be
+when the poll notices. Candles at or before the last Broker B trade's close are ignored, so a touch
+can never open a back-dated trade. For the two fade scenarios only, a level reached after price already blew
 through the zone's far side (the scenario's own `stop`) without a clean touch first invalidates that
 fade -- see _entry_price_and_invalidation(). The two breakout scenarios have no such invalidation:
 crossing the trigger is the entire signal.
@@ -40,15 +43,30 @@ from notifier import send_telegram_message
 from storage import (
     close_trade_row_b,
     get_latest_ta_forecast,
+    get_last_close_ts_b,
     get_open_trade_b,
     insert_trade_b,
-    trade_b_exists_for_forecast,
+    trade_b_level_history,
 )
 
 # How many minutes of 1-min candles the entry scan pulls each poll -- same value/reasoning as
 # broker.py's EXIT_CANDLE_LOOKBACK_MINUTES: comfortably more than one 5-min poll interval, so a
 # slightly late-firing poll still has full coverage back to the last check.
 ENTRY_CANDLE_LOOKBACK_MINUTES = 20
+
+# A level counts as reached once price gets within this many dollars of it (a rising level at
+# level - $2, a falling one at level + $2), and the trade opens at that nearer price -- a price that
+# actually traded, not the untouched level. Twelve Data (this engine's feed) and a broker platform's
+# own feed routinely differ by $1-2, so an exact-touch rule could miss a level the platform's chart
+# plainly shows being reached (24 Sep 2026: a 2:40pm ET spike topped at $4,282.47 against a $4,283.21
+# sell level). ~2% of gold's current daily range, so still genuinely "at" the level.
+ENTRY_TOLERANCE_DOLLARS = 2.0
+
+# A level can be traded up to this many times off one forecast row -- but only re-arms after a
+# winning trade there. The first stop-out at a level means it broke, and it's never re-traded off
+# that forecast (otherwise a fade stopped out above resistance would re-enter immediately, with
+# price still above the level).
+MAX_TRADES_PER_LEVEL = 3
 
 # Prefix for every Broker B open/close Telegram message -- a deep-blue square, the same blue family
 # as Broker A's circle (broker.TRADE_ALERT_PREFIX) but a different shape so the two are easy to tell
@@ -93,12 +111,15 @@ def _entry_price_and_invalidation(scenario_name: str, scenario: dict) -> tuple[f
 
 def _scan_zone_entry(scenario_name: str, scenario: dict, candles) -> tuple[float, datetime] | None:
     """Scans 1-min candles in chronological order for the first bar whose high/low actually reached
-    this scenario's level without the same or an earlier bar already invalidating it -- same
+    this scenario's level (within ENTRY_TOLERANCE_DOLLARS) without the same or an earlier bar already
+    invalidating it -- same
     technique as broker._scan_exit_crossing(), applied to an entry instead of an exit. Returns
-    (trigger_price, trigger_ts) at the first qualifying bar, or None if the level was never cleanly
+    (trigger_price, trigger_ts) at the first qualifying bar -- trigger_price being the tolerance-
+    adjusted price, i.e. what actually traded -- or None if the level was never cleanly
     reached (or was invalidated before/without one) in `candles`."""
-    trigger_price, invalidation_price = _entry_price_and_invalidation(scenario_name, scenario)
+    level, invalidation_price = _entry_price_and_invalidation(scenario_name, scenario)
     rising = scenario_name in RISING_APPROACH_SCENARIOS
+    trigger_price = level - ENTRY_TOLERANCE_DOLLARS if rising else level + ENTRY_TOLERANCE_DOLLARS
     for _, bar in candles.iterrows():
         if rising:
             touched = bar["high"] >= trigger_price
@@ -133,9 +154,9 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
     """Runs once per poll, independent of Broker A. Closes the open trade (if any) at the $10
     take-profit/stop-loss (identical mechanism to Broker A -- see broker._find_exit()), then looks
     for a fresh entry on any of the four TA forecast levels (TA-Zone-sell/-buy,
-    TA-Breakout-sell/-buy) -- no bias gate, price reaching a level is the entire signal -- only once
-    per (forecast, level) pair (trade_b_exists_for_forecast()), and only while no Broker B trade is
-    already open. See .claude/agents/broker.md's Broker B rules."""
+    TA-Breakout-sell/-buy) -- no bias gate, price coming within ENTRY_TOLERANCE_DOLLARS of a level is
+    the entire signal -- up to MAX_TRADES_PER_LEVEL times per (forecast, level) pair, re-arming only
+    after a win there (trade_b_level_history()), and only while no Broker B trade is already open. See .claude/agents/broker.md's Broker B rules."""
     gold_price = prices.get("gold")
     if gold_price is None:
         return
@@ -169,7 +190,8 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
         scenario = scenarios.get(scenario_name)
         if scenario is None:
             continue
-        if trade_b_exists_for_forecast(forecast["id"], rule_name):
+        history = trade_b_level_history(forecast["id"], rule_name)
+        if history["stopped_out"] or history["count"] >= MAX_TRADES_PER_LEVEL:
             continue
         candidates.append((scenario_name, trade_type, rule_name, scenario))
 
@@ -180,6 +202,12 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
         candles = fetch_candles(GOLD_SPOT_SYMBOL, interval="1min", outputsize=ENTRY_CANDLE_LOOKBACK_MINUTES)
     except Exception:
         return
+    # Only touches after the last Broker B trade closed can open a new one -- otherwise a re-armed
+    # level would re-fire on the very touch that opened its previous trade (still inside the 20-min
+    # lookback), and any level could open a back-dated trade from a touch made while flat was false.
+    last_close_ts = get_last_close_ts_b()
+    if last_close_ts is not None:
+        candles = candles[candles["datetime"] > last_close_ts]
 
     touches = []
     for scenario_name, trade_type, rule_name, scenario in candidates:

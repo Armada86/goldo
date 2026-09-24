@@ -143,16 +143,23 @@ explicitly removed at the user's request.)
 
 ### `TA-Zone-sell`
 
-**Entry**: Sell 1 troy ounce of gold spot the first time price reaches the latest forecast's
-`sell_resistance` scenario's zone (its `entry` low/high) — detected the same way Broker A's exit
-works, not a point-in-time price check: each poll fetches real 1-minute candles covering the trailing
-`ENTRY_CANDLE_LOOKBACK_MINUTES` (20) and scans for the first bar whose high actually reached the
-zone's near edge. The trade opens **at that edge price** (e.g. the forecast's own "Sell 4283" level),
-not whatever the live spot price happens to be at poll time — the same way a real resting limit order
-would fill, which is the point: this is meant to mirror what a real platform would record. If price
+**Entry**: Sell 1 troy ounce of gold spot when price comes within **$2** (`ENTRY_TOLERANCE_DOLLARS`)
+of the latest forecast's `sell_resistance` scenario's zone (its `entry` low/high) — detected the same
+way Broker A's exit works, not a point-in-time price check: each poll fetches real 1-minute candles
+covering the trailing `ENTRY_CANDLE_LOOKBACK_MINUTES` (20) and scans for the first bar whose high
+reached the zone's near edge minus $2. The trade opens **at that tolerance-adjusted price** (e.g.
+$4,281.21 for the forecast's "Sell 4283.21" level) — a price that actually traded, the way a resting
+limit order placed $2 inside the level would fill — not whatever the live spot price happens to be at
+poll time. The $2 exists because Twelve Data (this engine's feed) and a broker platform's own feed
+routinely differ by $1–2: on 24 Sep 2026 a 2:40pm ET spike topped at $4,282.47 on Twelve Data (and
+$4,281.30 on forex.com's chart) against a $4,283.21 level, and an exact-touch rule missed it. The same
+$2 tolerance applies to all four rules below (subtracted for a rising approach, added for a falling
+one). Only candles after the last Broker B trade's close count (`storage.get_last_close_ts_b()`), so a
+touch can never open a back-dated trade. If price
 already broke through the zone's far side (the scenario's own `stop`, e.g. "stop above 4293") before
 or without a clean touch of the near edge, the fade is invalidated and no trade opens. Only fires
-**once per (forecast row, rule)** — see "Broker B: position sizing & concurrency" below.
+up to **3 times per (forecast row, rule), re-arming only after a win** — see "Broker B: position
+sizing & concurrency" below.
 
 **Exit**: identical mechanism to Broker A — **+$10**/**-$10** unrealized P/L, real 1-minute candle
 scan for the crossing (`broker._find_exit()`, imported directly, not reimplemented). This is
@@ -195,14 +202,17 @@ invalidation check, same reasoning as `TA-Breakout-buy`.
   none of the other three rules can fire while any one of them has an open position, regardless of
   which rule opened it. This was true when Broker B only had two rules and stays true now that it has
   four; adding rules never relaxes it.
-- **Once per (forecast row, rule), not once per touch.** A rule that has already produced a Broker B
-  trade off the *current* forecast row won't fire again — even if Broker B is flat again and price
-  chops back into the same level five more times that session — until the *next* `ta_forecast_job.py`
-  run inserts a new row (`storage.trade_b_exists_for_forecast()`, keyed on the forecast's `id` + the
-  rule name). This bounds a choppy session to at most one attempt per rule per forecast (at most 8
-  trades/day: 4 rules × 2 forecasts, though in practice fewer since only one of a fade/breakout pair
-  can realistically fire before the other's level is invalidated or the trade slot is taken) rather
-  than repeatedly re-entering — and re-losing — at the same level. An already-open trade isn't
+- **Re-arms after a win, retires after a stop-out.** A rule can fire up to `MAX_TRADES_PER_LEVEL` (3)
+  times off the *current* forecast row, but only re-arms after its previous trade there hit the +$10
+  take-profit: the **first stop-out** (−$10) at a level retires that rule for the rest of that forecast
+  (`storage.trade_b_level_history()`, keyed on the forecast's `id` + the rule name, returns the
+  trade count and whether any was a loss). Rationale: a win means the level held and may hold again; a
+  loss means it broke — and a fade stopped out above resistance would otherwise re-enter immediately,
+  with price still above the level. A re-entry only counts touches after the previous trade closed
+  (see the entry rule above). The next `ta_forecast_job.py` run's new row resets every rule's count.
+  Replaced a stricter "once per (forecast row, rule)" rule on 24 Sep 2026, when the Midday 4283 sell
+  level was touched at 12:17, 12:43 and (within $1) 14:40 ET and every one of those three fades would
+  have hit its +$10 take-profit, but only the first could trade. An already-open trade isn't
   affected when a newer forecast lands; it keeps running to its own $10 exit, and only a *new* entry
   after that will use the refreshed levels.
 - When more than one of the four rules is eligible and touched within the same poll's candle window,
