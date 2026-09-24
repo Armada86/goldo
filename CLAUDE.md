@@ -213,7 +213,11 @@ in-memory state can't survive between polls); only one trade open at a time, and
 considers alerts newer than the last trade's open time so a stale alert can't retrigger. Every
 open/close sends a Telegram message (`notifier.send_telegram_message`), prefixed with a 🔵
 (`broker.TRADE_ALERT_PREFIX`) and labeled "BROKER A" (distinguishing it from Broker B below, and from
-XAU/USD price alerts' 🟡 prefix, `rules.XAUUSD_ALERT_PREFIX`) in the chat. Close messages add a second
+XAU/USD price alerts' 🟡 prefix, `rules.XAUUSD_ALERT_PREFIX`) in the chat. The open message's "Trigger:"
+line names only the flagging indicators (`broker._triggering_names()`, e.g. "GLD, GDX, GDXJ, RING,
+DXY") — deliberately no prices/swing sizes/thresholds, to keep the message short. The full detail
+(`broker._triggering_text()`) still goes into the `trades` row's `triggering_alerts` column for the
+Broker subagent's later analysis; only the Telegram message is trimmed. Close messages add a second
 marker right after the broker's own: 🟢 for a profit, 🔴 for a loss (`broker._result_marker()`) — so an
 open is `🔵`, a close is `🔵🟢`/`🔵🔴`. Broker A uses circles only; Broker B squares only. Deliberately no
 markdown/doc log of trades — the `trades` table (`id`, `rule_name`, `trade_type`, `entry_price`,

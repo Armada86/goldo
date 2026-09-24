@@ -78,6 +78,12 @@ Implemented in `broker.py` as: pull alerts from the trailing `ENTRY_WINDOW_MINUT
 how many of the 7 (`GOLD_DIRECTION_NAMES` + `INVERSE_DIRECTION_NAMES`) have an alert in the direction
 this rule requires, and fire if that count is `>= MIN_FLAGGING_COUNT` (5) — see `_match_entry_rule()`.
 
+The Telegram open message's "Trigger:" line names only the indicators that flagged (`_triggering_names()`,
+e.g. "GLD, GDX, GDXJ, RING, DXY") — no prices, swing sizes, or thresholds, to keep the message short. The
+`trades` table's `triggering_alerts` column still stores the full detail per indicator (`_triggering_text()`)
+for analysis here — query that column, not the Telegram message, when you need the actual swing/threshold
+numbers behind a trade.
+
 **Exit**: close the 1 oz position the first time its unrealized P/L reaches **+$10** (take profit) or
 **-$10** (stop loss). Checked every poll (every 5 minutes), but not against a single live spot-price
 sample — a poll-to-poll gap can hide a spike that touched the target and reversed before the next
