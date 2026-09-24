@@ -55,8 +55,8 @@ DIAGRAM_BAND_WIDTH = 80
 DIAGRAM_LABEL_X = 140
 DIAGRAM_MIN_LABEL_GAP = 13   # px between stacked zone-label rows, so close zones never overlap
 DIAGRAM_LEGEND_HEIGHT = 50
-DIAGRAM_CANDLE_MARGIN = 55           # extra viewBox width reserved for the optional day-candle column
-DIAGRAM_CANDLE_BODY_WIDTH = 14
+DIAGRAM_CANDLE_BODY_WIDTH = 14        # the optional day-candle sits inside the band column, not a
+                                      # separate side margin -- see render_diagram_svg()'s docstring
 DIAGRAM_COLOR_RESISTANCE = "#cf222e"  # same red/green as dashboard.py's up/down cells, and (below) a
 DIAGRAM_COLOR_SUPPORT = "#1a7f37"     # bearish/bullish day candle
 DIAGRAM_COLOR_PRICE = "#9c700c"
@@ -603,9 +603,12 @@ def render_diagram_svg(
 
     `candle`, if given, is one day's {open, high, low, close} for gold spot (dashboard.py's historical
     date view overlays it; a live/current forecast never has one, since the day isn't finished) --
-    drawn as an actual OHLC candlestick (wick + body, green if close >= open else red, the same colors
-    as the resistance/support bands) in a dedicated column to the right of the zone labels, widening
-    the diagram by DIAGRAM_CANDLE_MARGIN so it can never overlap zone/price label text."""
+    drawn as an actual OHLC candlestick (wick + a hollow/outline-only body, green if close >= open else
+    red, the same colors as the resistance/support bands) centered in the band column, at its true
+    proportional price position, the same as everything else in this diagram -- it commonly overlaps
+    one or more zone bands, which is deliberate (this is the normal way a candle and support/resistance
+    zones are shown together on a real chart) and exactly why the body is outlined rather than filled:
+    a solid body would hide whatever band sits behind it."""
     zones = [(z, True) for z in resistances] + [(z, False) for z in supports]
     stops = {sc["name"]: sc for sc in scenarios}
     stop_lines = [
@@ -694,21 +697,22 @@ def render_diagram_svg(
         for s in stop_lines
     )
 
-    width = DIAGRAM_WIDTH + (DIAGRAM_CANDLE_MARGIN if candle else 0)
     candle_svg = ""
     if candle:
-        candle_x = DIAGRAM_WIDTH + DIAGRAM_CANDLE_MARGIN / 2
+        candle_x = DIAGRAM_BAND_X + DIAGRAM_BAND_WIDTH / 2
         bull = candle["close"] >= candle["open"]
         candle_color = DIAGRAM_COLOR_SUPPORT if bull else DIAGRAM_COLOR_RESISTANCE
         y_open, y_close = y_of(candle["open"]), y_of(candle["close"])
         y_high, y_low = y_of(candle["high"]), y_of(candle["low"])
         body_top, body_bottom = min(y_open, y_close), max(y_open, y_close)
+        # Hollow body (fill="none"), not solid -- it commonly overlaps a zone band at this shared
+        # x-position, and a filled body would hide it.
         candle_svg = (
             f'<line x1="{candle_x:.1f}" x2="{candle_x:.1f}" y1="{y_high:.1f}" y2="{y_low:.1f}" '
             f'stroke="{candle_color}" stroke-width="1.5"/>'
             f'<rect x="{candle_x - DIAGRAM_CANDLE_BODY_WIDTH / 2:.1f}" y="{body_top:.1f}" '
             f'width="{DIAGRAM_CANDLE_BODY_WIDTH}" height="{max(2.0, body_bottom - body_top):.1f}" '
-            f'fill="{candle_color}" stroke="{candle_color}"/>'
+            f'fill="none" stroke="{candle_color}" stroke-width="1.5"/>'
         )
 
     height = DIAGRAM_TOP + DIAGRAM_PLOT_HEIGHT + DIAGRAM_LEGEND_HEIGHT
@@ -716,13 +720,15 @@ def render_diagram_svg(
     candle_legend = (
         f'<line x1="256" x2="256" y1="{height - 11}" y2="{height - 3}" stroke="{DIAGRAM_COLOR_INK}" '
         f'stroke-width="1.2"/>'
-        f'<rect x="252" y="{height - 9}" width="8" height="4" fill="{DIAGRAM_COLOR_INK}"/>'
+        f'<rect x="252" y="{height - 9}" width="8" height="4" fill="none" stroke="{DIAGRAM_COLOR_INK}" '
+        f'stroke-width="1"/>'
         f'<text x="264" y="{height - 5}">Day candle</text>'
         if candle else ""
     )
 
     return (
-        f'<svg viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg" '
+        f'<svg viewBox="0 0 {DIAGRAM_WIDTH} {height}" xmlns="http://www.w3.org/2000/svg" '
+        f'style="width:100%;height:auto;display:block" '
         f'font-family="IBM Plex Sans, Arial, sans-serif" role="img" '
         f'aria-label="Gold price ladder: resistance above {price:,.2f}, support below">'
         f'<line x1="{DIAGRAM_AXIS_X}" x2="{DIAGRAM_AXIS_X}" y1="{DIAGRAM_TOP}" '
