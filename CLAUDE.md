@@ -214,8 +214,8 @@ considers alerts newer than the last trade's open time so a stale alert can't re
 open/close sends a Telegram message (`notifier.send_telegram_message`), prefixed with a 🔵
 (`broker.TRADE_ALERT_PREFIX`) and labeled "BROKER A" (distinguishing it from Broker B below, and from
 XAU/USD price alerts' 🟡 prefix, `rules.XAUUSD_ALERT_PREFIX`) in the chat. Close messages add a second
-marker right after the broker's own: 🟢 for a profit, 🔴 for a loss (`broker._result_marker()`, shared
-with Broker B) — so an open is `🔵`, a close is `🔵🟢`/`🔵🔴`. Deliberately no
+marker right after the broker's own: 🟢 for a profit, 🔴 for a loss (`broker._result_marker()`) — so an
+open is `🔵`, a close is `🔵🟢`/`🔵🔴`. Broker A uses circles only; Broker B squares only. Deliberately no
 markdown/doc log of trades — the `trades` table (`id`, `rule_name`, `trade_type`, `entry_price`,
 `open_ts`, `triggering_alerts`, `exit_price`, `close_ts`, `pnl`, `status`) is the only record, so a
 trade never requires a repo commit; `poll.yml` doesn't need write access to the repo for this reason.
@@ -242,8 +242,8 @@ table (`trades`' columns plus `ta_forecast_id`, so a trade can be traced back to
 row/zone that produced it) and separate open-trade tracking — Broker A and Broker B never see or
 affect each other's positions. Telegram messages are prefixed 🟦 (`broker_b.TRADE_ALERT_PREFIX`, a
 deep-blue square — same blue family as Broker A's 🔵 but a different shape, since there's no darker-blue
-circle emoji) and labeled "BROKER B"; closes add the same 🟢/🔴 profit/loss marker as Broker A
-(`🟦🟢`/`🟦🔴`).
+circle emoji) and labeled "BROKER B"; squares only, so closes add a 🟩 profit / 🟥 loss square
+(`🟦🟩`/`🟦🟥`) rather than Broker A's circles.
 
 **Forex broker (`forex_broker.py`, `forex_client.py`) — built but deliberately disconnected**: a third
 paper-trading engine, the "Forex" broker, that runs the *identical* entry rules (exits differ — see below) as `broker.py`'s

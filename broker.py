@@ -57,14 +57,14 @@ EXIT_CANDLE_LOOKBACK_MINUTES = 20
 # for why an emoji, not real text color -- Telegram's Bot API doesn't support that.
 TRADE_ALERT_PREFIX = "\U0001f535 "  # blue circle
 
-# Second marker on every close message (Broker A and Broker B alike), right after the broker's own
-# prefix: green for a profit, red for a loss -- see _result_marker().
+# Second marker on every Broker A close message, right after its own prefix: green for a profit,
+# red for a loss. Broker A uses circles only (Broker B uses squares -- see broker_b.py).
 PROFIT_MARKER = "\U0001f7e2 "  # green circle
 LOSS_MARKER = "\U0001f534 "  # red circle
 
 
-def _result_marker(pnl: float) -> str:
-    return PROFIT_MARKER if pnl >= 0 else LOSS_MARKER
+def _result_marker(pnl: float, profit: str = PROFIT_MARKER, loss: str = LOSS_MARKER) -> str:
+    return profit if pnl >= 0 else loss
 
 # The six physically/mining-correlated gold ETFs must flag the same direction gold itself is
 # presumed to be moving; dxy (inversely correlated with gold) must flag the opposite direction.
