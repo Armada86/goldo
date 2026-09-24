@@ -190,32 +190,60 @@ workflow, so it needs no extra external scheduling setup: the existing 5-minute 
 already visits the boundary each side of these two weekly instants, and a `minute < 5` window keeps
 each notification firing exactly once.
 
-**Broker automated paper-trading (`broker.py`)**: `check_broker_trades()`, called from
+**Broker A automated paper-trading (`broker.py`)**: `check_broker_trades()`, called from
 `main.poll_once()` right after this cycle's alerts are saved, is a fully automated imaginary
 buy/sell engine layered on top of the alert mechanisms above — see `.claude/agents/broker.md`'s
-"Rules" section for the human-readable spec (kept in sync with this code by hand, the same convention
-as `docs/market.md` vs. `config.py`). Currently two mirror-image rules (`Consensus5of7-buy`/`-sell`):
-buy 1 troy oz of gold spot when at least 5 of 7 intrahour-swing indicators (any window) land alerts in
-the `alerts` table within a trailing 10 minutes in the required direction — GLD/IAU/GLDM/GDX/GDXJ/RING
-up, DXY down (sell on the exact opposite, and it's 5-of-7, not all 7); US10Y is deliberately excluded
-from this indicator set (still alerted/frequency-tested like the others, just never consulted for a
-Broker entry — was included when this rule was `Consensus6of8`); close at $10 unrealized profit or loss
-either way, using a real 1-minute candle scan (not a single point-in-time price) so a spike that briefly
-touched $10 and reversed before the next poll still closes at the true level (`broker._find_exit()`).
-Trade state lives in a new Postgres `trades` table (mirrors
+"Broker A" section for the human-readable spec (kept in sync with this code by hand, the same
+convention as `docs/market.md` vs. `config.py`). Currently two mirror-image rules
+(`Consensus5of7-buy`/`-sell`): buy 1 troy oz of gold spot when at least 5 of 7 intrahour-swing
+indicators (any window) land alerts in the `alerts` table within a trailing 10 minutes in the required
+direction — GLD/IAU/GLDM/GDX/GDXJ/RING up, DXY down (sell on the exact opposite, and it's 5-of-7, not
+all 7); US10Y is deliberately excluded from this indicator set (still alerted/frequency-tested like
+the others, just never consulted for a Broker entry — was included when this rule was
+`Consensus6of8`); close at $10 unrealized profit or loss either way, using a real 1-minute candle scan
+(not a single point-in-time price) so a spike that briefly touched $10 and reversed before the next
+poll still closes at the true level (`broker._find_exit()`). Every entry is also gated by
+`broker._bias_allows()`/`_latest_bias_score()` — the latest `ta_forecasts` row's overall bias score
+(see "XAU/USD technical forecast" below): a Buy is skipped if that forecast reads bearish (score < 0),
+a Sell skipped if it reads bullish (score > 0); Neutral (0) or no forecast yet allows either direction.
+This same gate function is imported by `broker_b.py` (below) rather than reimplemented, so both
+engines apply identical bias logic. Trade state lives in a Postgres `trades` table (mirrors
 `readings`/`alerts` — required since `poll_job.py` is a stateless one-shot run each cloud poll, so
 in-memory state can't survive between polls); only one trade open at a time, and a fresh entry only
 considers alerts newer than the last trade's open time so a stale alert can't retrigger. Every
 open/close sends a Telegram message (`notifier.send_telegram_message`), prefixed with a 🔵
-(`broker.TRADE_ALERT_PREFIX`) to visually distinguish it from XAU/USD price alerts' 🟡 prefix
-(`rules.XAUUSD_ALERT_PREFIX`) in the chat. Deliberately no
+(`broker.TRADE_ALERT_PREFIX`) and labeled "BROKER A" (distinguishing it from Broker B below, and from
+XAU/USD price alerts' 🟡 prefix, `rules.XAUUSD_ALERT_PREFIX`) in the chat. Deliberately no
 markdown/doc log of trades — the `trades` table (`id`, `rule_name`, `trade_type`, `entry_price`,
 `open_ts`, `triggering_alerts`, `exit_price`, `close_ts`, `pnl`, `status`) is the only record, so a
 trade never requires a repo commit; `poll.yml` doesn't need write access to the repo for this reason.
 
-**Forex broker (`forex_broker.py`, `forex_client.py`) — built but deliberately disconnected**: a second
+**Broker B automated paper-trading (`broker_b.py`)**: `check_broker_b_trades()`, also called from
+`main.poll_once()` (right after Broker A, wrapped in its own `try/except` so a problem here can't
+break the rest of the poll) — a second, fully independent imaginary buy/sell engine, this one trading
+the **latest** `ta_forecasts` row's price zones instead of Broker A's alert-consensus signal. See
+`.claude/agents/broker.md`'s "Broker B" section for the full spec. Two rules, `TA-Zone-sell`/
+`TA-Zone-buy`, each trading one of the forecast's two "fade the nearest zone" scenarios
+(`sell_resistance`/`buy_support` — not the mirrored breakout scenarios, which are deliberately not
+traded yet): enters at the exact zone edge price the moment a real 1-minute candle touches it (same
+candle-scan technique as Broker A's exit, applied to an entry instead — `broker_b._scan_zone_entry()`)
+rather than at whatever the live spot price is when the poll notices, since that edge is the price a
+resting order would actually fill at; invalidated (no trade) if price already broke the zone's far
+side (the scenario's `stop`) before/without a clean touch. Also gated by the same
+`broker._bias_allows()` Broker A uses. Fires **at most once per (forecast row, zone)** —
+`storage.trade_b_exists_for_forecast()` blocks a zone from re-firing off the same forecast row even
+after Broker B goes flat again, until the next `ta_forecast_job.py` run supplies fresh zones — so a
+choppy session can't rack up repeated losses re-fading the same level. Same $10 flat take-profit/
+stop-loss as Broker A (`broker._find_exit()`, imported directly rather than reimplemented, so the two
+engines' exit math can't drift apart), same 1 oz size. Entirely separate Postgres `broker_b_trades`
+table (`trades`' columns plus `ta_forecast_id`, so a trade can be traced back to the exact forecast
+row/zone that produced it) and separate open-trade tracking — Broker A and Broker B never see or
+affect each other's positions. Telegram messages are prefixed 🟢 (`broker_b.TRADE_ALERT_PREFIX`,
+green — distinct from Broker A's blue at a glance) and labeled "BROKER B".
+
+**Forex broker (`forex_broker.py`, `forex_client.py`) — built but deliberately disconnected**: a third
 paper-trading engine, the "Forex" broker, that runs the *identical* entry rules (exits differ — see below) as `broker.py`'s
-Broker (`forex_broker.py` imports `_match_entry_rule`/`_triggering_text`/`_pnl`/
+Broker A specifically, not Broker B (`forex_broker.py` imports `_match_entry_rule`/`_triggering_text`/`_pnl`/
 `ENTRY_WINDOW_MINUTES`/`EXIT_THRESHOLD` directly from `broker.py` rather than re-implementing them,
 so the two rule sets can't drift apart) but, instead of only writing an imaginary trade to Postgres,
 places and closes real orders against a FOREX.com **demo** account via `forex_client.ForexClient`
@@ -539,16 +567,18 @@ implementation — it cannot self-edit code even if asked to. Note: `.claude/age
 loaded at session start, so a newly-added or edited agent definition won't be callable until the next
 session.
 
-`.claude/agents/broker.md` defines the **Broker** subagent — unlike the other three mechanisms above,
-its actual trading logic is NOT this subagent; it's the fully automated `broker.py` (see the
-"Broker automated paper-trading" entry above), which runs every poll with no human/session involved.
-The subagent itself is **read-only** (`Read`, `Grep`, `Glob`, `Bash` — no `Edit`/`Write`, same as
-`technical-analyst`): it explains rules, explains why a specific trade in the Postgres `trades` table
-fired, and analyzes performance by rule, querying the `trades`/`alerts` tables directly (there is no
-markdown trade log to read instead). Its own "Rules" section is the human-readable spec for what
-`broker.py` implements — the two are kept in sync by hand — but the subagent never edits either one; a
-proposed rule change is drafted in prose and handed off for the user or a coding session to apply to
-both files together. It's invoked on demand like `technical-analyst`.
+`.claude/agents/broker.md` defines the **Broker** subagent, covering both engines — unlike the
+mechanisms above, its actual trading logic is NOT this subagent; it's the fully automated `broker.py`
+(Broker A) and `broker_b.py` (Broker B) (see the "Broker A"/"Broker B automated paper-trading" entries
+above), which run every poll with no human/session involved. The subagent itself is **read-only**
+(`Read`, `Grep`, `Glob`, `Bash` — no `Edit`/`Write`, same as `technical-analyst`): it explains rules
+(including the shared TA bias gate), explains why a specific trade in the Postgres `trades` or
+`broker_b_trades` table fired, and analyzes performance by rule/engine, querying those tables plus
+`alerts`/`ta_forecasts` directly (there is no markdown trade log to read instead). Its own "Rules"
+section is the human-readable spec for what the two modules implement — the two are kept in sync by
+hand — but the subagent never edits any of them; a proposed rule change is drafted in prose and handed
+off for the user or a coding session to apply to both files together. It's invoked on demand like
+`technical-analyst`.
 
 `.claude/agents/fundamental-analyst.md` defines a subagent (no `Edit`/`Write` tools, same as
 `technical-analyst` and `broker`) for analyzing scheduled macro data releases (NFP, CPI, PPI, retail

@@ -74,6 +74,23 @@ def init_db() -> None:
         )
         cur.execute(
             """
+            CREATE TABLE IF NOT EXISTS broker_b_trades (
+                id SERIAL PRIMARY KEY,
+                rule_name TEXT NOT NULL,
+                trade_type TEXT NOT NULL,
+                entry_price DOUBLE PRECISION NOT NULL,
+                open_ts TIMESTAMPTZ NOT NULL,
+                triggering_alerts TEXT NOT NULL,
+                ta_forecast_id INTEGER NOT NULL,
+                exit_price DOUBLE PRECISION,
+                close_ts TIMESTAMPTZ,
+                pnl DOUBLE PRECISION,
+                status TEXT NOT NULL DEFAULT 'Open'
+            )
+            """
+        )
+        cur.execute(
+            """
             CREATE TABLE IF NOT EXISTS threshold_history (
                 id SERIAL PRIMARY KEY,
                 date DATE NOT NULL,
@@ -748,3 +765,90 @@ def get_latest_ta_forecast() -> dict | None:
         "id": row[0], "forecast_date": row[1], "ts": row[2], "analysis": row[3], "levels": row[4],
         "diagram_svg": row[5],
     }
+
+
+def get_open_trade_b() -> dict | None:
+    """Broker B's single open imaginary trade, if any -- see broker_b.py. Entirely separate from
+    Broker A's `trades` table/get_open_trade()."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, rule_name, trade_type, entry_price, open_ts, triggering_alerts, ta_forecast_id "
+            "FROM broker_b_trades WHERE status = 'Open' ORDER BY open_ts DESC LIMIT 1"
+        )
+        row = cur.fetchone()
+    if row is None:
+        return None
+    return {
+        "id": row[0],
+        "rule_name": row[1],
+        "trade_type": row[2],
+        "entry_price": row[3],
+        "open_ts": row[4],
+        "triggering_alerts": row[5],
+        "ta_forecast_id": row[6],
+    }
+
+
+def insert_trade_b(
+    rule_name: str,
+    trade_type: str,
+    entry_price: float,
+    open_ts: datetime,
+    triggering_alerts: str,
+    ta_forecast_id: int,
+) -> None:
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO broker_b_trades "
+            "(rule_name, trade_type, entry_price, open_ts, triggering_alerts, ta_forecast_id, status) "
+            "VALUES (%s, %s, %s, %s, %s, %s, 'Open')",
+            (rule_name, trade_type, entry_price, open_ts, triggering_alerts, ta_forecast_id),
+        )
+
+
+def close_trade_row_b(trade_id: int, exit_price: float, close_ts: datetime, pnl: float) -> None:
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE broker_b_trades SET exit_price = %s, close_ts = %s, pnl = %s, status = 'Closed' "
+            "WHERE id = %s",
+            (exit_price, close_ts, pnl, trade_id),
+        )
+
+
+def trade_b_exists_for_forecast(ta_forecast_id: int, rule_name: str) -> bool:
+    """True if Broker B has already opened a trade for this exact (forecast, rule) pair -- the
+    dedup check that stops a zone from re-firing off the same forecast row once it's already been
+    traded (see broker_b.py's module docstring)."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT 1 FROM broker_b_trades WHERE ta_forecast_id = %s AND rule_name = %s LIMIT 1",
+            (ta_forecast_id, rule_name),
+        )
+        return cur.fetchone() is not None
+
+
+def get_all_trades_b() -> list[dict]:
+    """Every Broker B trade, oldest first -- for ad hoc querying/analysis (e.g. by the Broker
+    subagent); not used by broker_b.py's own trading logic, which only needs the single open trade
+    plus the per-forecast dedup check above."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT rule_name, trade_type, entry_price, open_ts, triggering_alerts, ta_forecast_id, "
+            "exit_price, close_ts, pnl, status FROM broker_b_trades ORDER BY open_ts"
+        )
+        rows = cur.fetchall()
+    return [
+        {
+            "rule_name": r[0],
+            "trade_type": r[1],
+            "entry_price": r[2],
+            "open_ts": r[3],
+            "triggering_alerts": r[4],
+            "ta_forecast_id": r[5],
+            "exit_price": r[6],
+            "close_ts": r[7],
+            "pnl": r[8],
+            "status": r[9],
+        }
+        for r in rows
+    ]
