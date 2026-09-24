@@ -22,7 +22,9 @@ from storage import get_connection, get_latest_ta_forecast
 from ta_forecast_job import render_diagram_svg
 
 st.set_page_config(page_title="Goldo", layout="wide")
-st.markdown('<meta http-equiv="refresh" content="60">', unsafe_allow_html=True)
+# 5 min, matching the poll interval -- a manual pull-to-refresh (native mobile browser gesture, not
+# handled by this app) still reloads the page immediately regardless of this interval.
+st.markdown('<meta http-equiv="refresh" content="300">', unsafe_allow_html=True)
 
 # Compact layout/fonts so every symbol's row fits on one phone screen
 # (tuned against a Samsung S24 Ultra viewport) without scrolling.
@@ -52,7 +54,7 @@ DISPLAY_TZ = ZoneInfo("America/New_York")
 
 st.title("Goldo")
 now_local = datetime.now(timezone.utc).astimezone(DISPLAY_TZ)
-st.caption(f"Page refreshes every 60s · last loaded {now_local.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+st.caption(f"Page refreshes every 5 min · last loaded {now_local.strftime('%Y-%m-%d %H:%M:%S %Z')}")
 
 # The daily XAU/USD technical forecast (ta_forecast_job.py, 7am/midday ET weekdays) -- shown at the
 # very top, above the symbols table, per the user's request. Always re-rendered here via
