@@ -260,7 +260,7 @@ if min_forecast_date is not None:
         st.markdown(
             f"<div style='font-size:12px;color:#444;'>Broker P&amp;L ({selected_date:%b %d}): "
             f"Broker A <b>${pnl['broker_a']:+,.2f}</b> · Broker B <b>${pnl['broker_b']:+,.2f}</b> · "
-            f"Total <b style='color:{total_color}'>${pnl['total']:+,.2f}</b></div>",
+            f"Total <b style='color:{total_color};font-size:24px;'>${pnl['total']:+,.2f}</b></div>",
             unsafe_allow_html=True,
         )
 
