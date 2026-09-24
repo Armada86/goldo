@@ -150,9 +150,22 @@ def _match_entry_rule(alerts: list[tuple[datetime, str]]):
 
 
 def _triggering_text(alerts: list[tuple[datetime, str]], trade_type: str) -> str:
+    """Full triggering alert text (indicator, swing size, threshold, price) -- stored in the
+    `trades` table's `triggering_alerts` column only, for the broker subagent's later analysis.
+    Deliberately NOT what goes in the Telegram open message -- see _triggering_names() below."""
     direction_map = _entry_direction_map(trade_type)
     parts = [_first_alert(alerts, name, direction) for name, direction in direction_map.items()]
     return "; ".join(part for part in parts if part)
+
+
+def _triggering_names(alerts: list[tuple[datetime, str]], trade_type: str) -> str:
+    """Just the names of the indicators that flagged (e.g. "GLD, GDX, DXY"), no prices/swing
+    sizes/thresholds -- what the Telegram open message shows, so it stays short and doesn't spell
+    out multiple ETF/DXY price levels. The full detail still goes to the `trades` table via
+    _triggering_text() above."""
+    direction_map = _entry_direction_map(trade_type)
+    names = [name.upper() for name, direction in direction_map.items() if _has_alert(alerts, name, direction)]
+    return ", ".join(names)
 
 
 def _pnl(trade: dict, current_price: float) -> float:
@@ -213,10 +226,10 @@ def _find_exit(trade: dict, fallback_price: float, fallback_ts: datetime) -> tup
     return None
 
 
-def _open_message(trade_type: str, rule_name: str, price: float, triggering_text: str) -> str:
+def _open_message(trade_type: str, rule_name: str, price: float, triggering_names: str) -> str:
     return (
         f"{TRADE_ALERT_PREFIX}BROKER A: opened {trade_type} 1 oz XAU/USD @ ${price:.2f} (rule {rule_name}).\n"
-        f"Trigger: {triggering_text}"
+        f"Trigger: {triggering_names}"
     )
 
 
@@ -262,4 +275,5 @@ def check_broker_trades(prices: dict[str, float]) -> None:
         if trade_type is not None and _bias_allows(trade_type, _latest_bias_score()):
             triggering_text = _triggering_text(alerts, trade_type)
             insert_trade(rule_name, trade_type, gold_price, now, triggering_text)
-            send_telegram_message(_open_message(trade_type, rule_name, gold_price, triggering_text))
+            triggering_names = _triggering_names(alerts, trade_type)
+            send_telegram_message(_open_message(trade_type, rule_name, gold_price, triggering_names))
