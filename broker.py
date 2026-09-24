@@ -211,7 +211,12 @@ def _find_exit(trade: dict, fallback_price: float, fallback_ts: datetime) -> tup
     trade from closing at all."""
     try:
         candles = fetch_candles(GOLD_SPOT_SYMBOL, interval="1min", outputsize=EXIT_CANDLE_LOOKBACK_MINUTES)
-        candles = candles[candles["datetime"] >= trade["open_ts"]]
+        # Strictly after open_ts, not >=: the entry candle's own high/low can span a level the
+        # entry price sits nowhere near reaching yet (e.g. Broker B fills mid-candle at the near
+        # edge of a level, but that same candle's low already touched the take-profit *before* the
+        # entry technically happened) -- scanning it for an exit crossing can otherwise close a
+        # trade in the same minute it opened, at a P/L it never actually had a chance to earn.
+        candles = candles[candles["datetime"] > trade["open_ts"]]
         crossing = _scan_exit_crossing(trade, candles)
     except Exception:
         crossing = None  # best-effort accuracy improvement -- fall back below, don't block on it
