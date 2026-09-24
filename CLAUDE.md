@@ -474,8 +474,11 @@ multi-column Streamlit layout, which is fine here since each control stays compa
 stretching full-width) followed by the diagram for whichever date is selected. Selecting today (the
 default on load) shows `get_latest_ta_forecast()` as before; selecting an earlier date instead calls
 `load_forecast_for_date()`, which looks up that date's *Morning* run specifically (`levels->>'session'
-= 'Morning'`) -- historical browsing always pairs with the Morning forecast, never the Midday one,
-since only the Morning run represents "the start of the day." Either way `dashboard.py` calls
+= 'Morning'`, or `IS NULL` -- the very first-ever forecast row, 23 Sep 2026 ~9:23am ET, predates the
+Morning/Midday split added later that same day and has no `session` key at all; excluding it made a
+real forecast wrongly show as "no forecast recorded" for that date) -- historical browsing always
+pairs with the Morning forecast, never the Midday one, since only the Morning run represents "the
+start of the day." Either way `dashboard.py` calls
 `render_diagram_svg()` itself, from that row's `levels`, rather than ever reading the job's cached
 `diagram_svg` column back (see "XAU/USD technical forecast" above for why) -- one code path for both
 cases, and it always reflects the diagram code's current look even for an old row. For a past date,
