@@ -110,7 +110,7 @@ not part of `config.FRED_SERIES`/`config.INDICATORS`/the regular poll loop at al
 - `inflation`, `financial_stress`, and `interest_rate` come from FRED and update on their own
   daily/weekly schedule regardless of how often this project polls; polling more frequently than the
   source updates doesn't add signal for those three.
-- The ten scheduled macro reports (`empire_state_manufacturing`, `retail_sales`,
+- The eleven scheduled macro reports (`empire_state_manufacturing`, `retail_sales`,
   `industrial_production`, `capacity_utilization`, `housing_starts`, `adp_employment`,
   `nonfarm_payrolls`, `unemployment_rate`, `initial_jobless_claims`, `cpi`, `ppi`) are the same story:
   each is flat on FRED between its own monthly/weekly release day, so polling every 5 minutes just
@@ -135,12 +135,17 @@ Not every indicator uses the same alert logic — see `rules.py` / `CLAUDE.md` f
   table above reflect the last successful weekday run, not a value fixed at design time.
 - `gold` — absolute $ move since the previous poll (`ABS_CHANGE_ALERT_THRESHOLD`)
 - `inflation` — % move since the previous poll (`PCT_CHANGE_ALERT_THRESHOLD`)
-- `financial_stress`, `interest_rate`, and the ten scheduled macro reports above — any change at all
+- `financial_stress`, `interest_rate`, and the eleven scheduled macro reports above — any change at all
   since the previous poll (`VALUE_CHANGE_ALERT_NAMES`), since each one is flat between releases and any
   change means a new report just printed
-- The ten scheduled macro reports are polled, logged, and alerted like everything else, but excluded
-  from the dashboard for now (`config.DASHBOARD_INDICATOR_NAMES` vs. `ALL_INDICATOR_NAMES`) — eleven
-  more rows at wildly different scales/frequencies would clutter the one compact symbols table
+- The eleven scheduled macro reports, plus `inflation`, `financial_stress`, and `interest_rate`, are
+  polled, logged, and alerted like everything else, but excluded from the dashboard
+  (`config.DASHBOARD_EXCLUDED_NAMES`/`config.MACRO_REPORT_NAMES`, both subtracted from
+  `ALL_INDICATOR_NAMES` to get `config.DASHBOARD_INDICATOR_NAMES`) — the macro reports at the user's
+  original request (fourteen more rows at wildly different scales/frequencies would clutter the one
+  compact symbols table), and the three FRED rate/index series at the user's later request, leaving the
+  dashboard showing only the nine continuously-traded market prices/yields (`gold`, `gld`, `iau`,
+  `gldm`, `gdx`, `gdxj`, `ring`, `dxy`, `us10y`)
 - `gold` also has a separate 20/50-day SMA crossover check on daily closes, independent of any threshold
 - The API Weekly Crude Oil Stock report has its own dedicated mechanism entirely outside `rules.py`/
   `main.poll_once()`: `oil_weekly_job.py`, triggered repeatedly by cron-job.org across each Tuesday's
