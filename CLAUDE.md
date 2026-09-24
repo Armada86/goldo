@@ -473,9 +473,13 @@ and `frequency_check.yml`'s automated commits are both now purely "when a value 
 **Dashboard layout (`dashboard.py`)**: at the very top, above everything else, an optional forecast
 section -- a date navigator (◀/▶ `st.button`s plus a `st.date_input`, all three bound to one
 `st.session_state["forecast_date_picker"]` key so the buttons and the picker stay in sync; `st.columns`
-renders them side by side on a wide screen but stacks them on a phone-width one, same as every other
-multi-column Streamlit layout, which is fine here since each control stays compact rather than
-stretching full-width) followed by the diagram for whichever date is selected. Selecting today (the
+stacks its columns vertically below a width breakpoint by default (each `stColumn` gets
+`min-width: calc(100% - 24px)`, which wraps via `flex-wrap` once they can't all fit) -- on a phone-width
+screen that stacked the ◀/date/▶ row instead of keeping it in one line, so a CSS override in the same
+`<style>` block as the `.goldo-table` rules (`flex-wrap: nowrap` on `stHorizontalBlock` plus
+`min-width: 0; width: auto` on `stColumn`) forces this specific row to stay side by side at any width;
+scoped file-wide since the nav row is the only `st.columns()` call here, but should be scoped tighter if
+a second one is ever added) followed by the diagram for whichever date is selected. Selecting today (the
 default on load) shows `get_latest_ta_forecast()` as before; selecting an earlier date instead calls
 `load_forecast_for_date()`, which looks up that date's *Morning* run specifically (`levels->>'session'
 = 'Morning'`, or `IS NULL` -- the very first-ever forecast row, 23 Sep 2026 ~9:23am ET, predates the
