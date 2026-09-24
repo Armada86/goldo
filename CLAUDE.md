@@ -422,12 +422,14 @@ turns that same price/resistances/supports/scenarios data into a self-contained 
 resistance zones above price in red, support zones below in green, a thin price line (laid out in the
 same label pass as the zones, not a filled badge, so it never covers a zone/label it happens to land
 on), and the two breakout/breakdown stop lines, at a fixed mobile width rather than hand-placed
-per-run coordinates --
-which `dashboard.py` displays as-is at the top of the page (see "Dashboard layout" below); it's saved
-to `diagram_svg` alongside `analysis`/`levels`, not sent to Telegram (Telegram only ever got the text).
-`diagram_svg` is `NULL` on rows written before this column existed, or on any row the dashboard hasn't
-caught up to yet -- `dashboard.py` just skips the forecast section entirely in that case, same as an
-empty table. `--dry-run` prints the text without any DB read/write or diagram render, and is how the
+per-run coordinates -- plus an optional fourth argument, `candle` ({open, high, low, close}), drawn as
+an actual OHLC candlestick (green/red the same as the support/resistance colors) in its own column so
+it can never overlap the zone labels; a live/current forecast never passes one (the day isn't finished
+yet), but `dashboard.py`'s historical date view does (see "Dashboard layout" below). The function is
+saved into `diagram_svg` alongside `analysis`/`levels` right after each run (candle-less, since that's
+the "today" case), but that's a cache/audit copy only -- `dashboard.py` never reads it back, since it
+needs the ability to re-render with a candle for a past date and would otherwise need two code paths.
+`--dry-run` prints the text without any DB read/write or diagram render, and is how the
 read-only `technical-analyst` subagent can run it. Triggered through `.github/workflows/ta_forecast.yml`
 (`workflow_dispatch` only; two cron-job.org entries fire it weekdays at 7:00am and 12:00pm
 America/New_York). The header labels each run Morning or Midday by its ET hour (`session_label()`, also
@@ -464,18 +466,37 @@ and `frequency_check.yml`'s automated commits are both now purely "when a value 
 (uncached, called every poll) — `dashboard.py` no longer fetches candles or renders RSI/ADX itself (see
 "Dashboard layout" below), so the Twelve Data fetch/retry logic that helper wraps has a single caller.
 
-**Dashboard layout (`dashboard.py`)**: at the very top, above everything else, an optional "Today's
-Forecast" section shows the latest `ta_forecasts` row's `diagram_svg` (see "XAU/USD technical forecast"
-above) via `st.markdown(..., unsafe_allow_html=True)`, exactly as generated -- `dashboard.py` doesn't
-touch the SVG itself, just embeds it. A caption above the diagram gives the forecast's date/time
-(converted to `DISPLAY_TZ` like everything else), price, and bias/score pulled straight from `levels`;
-a closed-by-default `st.expander("Full forecast text")` below it holds the same `analysis` text
-Telegram got, for anyone who wants the numbers behind the picture. The whole section is skipped --
-no header, no empty-state message -- when there's no forecast row yet or its `diagram_svg` is `NULL`
-(an old row, or the DB read failing), so a fresh deploy or a pre-migration row doesn't leave a
-broken-looking gap above the always-present table below. This is the one chart on the dashboard by
-design (see "XAU/USD technical forecast" for why it isn't the old Plotly kind); everything below it is
-still deliberately chart-free — the symbols table is a single compact HTML table (built
+**Dashboard layout (`dashboard.py`)**: at the very top, above everything else, an optional forecast
+section -- a date navigator (◀/▶ `st.button`s plus a `st.date_input`, all three bound to one
+`st.session_state["forecast_date_picker"]` key so the buttons and the picker stay in sync; `st.columns`
+renders them side by side on a wide screen but stacks them on a phone-width one, same as every other
+multi-column Streamlit layout, which is fine here since each control stays compact rather than
+stretching full-width) followed by the diagram for whichever date is selected. Selecting today (the
+default on load) shows `get_latest_ta_forecast()` as before; selecting an earlier date instead calls
+`load_forecast_for_date()`, which looks up that date's *Morning* run specifically (`levels->>'session'
+= 'Morning'`) -- historical browsing always pairs with the Morning forecast, never the Midday one,
+since only the Morning run represents "the start of the day." Either way `dashboard.py` calls
+`render_diagram_svg()` itself, from that row's `levels`, rather than ever reading the job's cached
+`diagram_svg` column back (see "XAU/USD technical forecast" above for why) -- one code path for both
+cases, and it always reflects the diagram code's current look even for an old row. For a past date,
+`load_gold_day_ohlc()` also pulls that ET calendar day's `readings` for `gold` (open = first reading,
+close = last, high/low = max/min) and passes it as `render_diagram_svg()`'s `candle` argument, so the
+diagram overlays a real OHLC candlestick for that day; there's no live/in-progress candle for today,
+since the day isn't over. `min_value` for the date picker comes from `MIN(forecast_date)` in
+`ta_forecasts`; a date with no Morning row (a weekend, a holiday, a day the job didn't run) shows a
+"No forecast recorded" caption instead of a diagram, rather than an error. **Gotcha:** every dollar
+amount shown via `st.caption()`/`st.markdown()` as *plain text* (not inside the HTML/SVG blocks, which
+CommonMark passes through verbatim and are therefore unaffected) must escape its `$` as `\$` --
+Streamlit's markdown renderer treats a pair of literal `$` as inline LaTeX, so two or more
+`$`-prefixed numbers in the same caption (exactly what the candle's O/H/L/C line adds) silently mangle
+into math notation otherwise; a single `$` in an otherwise plain caption happens to be safe (no partner
+to pair with), which is why this wasn't caught until the candle line combined several in one string.
+A closed-by-default `st.expander("Full forecast text")` below the diagram holds the same `analysis`
+text Telegram got. The whole section is skipped -- no header, no empty-state message -- only when
+`ta_forecasts` has no rows at all (a fresh deploy before the first scheduled run), so a fresh deploy
+doesn't leave a broken-looking gap above the always-present table below. This is the one chart on the
+dashboard by design (see "XAU/USD technical forecast" for why it isn't the old Plotly kind); everything
+below it is still deliberately chart-free — the symbols table is a single compact HTML table (built
 by hand and rendered via `st.markdown(..., unsafe_allow_html=True)`, not `st.dataframe`/`st.metric`, for
 tight control over font size and column widths) with one row per `DASHBOARD_INDICATOR_NAMES` entry and
 a column each for the current price and the price/percentage change over five trailing windows —
