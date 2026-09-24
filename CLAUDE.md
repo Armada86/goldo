@@ -434,23 +434,28 @@ and 15min for grading), with yfinance DXY/US10Y for context. Each run also grade
 four scenarios against the 15-min candles since it was written (triggered? stop or which targets
 first?), which is why the structured `levels` JSONB is stored alongside the text. `render_diagram_svg()`
 turns that same price/resistances/supports/scenarios data into a self-contained SVG price ladder --
-resistance zones above price in red, support zones below in green, and the two breakout/breakdown stop
-lines, at a fixed mobile width rather than hand-placed per-run coordinates -- plus an optional fourth
-argument, `candle` ({open, high, low, close}), drawn as an actual OHLC candlestick (green/red the same
-as the support/resistance colors, hollow body rather than filled so it doesn't hide whatever zone band
-it overlaps) centered in the band column at its true price position -- overlapping a zone is normal and
-expected here, the same way a real chart overlays a candle on support/resistance lines. The price
-marker's own style depends on whether `candle` is given: with no candle (`dashboard.py`'s live/current
-forecast -- the day isn't over yet, so there's no completed OHLC to show), price is a small dot
-(`DIAGRAM_PRICE_DOT_RADIUS`) centered in the band column, since a single live reading reads better as a
-point than a line spanning the whole plot width; with a candle (`dashboard.py`'s historical date view),
-price stays a thin hairline (laid out in the same label pass as the zones, not a filled badge, so it
-never covers a zone/label it happens to land on) since the candle already carries that day's visual
-weight and the price line is just a reference point within it. The legend's "Price" swatch switches
-between a dot and a line icon to match. The SVG itself is set to `width:100%; height:auto` so it stretches
-to fill its container on any screen instead of rendering at a fixed intrinsic size (which used to leave
-a blank margin on a wide phone screen); a live/current forecast never passes a `candle` (the day isn't
-finished yet), but `dashboard.py`'s historical date view does (see "Dashboard layout" below). The function is
+resistance zones above price in red, support zones below in green, a thin price hairline (laid out in
+the same label pass as the zones, not a filled badge, so it never covers a zone/label it happens to land
+on), and the two breakout/breakdown stop lines, at a fixed mobile width rather than hand-placed per-run
+coordinates. `price` (`levels['price']`, frozen at whenever the forecast ran) always gets this same
+hairline treatment, whether or not `candle`/`live_price` (below) are given -- it's the number the
+forecast's plan was actually written against, so it doesn't change just because the day has since moved
+on. Two further optional arguments layer on top of it: `candle` ({open, high, low, close}), drawn as an
+actual OHLC candlestick (green/red the same as the support/resistance colors, hollow body rather than
+filled so it doesn't hide whatever zone band it overlaps) centered in the band column at its true price
+position -- overlapping a zone is normal and expected here, the same way a real chart overlays a candle
+on support/resistance lines; and `live_price`, gold spot's actual current price (`dashboard.py`'s
+live/current-day view fetches this fresh from `readings` -- a different number from `price` above, which
+can be hours stale by the time the page is viewed), drawn as a small dot (`DIAGRAM_PRICE_DOT_RADIUS`,
+in `DIAGRAM_COLOR_LIVE` -- distinct from the price hairline's `DIAGRAM_COLOR_PRICE` so both read clearly
+together) centered in the same band column `candle` would use. In practice the two are mutually
+exclusive in how `dashboard.py` calls this function (`candle` only for a past date, `live_price` only
+for today), so they never actually share that column, but neither is enforced against the other here.
+The legend gains a "Live" dot entry only when `live_price` is given. The SVG itself is set to
+`width:100%; height:auto` so it stretches to fill its container on any screen instead of rendering at a
+fixed intrinsic size (which used to leave a blank margin on a wide phone screen); a live/current forecast
+never passes a `candle` (the day isn't finished yet), but `dashboard.py`'s historical date view does (see
+"Dashboard layout" below). The function is
 saved into `diagram_svg` alongside `analysis`/`levels` right after each run (candle-less, since that's
 the "today" case), but that's a cache/audit copy only -- `dashboard.py` never reads it back, since it
 needs the ability to re-render with a candle for a past date and would otherwise need two code paths.
@@ -522,8 +527,11 @@ candle is only ever passed for a *past* date (`selected_date != today_et`, indep
 is showing -- both Morning and Midday for today are still "the day isn't over yet"): `load_gold_day_ohlc()`
 pulls that ET calendar day's `readings` for `gold` (open = first reading, close = last, high/low =
 max/min) and passes it as `render_diagram_svg()`'s `candle` argument, so the diagram overlays a real
-OHLC candlestick for that day; today's diagram instead gets the dot-styled live price marker (see "XAU/USD
-technical forecast" above). `min_value` for the date picker comes from `MIN(forecast_date)` in
+OHLC candlestick for that day. For today instead, `load_latest_gold_price()` (the single most recent
+`gold` row in `readings`) is passed as `render_diagram_svg()`'s `live_price` argument, so the diagram
+also shows a dot for gold's actual current price alongside the forecast's own price hairline (see
+"XAU/USD technical forecast" above) -- the two are deliberately different numbers whenever the forecast
+has gone stale since it ran. `min_value` for the date picker comes from `MIN(forecast_date)` in
 `ta_forecasts`; a date/session combination with no row (a weekend, a holiday, a day the job didn't run,
 or before the Midday run of the day) shows a "No forecast recorded" caption instead of a diagram, rather
 than an error. Directly below the two navigator rows, `load_broker_pnl_for_date()` sums Broker A's
