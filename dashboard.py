@@ -42,6 +42,15 @@ st.markdown(
     .goldo-table td.price { font-weight: 700; font-size: 9.5px; }
     .goldo-table td.change span { display: block; }
     .goldo-table td.change span.pct { font-size: 8px; opacity: 0.85; }
+    /* Streamlit's st.columns() puts every column on its own line below a container-width breakpoint
+       (each gets min-width: calc(100% - 24px), which wraps them via flex-wrap once they can't all
+       fit) -- that's what stacked the forecast date navigator's ◀/date/▶ row on a phone screen. The
+       only st.columns() call in this file is that nav row, so this override is safe file-wide; if a
+       second one is ever added elsewhere, scope this instead of dropping it. */
+    div[data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; }
+    div[data-testid="stHorizontalBlock"] div[data-testid="stColumn"] {
+        min-width: 0 !important; width: auto !important;
+    }
     </style>
     """,
     unsafe_allow_html=True,
