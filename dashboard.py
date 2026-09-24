@@ -325,10 +325,18 @@ def load_alerts() -> pd.DataFrame:
 
 
 def load_trades() -> pd.DataFrame:
+    """Broker A's `trades` and Broker B's `broker_b_trades`, merged into one timeline (not two separate
+    tables) via UNION ALL, most recent 20 combined by `open_ts` -- a `broker` column (added here, not a
+    real column on either table) says which engine opened each row, since `rule_name` alone doesn't make
+    that obvious at a glance (Broker A's Consensus5of7-buy/-sell vs. Broker B's TA-Zone-*/TA-Breakout-*)."""
     with get_connection() as conn:
         return pd.read_sql(
-            "SELECT rule_name, trade_type, entry_price, open_ts, triggering_alerts, "
-            "exit_price, close_ts, pnl, status FROM trades ORDER BY open_ts DESC LIMIT 20",
+            "SELECT 'Broker A' AS broker, rule_name, trade_type, entry_price, open_ts, "
+            "triggering_alerts, exit_price, close_ts, pnl, status FROM trades "
+            "UNION ALL "
+            "SELECT 'Broker B' AS broker, rule_name, trade_type, entry_price, open_ts, "
+            "triggering_alerts, exit_price, close_ts, pnl, status FROM broker_b_trades "
+            "ORDER BY open_ts DESC LIMIT 20",
             conn,
             parse_dates=["open_ts", "close_ts"],
         )
@@ -409,7 +417,7 @@ try:
 except Exception as e:
     st.error(f"Could not load trades: {e}")
     trades = pd.DataFrame(
-        columns=["rule_name", "trade_type", "entry_price", "open_ts", "triggering_alerts",
+        columns=["broker", "rule_name", "trade_type", "entry_price", "open_ts", "triggering_alerts",
                  "exit_price", "close_ts", "pnl", "status"]
     )
 
@@ -421,7 +429,7 @@ if not trades.empty:
     trades["pnl"] = trades["pnl"].map(lambda v: f"${v:+,.2f}" if pd.notna(v) else "—")
     trades["close_ts"] = trades["close_ts"].fillna("—")
     trades = trades.rename(columns={
-        "rule_name": "Rule", "trade_type": "Type", "entry_price": "Entry",
+        "broker": "Broker", "rule_name": "Rule", "trade_type": "Type", "entry_price": "Entry",
         "open_ts": "Opened", "triggering_alerts": "Trigger", "exit_price": "Exit",
         "close_ts": "Closed", "pnl": "P&L", "status": "Status",
     })
