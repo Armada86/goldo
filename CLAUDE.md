@@ -434,14 +434,20 @@ and 15min for grading), with yfinance DXY/US10Y for context. Each run also grade
 four scenarios against the 15-min candles since it was written (triggered? stop or which targets
 first?), which is why the structured `levels` JSONB is stored alongside the text. `render_diagram_svg()`
 turns that same price/resistances/supports/scenarios data into a self-contained SVG price ladder --
-resistance zones above price in red, support zones below in green, a thin price line (laid out in the
-same label pass as the zones, not a filled badge, so it never covers a zone/label it happens to land
-on), and the two breakout/breakdown stop lines, at a fixed mobile width rather than hand-placed
-per-run coordinates -- plus an optional fourth argument, `candle` ({open, high, low, close}), drawn as
-an actual OHLC candlestick (green/red the same as the support/resistance colors, hollow body rather
-than filled so it doesn't hide whatever zone band it overlaps) centered in the band column at its true
-price position -- overlapping a zone is normal and expected here, the same way a real chart overlays a
-candle on support/resistance lines. The SVG itself is set to `width:100%; height:auto` so it stretches
+resistance zones above price in red, support zones below in green, and the two breakout/breakdown stop
+lines, at a fixed mobile width rather than hand-placed per-run coordinates -- plus an optional fourth
+argument, `candle` ({open, high, low, close}), drawn as an actual OHLC candlestick (green/red the same
+as the support/resistance colors, hollow body rather than filled so it doesn't hide whatever zone band
+it overlaps) centered in the band column at its true price position -- overlapping a zone is normal and
+expected here, the same way a real chart overlays a candle on support/resistance lines. The price
+marker's own style depends on whether `candle` is given: with no candle (`dashboard.py`'s live/current
+forecast -- the day isn't over yet, so there's no completed OHLC to show), price is a small dot
+(`DIAGRAM_PRICE_DOT_RADIUS`) centered in the band column, since a single live reading reads better as a
+point than a line spanning the whole plot width; with a candle (`dashboard.py`'s historical date view),
+price stays a thin hairline (laid out in the same label pass as the zones, not a filled badge, so it
+never covers a zone/label it happens to land on) since the candle already carries that day's visual
+weight and the price line is just a reference point within it. The legend's "Price" swatch switches
+between a dot and a line icon to match. The SVG itself is set to `width:100%; height:auto` so it stretches
 to fill its container on any screen instead of rendering at a fixed intrinsic size (which used to leave
 a blank margin on a wide phone screen); a live/current forecast never passes a `candle` (the day isn't
 finished yet), but `dashboard.py`'s historical date view does (see "Dashboard layout" below). The function is
@@ -493,24 +499,39 @@ stacks its columns vertically below a width breakpoint by default (each `stColum
 screen that stacked the ◀/date/▶ row instead of keeping it in one line, so a CSS override in the same
 `<style>` block as the `.goldo-table` rules (`flex-wrap: nowrap` on `stHorizontalBlock` plus
 `min-width: 0; width: auto` on `stColumn`) forces this specific row to stay side by side at any width;
-scoped file-wide since the nav row is the only `st.columns()` call here, but should be scoped tighter if
-a second one is ever added) followed by the diagram for whichever date is selected. Selecting today (the
-default on load) shows `get_latest_ta_forecast()` as before; selecting an earlier date instead calls
-`load_forecast_for_date()`, which looks up that date's *Morning* run specifically (`levels->>'session'
-= 'Morning'`, or `IS NULL` -- the very first-ever forecast row, 23 Sep 2026 ~9:23am ET, predates the
-Morning/Midday split added later that same day and has no `session` key at all; excluding it made a
-real forecast wrongly show as "no forecast recorded" for that date) -- historical browsing always
-pairs with the Morning forecast, never the Midday one, since only the Morning run represents "the
-start of the day." Either way `dashboard.py` calls
-`render_diagram_svg()` itself, from that row's `levels`, rather than ever reading the job's cached
-`diagram_svg` column back (see "XAU/USD technical forecast" above for why) -- one code path for both
-cases, and it always reflects the diagram code's current look even for an old row. For a past date,
-`load_gold_day_ohlc()` also pulls that ET calendar day's `readings` for `gold` (open = first reading,
-close = last, high/low = max/min) and passes it as `render_diagram_svg()`'s `candle` argument, so the
-diagram overlays a real OHLC candlestick for that day; there's no live/in-progress candle for today,
-since the day isn't over. `min_value` for the date picker comes from `MIN(forecast_date)` in
-`ta_forecasts`; a date with no Morning row (a weekend, a holiday, a day the job didn't run) shows a
-"No forecast recorded" caption instead of a diagram, rather than an error. **Gotcha:** every dollar
+scoped file-wide since it's the only `st.columns()` layout pattern used here, but should be scoped
+tighter if it ever needs to coexist with a differently-behaved multi-column block) followed by a second,
+identical ◀/▶ row for the **session** (`st.session_state["forecast_session_picker"]`, one of
+`SESSIONS = ["Morning", "Midday"]`) -- added because selecting a date alone used to only ever show
+whichever session's row was most recent for that date (`get_latest_ta_forecast()` for today, or the
+Morning-only `load_forecast_for_date()` for a past date), which meant the Morning run became unreachable
+the moment a Midday run printed for the same day (the original bug report). `load_forecast_sessions_for_date()`
+returns whichever of Morning/Midday actually have a row for the selected date (a row with no `session`
+key at all -- the very first-ever forecast row, 23 Sep 2026 ~9:23am ET, predates the Morning/Midday split
+added later that same day -- counts as Morning); the session navigator's arrows are disabled past
+whichever end doesn't have a row, and the selected session falls back to the latest available one
+(`available[-1]`) whenever the currently selected session doesn't exist for a newly selected date (first
+load, or navigating to a date lacking it) -- this reproduces the old "show the latest" default without
+overriding a session the user deliberately picked, as long as it's still available after a date change.
+`load_forecast_for_date_session(d, session)` replaces the old date-only `load_forecast_for_date()`,
+looking up that exact (date, session) pair, with the same NULL-counts-as-Morning handling. Either way
+`dashboard.py` calls `render_diagram_svg()` itself, from that row's `levels`, rather than ever reading
+the job's cached `diagram_svg` column back (see "XAU/USD technical forecast" above for why) -- one code
+path for both cases, and it always reflects the diagram code's current look even for an old row. A
+candle is only ever passed for a *past* date (`selected_date != today_et`, independent of which session
+is showing -- both Morning and Midday for today are still "the day isn't over yet"): `load_gold_day_ohlc()`
+pulls that ET calendar day's `readings` for `gold` (open = first reading, close = last, high/low =
+max/min) and passes it as `render_diagram_svg()`'s `candle` argument, so the diagram overlays a real
+OHLC candlestick for that day; today's diagram instead gets the dot-styled live price marker (see "XAU/USD
+technical forecast" above). `min_value` for the date picker comes from `MIN(forecast_date)` in
+`ta_forecasts`; a date/session combination with no row (a weekend, a holiday, a day the job didn't run,
+or before the Midday run of the day) shows a "No forecast recorded" caption instead of a diagram, rather
+than an error. Directly below the two navigator rows, `load_broker_pnl_for_date()` sums Broker A's
+(`trades`) and Broker B's (`broker_b_trades`) `pnl` for trades that *closed* within the selected ET
+calendar day (a trade opened the day before but closed that day counts as that day's), shown as one line
+-- Broker A's total, Broker B's total, and the combined total (green/red by sign, same convention as the
+change-window cells below) -- tied to the same selected date as the forecast navigator, not fixed to
+"today," so browsing to a past date shows that day's P&L too. **Gotcha:** every dollar
 amount shown via `st.caption()`/`st.markdown()` as *plain text* (not inside the HTML/SVG blocks, which
 CommonMark passes through verbatim and are therefore unaffected) must escape its `$` as `\$` --
 Streamlit's markdown renderer treats a pair of literal `$` as inline LaTeX, so two or more

@@ -57,6 +57,8 @@ DIAGRAM_MIN_LABEL_GAP = 13   # px between stacked zone-label rows, so close zone
 DIAGRAM_LEGEND_HEIGHT = 50
 DIAGRAM_CANDLE_BODY_WIDTH = 14        # the optional day-candle sits inside the band column, not a
                                       # separate side margin -- see render_diagram_svg()'s docstring
+DIAGRAM_PRICE_DOT_RADIUS = 4          # live (no-candle) price marker -- see render_diagram_svg()'s
+                                      # docstring for why it's a dot instead of the full-width line
 DIAGRAM_COLOR_RESISTANCE = "#cf222e"  # same red/green as dashboard.py's up/down cells, and (below) a
 DIAGRAM_COLOR_SUPPORT = "#1a7f37"     # bearish/bullish day candle
 DIAGRAM_COLOR_PRICE = "#9c700c"
@@ -596,10 +598,16 @@ def render_diagram_svg(
     the price line) sit at their true proportional price position; only the label rows are nudged
     apart (never more than DIAGRAM_MIN_LABEL_GAP) to stay legible when two rows land close together --
     price is laid out in that same pass, as just another row, since it commonly sits within a few
-    dollars of the nearest zone. The price row is deliberately a hairline plus a label rather than a
-    filled badge: an opaque block that width would sit on top of, and hide, whatever zone happens to
-    be at the same height. `title` tags carry each zone's full label list (and any 'nearby' levels
-    folded into it) as a hover tooltip -- inert on mobile, but free.
+    dollars of the nearest zone. When `candle` isn't given (the live/current-day forecast -- the day
+    isn't over yet, so there's no full-day OHLC to draw instead), the price row is a small dot centered
+    in the band column, at the same x-position a day-candle would use, rather than the full-width
+    hairline: a completed day already has its own visual (the candle) telling its story, but "today" has
+    only this one point, so a dot reads as a single live price reading rather than a line spanning the
+    whole plot width. When `candle` *is* given, the price row stays a hairline plus a label (not a
+    filled badge: an opaque block that width would sit on top of, and hide, whatever zone happens to be
+    at the same height) since the candle already carries the visual weight for that day and the price
+    line is just a reference point within it. `title` tags carry each zone's full label list (and any
+    'nearby' levels folded into it) as a hover tooltip -- inert on mobile, but free.
 
     `candle`, if given, is one day's {open, high, low, close} for gold spot (dashboard.py's historical
     date view overlays it; a live/current forecast never has one, since the day isn't finished) --
@@ -640,17 +648,29 @@ def render_diagram_svg(
     rows = [("zone", z, True) for z in resistances] + [("zone", z, False) for z in supports]
     rows.append(("price", None, None))
 
+    is_live = candle is None
+    band_center_x = DIAGRAM_BAND_X + DIAGRAM_BAND_WIDTH / 2
+
     bands, labels = [], []
     prev_label_y = None
     for kind, zone, is_resistance in sorted(rows, key=lambda r: -(price if r[0] == "price" else r[1]["low"])):
         if kind == "price":
             y = y_of(price)
-            # A thin line, not a filled badge -- a solid block that width would sit on top of (and
-            # hide) whatever zone band/label happens to be at the same height.
-            bands.append(
-                f'<line x1="{DIAGRAM_AXIS_X}" x2="{DIAGRAM_BAND_X + DIAGRAM_BAND_WIDTH}" y1="{y:.1f}" '
-                f'y2="{y:.1f}" stroke="{DIAGRAM_COLOR_PRICE}" stroke-width="1.25"/>'
-            )
+            if is_live:
+                # A dot, not a line -- there's no day-candle yet to carry the "today" visual (the day
+                # isn't over), so this single live reading gets its own point marker instead of a
+                # hairline spanning the whole plot width.
+                bands.append(
+                    f'<circle cx="{band_center_x:.1f}" cy="{y:.1f}" r="{DIAGRAM_PRICE_DOT_RADIUS}" '
+                    f'fill="{DIAGRAM_COLOR_PRICE}"/>'
+                )
+            else:
+                # A thin line, not a filled badge -- a solid block that width would sit on top of (and
+                # hide) whatever zone band/label happens to be at the same height.
+                bands.append(
+                    f'<line x1="{DIAGRAM_AXIS_X}" x2="{DIAGRAM_BAND_X + DIAGRAM_BAND_WIDTH}" y1="{y:.1f}" '
+                    f'y2="{y:.1f}" stroke="{DIAGRAM_COLOR_PRICE}" stroke-width="1.25"/>'
+                )
             label_y = y + 3.3
             if prev_label_y is not None and label_y - prev_label_y < DIAGRAM_MIN_LABEL_GAP:
                 label_y = prev_label_y + DIAGRAM_MIN_LABEL_GAP
@@ -699,7 +719,7 @@ def render_diagram_svg(
 
     candle_svg = ""
     if candle:
-        candle_x = DIAGRAM_BAND_X + DIAGRAM_BAND_WIDTH / 2
+        candle_x = band_center_x
         bull = candle["close"] >= candle["open"]
         candle_color = DIAGRAM_COLOR_SUPPORT if bull else DIAGRAM_COLOR_RESISTANCE
         y_open, y_close = y_of(candle["open"]), y_of(candle["close"])
@@ -740,8 +760,12 @@ def render_diagram_svg(
         f'<text x="18" y="{height - 23}">Resistance</text>'
         f'<rect x="90" y="{height - 32}" width="10" height="10" fill="{DIAGRAM_COLOR_SUPPORT}" fill-opacity="0.5"/>'
         f'<text x="104" y="{height - 23}">Support</text>'
-        f'<line x1="170" x2="184" y1="{height - 27}" y2="{height - 27}" stroke="{DIAGRAM_COLOR_PRICE}" '
-        f'stroke-width="1.25"/>'
+        + (
+            f'<circle cx="177" cy="{height - 27}" r="{DIAGRAM_PRICE_DOT_RADIUS}" fill="{DIAGRAM_COLOR_PRICE}"/>'
+            if is_live else
+            f'<line x1="170" x2="184" y1="{height - 27}" y2="{height - 27}" stroke="{DIAGRAM_COLOR_PRICE}" '
+            f'stroke-width="1.25"/>'
+        ) +
         f'<text x="188" y="{height - 23}">Price</text>'
         f'<line x1="4" x2="18" y1="{height - 8}" y2="{height - 8}" stroke="{DIAGRAM_COLOR_MUTED}" '
         f'stroke-dasharray="4 3"/>'
