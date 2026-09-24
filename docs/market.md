@@ -11,8 +11,10 @@ built around).
 The **Agent** column (right after **Type**) says which subagent (`.claude/agents/technical-analyst.md`
 or `.claude/agents/fundamental-analyst.md`) treats this row as its territory for
 analysis/recommendations — `Technical` for gold's own price action and the market-based indicators
-traded continuously alongside it (`gld`, `iau`, `gldm`, `gdx`, `gdxj`, `ring`, `dxy`, `us10y`, gold's
-RSI, `inflation` breakevens, `interest_rate`), `Fundamental` for the twelve scheduled macro releases
+traded continuously alongside it (`gld`, `iau`, `gldm`, `gdx`, `gdxj`, `ring`, `dxy`, `us10y`,
+`inflation` breakevens, `interest_rate` — the derived technical indicators (RSI, EMA, SMA, MACD, ATR)
+are also Technical-agent territory, in their own table below), `Fundamental` for the twelve scheduled
+macro releases
 (the BLS NFP report, the ADP National Employment Change report, the nine other FRED reports below, and
 the FMP-sourced weekly API Crude Oil Stock Change report — see
 `docs/fundamental-analyst-oil-weekly-log.md`, the first indicator in this project not sourced from
@@ -72,7 +74,6 @@ frequency` cell instead for how often each one actually changes.
 | **Industrial Production** (`industrial_production`, FRED `INDPRO`) | Index | Fundamental | FRED (`INDPRO`) | Monthly | Opposite direction — strong output signals economic strength, typically gold-negative | Yes — any change since the previous poll (`VALUE_CHANGE_ALERT_NAMES`) | No — uses `VALUE_CHANGE_ALERT_NAMES` (alerts on any change), not the intrahour-swing mechanism the frequency test covers | N/A — published economic report, not a traded instrument |
 | **CPI** (`cpi`, FRED `CPIAUCSL`) | Index | Fundamental | FRED (`CPIAUCSL`) | Monthly | Mixed — higher realized inflation supports gold as an inflation hedge, but can also spark rate-hike fears that push yields/the dollar up and gold down | Yes — any change since the previous poll (`VALUE_CHANGE_ALERT_NAMES`) | No — uses `VALUE_CHANGE_ALERT_NAMES` (alerts on any change), not the intrahour-swing mechanism the frequency test covers | N/A — published economic report, not a traded instrument |
 | **PPI** (`ppi`, FRED `PPIFIS`) | Index | Fundamental | FRED (`PPIFIS`) | Monthly | Mixed — same reasoning as CPI; PPI is a leading indicator for consumer inflation | Yes — any change since the previous poll (`VALUE_CHANGE_ALERT_NAMES`) | No — uses `VALUE_CHANGE_ALERT_NAMES` (alerts on any change), not the intrahour-swing mechanism the frequency test covers | N/A — published economic report, not a traded instrument |
-| **RSI(14) on gold spot** (derived, Twelve Data 15-min candles) | Indicator (oscillator) | Technical | Twelve Data (derived from `XAU/USD` 15-min candles via `fetch_gold_candles`) | Continuous (recomputed every 5-min poll from a fresh candle fetch) | Not a price series — momentum on `gold` itself: high RSI (overbought) suggests gold is due to cool off, low RSI (oversold) suggests it's due to bounce | Yes — crossing into overbought/oversold territory (`RSI_OVERBOUGHT_THRESHOLD`/`RSI_OVERSOLD_THRESHOLD`) | No — a crossing check (`RSI_OVERBOUGHT_THRESHOLD`/`RSI_OVERSOLD_THRESHOLD`), not the intrahour-swing mechanism the frequency test covers | Same as gold spot above (derived from the same `XAU/USD` candles) |
 | **Inflation expectations** (`inflation`, FRED `T10YIE`, 10Y breakeven) | Indicator (rate) | Technical | FRED (`T10YIE`) | Daily | Same direction — gold is a traditional inflation hedge, so rising breakeven inflation expectations tend to support gold prices | Yes — % move since the previous poll (`PCT_CHANGE_ALERT_THRESHOLD`) | No — uses `PCT_CHANGE_ALERT_THRESHOLD` (1.0%), not the intrahour-swing mechanism the frequency test covers | N/A — a once-daily FRED value derived from Treasury market pricing, not itself directly tradable via this feed |
 | **Interest rate** (`interest_rate`, FRED `DFF`, Daily Federal Funds Rate) | Indicator (rate) | Technical | FRED (`DFF`) | Daily (but flat between FOMC decisions) | Opposite direction — a higher policy rate raises the opportunity cost of holding non-yielding gold and tends to pressure price down; rate cuts typically support gold | Yes — any change since the previous poll (`VALUE_CHANGE_ALERT_NAMES`) | No — uses `VALUE_CHANGE_ALERT_NAMES` (alerts on any change), not the intrahour-swing mechanism the frequency test covers | N/A — a policy rate, not a traded instrument; changes only around FOMC decisions |
 | **NY Fed Empire State Manufacturing Survey** (`empire_state_manufacturing`, FRED `GACDISA066MSFRBNY`) | Indicator (survey index) | Fundamental | FRED (`GACDISA066MSFRBNY`) | Monthly | Mixed — a weak/negative reading signals manufacturing contraction, which can support gold via rate-cut/safe-haven demand, while a strong reading is risk-on and typically pressures gold down | Yes — any change since the previous poll (`VALUE_CHANGE_ALERT_NAMES`) | No — uses `VALUE_CHANGE_ALERT_NAMES` (alerts on any change), not the intrahour-swing mechanism the frequency test covers | N/A — published survey, not a traded instrument |
@@ -92,13 +93,30 @@ for every alert string `rules.py` returns, regardless of which mechanism produce
 Four data sources are in play, per `CLAUDE.md`: **yfinance** (`config.INDICATORS`, generic path in
 `data_fetcher._fetch_yfinance_price`) for `gld`, `iau`, `gldm`, `gdx`, `gdxj`, `ring`, `dxy`, `us10y`,
 and (only for the SMA crossover's daily closes) `gold`; **Twelve Data** (`config.GOLD_SPOT_SYMBOL`) for
-`gold`'s live spot
-price and the RSI(14) candles derived from it, since yfinance no longer serves a working spot-gold
-quote; **FRED** (`config.FRED_SERIES`) for every daily/weekly/monthly macro series, including all
-eleven scheduled reports in that dict; and **FMP** (`/stable/economic-calendar`), used only for the
+`gold`'s live spot price and every derived technical indicator below (RSI, EMA, MACD, ATR, and most of
+SMA) built from `XAU/USD` candles at various intervals, since yfinance no longer serves a working
+spot-gold quote; **FRED** (`config.FRED_SERIES`) for every daily/weekly/monthly macro series, including
+all eleven scheduled reports in that dict; and **FMP** (`/stable/economic-calendar`), used only for the
 API Weekly Crude Oil Stock row below and for `release_watch_job.py`'s ADP/NFP same-minute detection —
 not part of `config.FRED_SERIES`/`config.INDICATORS`/the regular poll loop at all, see
 `docs/data-sources.md`.
+
+## Technical indicators
+
+Derived indicators computed from gold candles, not tracked instruments in their own right — so they
+don't get a row in the table above. All five are Technical-agent territory (`.claude/agents/
+technical-analyst.md`).
+
+| Indicator | Data source | How it works |
+|---|---|---|
+| **RSI(14)** (Relative Strength Index) | Twelve Data `XAU/USD` candles — 15-min for the alert (`rules.check_rsi_alerts`, via `data_fetcher.fetch_gold_candles()`), 1h/4h/daily for the forecast job (`ta_forecast_job.compute_snapshot()`) | One shared helper, `data_fetcher.compute_rsi()` — Wilder's smoothing (`ewm(alpha=1/14, min_periods=14, adjust=False)`), the standard formula most platforms show. `rules.py` fires a Telegram alert (🟠) the moment it *crosses* into overbought (`RSI_OVERBOUGHT_THRESHOLD`, 70) or oversold (`RSI_OVERSOLD_THRESHOLD`, 30) territory — not a repeat-every-poll check. `ta_forecast_job.py` instead uses 1h/4h/daily RSI(14) as inputs to the forecast's bias score and its "BIG PICTURE" (daily RSI vs 50) block; no alert of its own there. |
+| **EMA** (Exponential Moving Average) | Twelve Data `XAU/USD` 1h candles (also 4h for EMA100) | `ta_forecast_job._ema()` — `series.ewm(span=N, adjust=False).mean()`. Computed as 1h EMA20/50/100/200 plus 4h EMA100, used only by `ta_forecast_job.py`: as resistance/support zone candidates in the price ladder, and as inputs to the bias score (price vs 1h EMA200, price vs 4h EMA100, 1h EMA20 vs EMA50). No Telegram alert of its own, and not used anywhere in `rules.py`. |
+| **SMA** (Simple Moving Average) | Two separate computations/sources: yfinance `GC=F` daily closes for the 20/50-day crossover alert; Twelve Data `XAU/USD` daily and 4h candles for the forecast job | No shared helper — each is an inline `.rolling(N).mean()`. `rules.check_sma_crossover()` computes 20/50-day SMA on daily closes and fires a Telegram alert (🟡) on a bullish/bearish crossover. `ta_forecast_job.py` separately computes daily SMA20/50/100/200 and 4h SMA100 as zone candidates, bias-score inputs (price vs daily SMA50), and its "BIG PICTURE" block (price vs 200-day SMA) — these two SMA computations use different windows and different underlying data, and never share a value. |
+| **MACD(12,26,9)** | Twelve Data `XAU/USD` 1h candles | Computed inline in `ta_forecast_job.compute_snapshot()` from the same `_ema()` helper as EMA above: `macd = ema(close,12) - ema(close,26)`, `signal = ema(macd,9)`, `histogram = macd - signal`. Only the 1h MACD histogram's sign feeds the bias score; the full line/signal/histogram values are shown in the forecast's rendered indicator snapshot. Not used in `rules.py` or any Telegram alert. |
+| **ATR(14)** (Average True Range) | Twelve Data `XAU/USD` daily candles | `ta_forecast_job._atr()` — Wilder-smoothed true range (`max(high-low, \|high-prev_close\|, \|low-prev_close\|)`, then `ewm(alpha=1/14, adjust=False)`). Used only by `ta_forecast_job.py`, for two things: the stop buffer beyond entry zones (`max($5.00, 0.1 × ATR)`), and the minimum required gap between listed resistance/support zones (`0.15 × ATR`, `MIN_LEVEL_GAP_ATR`), so zones don't get listed closer together than the market's own recent daily range would justify. Not used in `rules.py` or any Telegram alert. |
+
+Full methodology and reference-analysis notes for the technical forecast that consumes all five are in
+`docs/technical-analyst-forecast-log.md`.
 
 ## Notes on frequency
 
@@ -151,6 +169,6 @@ Not every indicator uses the same alert logic — see `rules.py` / `CLAUDE.md` f
   `main.poll_once()`: `oil_weekly_job.py`, triggered repeatedly by cron-job.org across each Tuesday's
   multi-hour release window (not the regular 5-min poll), alerts and records the release directly the
   moment FMP's economic-calendar `actual` field appears — see `docs/fundamental-analyst-oil-weekly-log.md`.
-- `gold`'s RSI(14) (15-min candles) alerts once when it crosses into overbought (`RSI_OVERBOUGHT_THRESHOLD`,
-  70) or oversold (`RSI_OVERSOLD_THRESHOLD`, 30) territory — a crossing check like the SMA crossover, not a
-  poll-to-poll comparison, so it doesn't repeat every 5 minutes while RSI stays past the threshold
+- `gold`'s RSI(14) alerts once when it crosses into overbought/oversold territory — a crossing check
+  like the SMA crossover, not a poll-to-poll comparison, so it doesn't repeat every 5 minutes while RSI
+  stays past the threshold; see the "Technical indicators" table above for how it's computed
