@@ -25,7 +25,7 @@ valid and no trade opens.
 
 from datetime import datetime, timezone
 
-from broker import _bias_allows, _find_exit
+from broker import _bias_allows, _find_exit, _result_marker
 from config import GOLD_SPOT_SYMBOL
 from data_fetcher import fetch_candles
 from notifier import send_telegram_message
@@ -42,9 +42,13 @@ from storage import (
 # slightly late-firing poll still has full coverage back to the last check.
 ENTRY_CANDLE_LOOKBACK_MINUTES = 20
 
-# Prefix for every Broker B open/close Telegram message -- green, distinct from Broker A's blue
-# (broker.TRADE_ALERT_PREFIX) so the two are easy to tell apart in the chat at a glance.
-TRADE_ALERT_PREFIX = "\U0001f7e2 "  # green circle
+# Prefix for every Broker B open/close Telegram message -- a deep-blue square, the same blue family
+# as Broker A's circle (broker.TRADE_ALERT_PREFIX) but a different shape so the two are easy to tell
+# apart in the chat at a glance. (There's no darker-blue circle emoji.) Broker B uses squares only:
+# close messages add a green/red square for profit/loss after it (vs. Broker A's circles).
+TRADE_ALERT_PREFIX = "\U0001f7e6 "  # blue square
+PROFIT_MARKER = "\U0001f7e9 "  # green square
+LOSS_MARKER = "\U0001f7e5 "  # red square
 
 # The two "fade the nearest zone" scenarios ta_forecast_job.py's build_scenarios() produces --
 # see .claude/agents/broker.md's Broker B rules for why the breakout/breakdown mirror scenarios
@@ -93,7 +97,7 @@ def _open_message(trade_type: str, rule_name: str, price: float, session: str, f
 def _close_message(trade: dict, exit_price: float, pnl: float) -> str:
     result = "profit" if pnl >= 0 else "loss"
     return (
-        f"{TRADE_ALERT_PREFIX}BROKER B: closed {trade['trade_type']} 1 oz XAU/USD @ ${exit_price:.2f} "
+        f"{TRADE_ALERT_PREFIX.rstrip()}{_result_marker(pnl, PROFIT_MARKER, LOSS_MARKER)}BROKER B: closed {trade['trade_type']} 1 oz XAU/USD @ ${exit_price:.2f} "
         f"(opened @ ${trade['entry_price']:.2f}, rule {trade['rule_name']}) -- "
         f"{result} of ${abs(pnl):.2f}"
     )

@@ -12,7 +12,7 @@ Telegram messages, and recording every trade — is fully automated in code: **B
 **Broker B** (`broker_b.py`'s `check_broker_b_trades()`, trading the latest TA forecast's price
 zones, `broker_b_trades` table) — both called from `main.poll_once()` every poll, both the local
 `main.py` loop and the cloud `poll_job.py`/`poll.yml`. The two never interact: separate tables,
-separate open-trade tracking, separate Telegram identities (🔵 Broker A, 🟢 Broker B) — but they do
+separate open-trade tracking, separate Telegram identities (🔵 Broker A, circles: closes 🔵🟢/🔵🔴; 🟦 Broker B, squares: closes 🟦🟩/🟦🟥) — but they do
 share two things by import, not duplication, so they can't drift apart: Broker A's exit mechanics
 (`broker._pnl()`/`_exit_levels()`/`_scan_exit_crossing()`/`_find_exit()`) and the TA bias gate
 (`broker._bias_allows()`) below. There is no markdown/doc log of trades for either engine — the two

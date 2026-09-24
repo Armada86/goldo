@@ -57,6 +57,15 @@ EXIT_CANDLE_LOOKBACK_MINUTES = 20
 # for why an emoji, not real text color -- Telegram's Bot API doesn't support that.
 TRADE_ALERT_PREFIX = "\U0001f535 "  # blue circle
 
+# Second marker on every Broker A close message, right after its own prefix: green for a profit,
+# red for a loss. Broker A uses circles only (Broker B uses squares -- see broker_b.py).
+PROFIT_MARKER = "\U0001f7e2 "  # green circle
+LOSS_MARKER = "\U0001f534 "  # red circle
+
+
+def _result_marker(pnl: float, profit: str = PROFIT_MARKER, loss: str = LOSS_MARKER) -> str:
+    return profit if pnl >= 0 else loss
+
 # The six physically/mining-correlated gold ETFs must flag the same direction gold itself is
 # presumed to be moving; dxy (inversely correlated with gold) must flag the opposite direction.
 # us10y was dropped from the Broker's indicator set entirely (it's still alerted/frequency-tested
@@ -213,7 +222,7 @@ def _open_message(trade_type: str, rule_name: str, price: float, triggering_text
 def _close_message(trade: dict, exit_price: float, pnl: float) -> str:
     result = "profit" if pnl >= 0 else "loss"
     return (
-        f"{TRADE_ALERT_PREFIX}BROKER A: closed {trade['trade_type']} 1 oz XAU/USD @ ${exit_price:.2f} "
+        f"{TRADE_ALERT_PREFIX.rstrip()}{_result_marker(pnl)}BROKER A: closed {trade['trade_type']} 1 oz XAU/USD @ ${exit_price:.2f} "
         f"(opened @ ${trade['entry_price']:.2f}, rule {trade['rule_name']}) -- "
         f"{result} of ${abs(pnl):.2f}"
     )
