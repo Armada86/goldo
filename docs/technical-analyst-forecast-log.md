@@ -12,7 +12,7 @@ part is computed, where it's stored, and what it doesn't do yet. Like the other
   read-only `technical-analyst` subagent can run it too.
 - **Schedule:** `.github/workflows/ta_forecast.yml` runs only when triggered through
   `workflow_dispatch`. Like every other job, it's triggered from cron-job.org, here by two entries:
-  weekdays (Mon-Fri) at 7:00am and 12:00pm America/New_York. The header says Morning or Midday
+  weekdays (Mon-Fri) at 12:00am and 12:00pm America/New_York. The header says Morning or Midday
   (by the run's ET hour; stored as `levels.session`). Noon was chosen because the US data releases
   (8:30/10:00am) have printed and London has closed, while the NY afternoon is still ahead. It was added
   on 2026-09-23, after the morning plan went stale by midday: support broke and the bias moved from

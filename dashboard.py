@@ -65,7 +65,7 @@ st.title("Goldo")
 now_local = datetime.now(timezone.utc).astimezone(DISPLAY_TZ)
 st.caption(f"Page refreshes every 5 min · last loaded {now_local.strftime('%Y-%m-%d %H:%M:%S %Z')}")
 
-# The daily XAU/USD technical forecast (ta_forecast_job.py, 7am/midday ET weekdays) -- shown at the
+# The daily XAU/USD technical forecast (ta_forecast_job.py, 12am/midday ET weekdays) -- shown at the
 # very top, above the symbols table, per the user's request. Always re-rendered here via
 # render_diagram_svg() from that row's stored `levels` (never the job's own cached `diagram_svg`
 # column, which only ever covers the "today, no candle" case) -- one code path for both "today" and a

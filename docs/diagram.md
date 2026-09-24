@@ -16,7 +16,7 @@ flowchart TD
     Cron -->|weekday 6am ET| FreqCheck["frequency_check_job.py"]
     Cron -->|weekday 8:14am/8:29am ET| ReleaseWatch["release_watch_job.py"]
     Cron -->|Tuesday ~every 10 min, 3-6pm ET| OilWeekly["oil_weekly_job.py"]
-    Cron -->|weekday 7am + noon ET| TAForecast["ta_forecast_job.py"]
+    Cron -->|weekday 12am + noon ET| TAForecast["ta_forecast_job.py"]
 
     Sources --> Fetcher["data_fetcher.py"]
     Fetcher --> Poll["poll_once()\n(main.py / poll_job.py)"]
@@ -94,7 +94,7 @@ flowchart TD
     (unlike release_watch_job.py, there's no other mechanism tracking this indicator, so this job owns
     both), then every subsequent invocation that same Tuesday sees the week is already recorded and
     no-ops.
-18. **cron-job.org -> ta_forecast_job.py -> Postgres / Telegram (weekdays 7am and 12pm ET)**: builds an XAU/USD technical
+18. **cron-job.org -> ta_forecast_job.py -> Postgres / Telegram (weekdays 12am and 12pm ET)**: builds an XAU/USD technical
     forecast from Twelve Data 15min/1h/4h/daily candles (indicator snapshot, level zones, a four-scenario
     plan, and a candle-graded review of the previous forecast) and writes it to `ta_forecasts`, then
     sends the same text to Telegram. See `docs/technical-analyst-forecast-log.md`.

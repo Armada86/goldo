@@ -15,7 +15,7 @@ section is computed, not self-reported.
 the next run's review reads back.
 
 Triggered externally by cron-job.org via .github/workflows/ta_forecast.yml twice each weekday --
-7:00am ET (Morning) and 12:00pm ET (Midday) -- same pattern as every other scheduled job in this repo.
+12:00am ET (Morning) and 12:00pm ET (Midday) -- same pattern as every other scheduled job in this repo.
 Each run grades whichever forecast came before it, so the midday run grades the morning plan and the
 next morning's run grades the midday one. Uses 4 Twelve Data calls per run (5 when grading a previous
 forecast) -- negligible against the 800/day cap.
