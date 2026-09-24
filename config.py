@@ -62,8 +62,17 @@ MACRO_REPORT_NAMES = [
 # Every tracked indicator name (used by the poll loop, storage, and alerting).
 ALL_INDICATOR_NAMES = list(INDICATORS) + list(FRED_SERIES)
 
+# Non-macro-report FRED series also excluded from the dashboard (at the user's request) — still
+# polled, stored, and alerted on like everything else, just not shown in the symbols table, since
+# their once-daily/weekly update cadence looks out of place next to the other rows' continuous
+# intraday prices.
+DASHBOARD_EXCLUDED_NAMES = ["inflation", "financial_stress", "interest_rate"]
+
 # Indicators shown on the dashboard (tiles + chart).
-DASHBOARD_INDICATOR_NAMES = [name for name in ALL_INDICATOR_NAMES if name not in MACRO_REPORT_NAMES]
+DASHBOARD_INDICATOR_NAMES = [
+    name for name in ALL_INDICATOR_NAMES
+    if name not in MACRO_REPORT_NAMES and name not in DASHBOARD_EXCLUDED_NAMES
+]
 
 # Poll interval, in minutes.
 POLL_INTERVAL_MINUTES = 5
