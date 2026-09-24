@@ -423,9 +423,13 @@ resistance zones above price in red, support zones below in green, a thin price 
 same label pass as the zones, not a filled badge, so it never covers a zone/label it happens to land
 on), and the two breakout/breakdown stop lines, at a fixed mobile width rather than hand-placed
 per-run coordinates -- plus an optional fourth argument, `candle` ({open, high, low, close}), drawn as
-an actual OHLC candlestick (green/red the same as the support/resistance colors) in its own column so
-it can never overlap the zone labels; a live/current forecast never passes one (the day isn't finished
-yet), but `dashboard.py`'s historical date view does (see "Dashboard layout" below). The function is
+an actual OHLC candlestick (green/red the same as the support/resistance colors, hollow body rather
+than filled so it doesn't hide whatever zone band it overlaps) centered in the band column at its true
+price position -- overlapping a zone is normal and expected here, the same way a real chart overlays a
+candle on support/resistance lines. The SVG itself is set to `width:100%; height:auto` so it stretches
+to fill its container on any screen instead of rendering at a fixed intrinsic size (which used to leave
+a blank margin on a wide phone screen); a live/current forecast never passes a `candle` (the day isn't
+finished yet), but `dashboard.py`'s historical date view does (see "Dashboard layout" below). The function is
 saved into `diagram_svg` alongside `analysis`/`levels` right after each run (candle-less, since that's
 the "today" case), but that's a cache/audit copy only -- `dashboard.py` never reads it back, since it
 needs the ability to re-render with a candle for a past date and would otherwise need two code paths.

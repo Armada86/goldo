@@ -53,15 +53,24 @@ changed 2026-09-23 after it was covering the nearest zone on the live dashboard)
 external dependency (no matplotlib/plotly): just an f-string building SVG markup.
 
 The optional `candle` argument (`{"open", "high", "low", "close"}`) draws one OHLC candlestick --
-green if `close >= open` else red, same colors as the support/resistance bands -- in its own column,
-widening the SVG's `viewBox` by `DIAGRAM_CANDLE_MARGIN` so it's never close enough to the zone labels
-to risk overlapping them regardless of label length. `dashboard.py`'s date-navigator uses this for a
-past date's actual daily price action (see CLAUDE.md's "Dashboard layout"); a live/current forecast
-never passes one, since the day isn't over yet. `dashboard.py` calls `render_diagram_svg()` itself for
-every date shown (including today) rather than reading back the `diagram_svg` `ta_forecasts` stores --
-that column is written every run as a cache/audit copy, candle-less, but the dashboard needs the
-candle-aware render path regardless of which date is selected, so using a single code path for both
-is simpler than special-casing "today." It is not sent to Telegram.
+green if `close >= open` else red, same colors as the support/resistance bands -- centered in the band
+column at its true price position, the same as every other element in the diagram. It commonly
+overlaps a zone band there (this is deliberate, and how a candle and support/resistance levels are
+normally shown together on a real chart), which is exactly why the body is hollow (`fill="none"`,
+outlined only) rather than filled: a solid body would hide whatever's behind it. This changed from an
+earlier version that drew the candle in its own side column, avoiding overlap by construction --
+replaced 24 Sep 2026 after user feedback that it looked disconnected from the rest of the chart, sitting
+in unrelated whitespace rather than showing where the day's range fell relative to the zones. The same
+change also fixed the SVG's sizing: it's now `width:100%; height:auto` so it stretches to fill its
+container instead of rendering at a fixed intrinsic pixel size, which used to leave a blank margin on
+a wide phone screen -- unrelated to the candle specifically, but caught by the same feedback.
+`dashboard.py`'s date-navigator uses `candle` for a past date's actual daily price action (see
+CLAUDE.md's "Dashboard layout"); a live/current forecast never passes one, since the day isn't over
+yet. `dashboard.py` calls `render_diagram_svg()` itself for every date shown (including today) rather
+than reading back the `diagram_svg` `ta_forecasts` stores -- that column is written every run as a
+cache/audit copy, candle-less, but the dashboard needs the candle-aware render path regardless of which
+date is selected, so using a single code path for both is simpler than special-casing "today." It is
+not sent to Telegram.
 
 Simplifications versus the reference diagram, given it has to render unattended every morning rather
 than being hand-tuned per run: a zone's "nearby" levels are folded into its `+N` count rather than
