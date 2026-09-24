@@ -67,11 +67,15 @@ FORECAST_DATE_KEY = "forecast_date_picker"
 def load_forecast_for_date(d) -> dict | None:
     """The Morning forecast for a specific ET date, or None if there isn't one (a weekend/holiday, or
     a day the job didn't run) -- historical date browsing always shows the Morning run, since it's the
-    one that pairs with the full day's OHLC candle; the Midday run is for same-day use only."""
+    one that pairs with the full day's OHLC candle; the Midday run is for same-day use only.
+    `levels->>'session' IS NULL` also counts as Morning: the very first-ever forecast row (23 Sep 2026,
+    ~9:23am ET, triggered by that feature's own PR merge) predates the Morning/Midday split added later
+    that same day, so it has no `session` key at all -- excluding it here made a real forecast that day
+    show up as "no forecast recorded"."""
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "SELECT ts, analysis, levels FROM ta_forecasts "
-            "WHERE forecast_date = %s AND levels->>'session' = 'Morning' ORDER BY ts LIMIT 1",
+            "SELECT ts, analysis, levels FROM ta_forecasts WHERE forecast_date = %s "
+            "AND (levels->>'session' = 'Morning' OR levels->>'session' IS NULL) ORDER BY ts LIMIT 1",
             (d,),
         )
         row = cur.fetchone()
@@ -152,7 +156,7 @@ if min_forecast_date is not None:
         # of literal $ as inline LaTeX; two or more dollar amounts in the same string (the candle line
         # below) silently mangled into math notation before this was escaped.
         caption = (
-            f"{forecast_local.strftime('%Y-%m-%d %H:%M %Z')} ({levels.get('session', '?')}) · "
+            f"{forecast_local.strftime('%Y-%m-%d %H:%M %Z')} ({levels.get('session') or 'Morning'}) · "
             f"\\${levels.get('price', 0):,.2f} · {levels.get('bias', '?')} "
             f"(score {levels.get('bias_score', 0):+d}/6)"
         )
