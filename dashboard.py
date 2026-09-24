@@ -18,7 +18,7 @@ if "DATABASE_URL" not in os.environ and "DATABASE_URL" in st.secrets:
     os.environ["DATABASE_URL"] = st.secrets["DATABASE_URL"]
 
 from config import DASHBOARD_INDICATOR_NAMES, DOLLAR_UNIT_NAMES
-from storage import get_connection, get_latest_ta_forecast
+from storage import get_connection
 from ta_forecast_job import render_diagram_svg
 
 st.set_page_config(page_title="Goldo", layout="wide")
@@ -71,22 +71,42 @@ st.caption(f"Page refreshes every 5 min · last loaded {now_local.strftime('%Y-%
 # column, which only ever covers the "today, no candle" case) -- one code path for both "today" and a
 # browsed historical date, and it always reflects the diagram code's current look even for an old row.
 FORECAST_DATE_KEY = "forecast_date_picker"
+FORECAST_SESSION_KEY = "forecast_session_picker"
+SESSIONS = ["Morning", "Midday"]
 
 
-def load_forecast_for_date(d) -> dict | None:
-    """The Morning forecast for a specific ET date, or None if there isn't one (a weekend/holiday, or
-    a day the job didn't run) -- historical date browsing always shows the Morning run, since it's the
-    one that pairs with the full day's OHLC candle; the Midday run is for same-day use only.
-    `levels->>'session' IS NULL` also counts as Morning: the very first-ever forecast row (23 Sep 2026,
-    ~9:23am ET, triggered by that feature's own PR merge) predates the Morning/Midday split added later
-    that same day, so it has no `session` key at all -- excluding it here made a real forecast that day
-    show up as "no forecast recorded"."""
+def load_forecast_sessions_for_date(d) -> list[str]:
+    """Which of Morning/Midday have a ta_forecasts row for this ET date, in that order -- gates the
+    session navigator's arrows and picks the fallback session when the currently selected one isn't
+    available for a newly selected date. A row with no `session` key at all (the very first-ever
+    forecast row, 23 Sep 2026 ~9:23am ET, predates the Morning/Midday split added later that same day)
+    counts as Morning, same as `load_forecast_for_date_session()` below."""
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "SELECT ts, analysis, levels FROM ta_forecasts WHERE forecast_date = %s "
-            "AND (levels->>'session' = 'Morning' OR levels->>'session' IS NULL) ORDER BY ts LIMIT 1",
+            "SELECT DISTINCT COALESCE(levels->>'session', 'Morning') FROM ta_forecasts WHERE forecast_date = %s",
             (d,),
         )
+        found = {r[0] for r in cur.fetchall()}
+    return [s for s in SESSIONS if s in found]
+
+
+def load_forecast_for_date_session(d, session: str) -> dict | None:
+    """The forecast for a specific ET date *and* session (Morning/Midday), or None if there isn't one.
+    `levels->>'session' IS NULL` counts as Morning: see `load_forecast_sessions_for_date()`'s docstring
+    for why."""
+    with get_connection() as conn, conn.cursor() as cur:
+        if session == "Morning":
+            cur.execute(
+                "SELECT ts, analysis, levels FROM ta_forecasts WHERE forecast_date = %s "
+                "AND (levels->>'session' = 'Morning' OR levels->>'session' IS NULL) ORDER BY ts LIMIT 1",
+                (d,),
+            )
+        else:
+            cur.execute(
+                "SELECT ts, analysis, levels FROM ta_forecasts WHERE forecast_date = %s "
+                "AND levels->>'session' = %s ORDER BY ts LIMIT 1",
+                (d, session),
+            )
         row = cur.fetchone()
     return {"ts": row[0], "analysis": row[1], "levels": row[2]} if row else None
 
@@ -119,6 +139,30 @@ def load_gold_day_ohlc(d):
     }
 
 
+def load_broker_pnl_for_date(d) -> dict:
+    """Broker A (`trades`) + Broker B (`broker_b_trades`) realized P&L for trades that *closed* within
+    one ET calendar day -- a trade opened the day before but closed today counts as today's, matching
+    how a daily P&L total is normally read. Summed separately per engine plus combined, for the
+    top-of-dashboard daily total tied to the same selected date as the forecast navigator below."""
+    start = pd.Timestamp(d, tz=DISPLAY_TZ)
+    end = start + pd.Timedelta(days=1)
+    start_utc, end_utc = start.tz_convert("UTC"), end.tz_convert("UTC")
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT COALESCE(SUM(pnl), 0) FROM trades WHERE status = 'Closed' "
+            "AND close_ts >= %s AND close_ts < %s",
+            (start_utc, end_utc),
+        )
+        broker_a = cur.fetchone()[0]
+        cur.execute(
+            "SELECT COALESCE(SUM(pnl), 0) FROM broker_b_trades WHERE status = 'Closed' "
+            "AND close_ts >= %s AND close_ts < %s",
+            (start_utc, end_utc),
+        )
+        broker_b = cur.fetchone()[0]
+    return {"broker_a": float(broker_a), "broker_b": float(broker_b), "total": float(broker_a) + float(broker_b)}
+
+
 try:
     min_forecast_date = load_forecast_date_bounds()
 except Exception as e:
@@ -146,13 +190,58 @@ if min_forecast_date is not None:
         )
     selected_date = st.session_state[FORECAST_DATE_KEY]
 
+    # A second ◀/▶ row lets Morning/Midday be picked independently of the date -- without it, once a
+    # Midday run prints, the Morning run for that same date becomes unreachable (the original bug
+    # report). Falls back to the latest available session for the date whenever the currently selected
+    # one doesn't exist there (first load, or after navigating to a date lacking it) -- matches what
+    # this section used to show by default (the single most recent row) -- but otherwise leaves a
+    # manually chosen session alone across reruns.
     try:
-        if selected_date == today_et:
-            forecast = get_latest_ta_forecast()
-            candle = None
-        else:
-            forecast = load_forecast_for_date(selected_date)
-            candle = load_gold_day_ohlc(selected_date) if forecast else None
+        available_sessions = load_forecast_sessions_for_date(selected_date)
+    except Exception as e:
+        st.error(f"Could not load available sessions for {selected_date}: {e}")
+        available_sessions = []
+    if FORECAST_SESSION_KEY not in st.session_state or st.session_state[FORECAST_SESSION_KEY] not in available_sessions:
+        st.session_state[FORECAST_SESSION_KEY] = available_sessions[-1] if available_sessions else "Morning"
+
+    sess_prev, sess_label, sess_next = st.columns([1, 5, 1])
+    cur_idx = SESSIONS.index(st.session_state[FORECAST_SESSION_KEY])
+    with sess_prev:
+        if st.button("◀", key="forecast_session_prev",
+                     disabled=cur_idx <= 0 or SESSIONS[cur_idx - 1] not in available_sessions):
+            st.session_state[FORECAST_SESSION_KEY] = SESSIONS[cur_idx - 1]
+    with sess_next:
+        if st.button("▶", key="forecast_session_next",
+                     disabled=cur_idx >= len(SESSIONS) - 1 or SESSIONS[cur_idx + 1] not in available_sessions):
+            st.session_state[FORECAST_SESSION_KEY] = SESSIONS[cur_idx + 1]
+    with sess_label:
+        st.markdown(
+            f"<div style='text-align:center;padding-top:6px;font-size:13px;color:#444;'>"
+            f"{st.session_state[FORECAST_SESSION_KEY]}</div>",
+            unsafe_allow_html=True,
+        )
+    selected_session = st.session_state[FORECAST_SESSION_KEY]
+
+    try:
+        pnl = load_broker_pnl_for_date(selected_date)
+    except Exception as e:
+        st.error(f"Could not load broker P&L for {selected_date}: {e}")
+        pnl = None
+    if pnl is not None:
+        total_color = "#1a7f37" if pnl["total"] > 0 else ("#cf222e" if pnl["total"] < 0 else "#888")
+        # Plain "$" here, not "\$" -- unlike a plain-text st.caption()/st.markdown() string (see the
+        # LaTeX gotcha noted below), this whole line is one HTML block (starts with "<div"), which
+        # CommonMark passes through verbatim rather than scanning for a $-pair to treat as math.
+        st.markdown(
+            f"<div style='font-size:12px;color:#444;'>Broker P&amp;L ({selected_date:%b %d}): "
+            f"Broker A <b>${pnl['broker_a']:+,.2f}</b> · Broker B <b>${pnl['broker_b']:+,.2f}</b> · "
+            f"Total <b style='color:{total_color}'>${pnl['total']:+,.2f}</b></div>",
+            unsafe_allow_html=True,
+        )
+
+    try:
+        forecast = load_forecast_for_date_session(selected_date, selected_session)
+        candle = load_gold_day_ohlc(selected_date) if (forecast and selected_date != today_et) else None
     except Exception as e:
         st.error(f"Could not load the forecast for {selected_date}: {e}")
         forecast, candle = None, None
