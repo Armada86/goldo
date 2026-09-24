@@ -126,7 +126,7 @@ nothing else trades under Broker A until both this section and the code are exte
 ## Broker B
 
 Trades levels from the **latest** `ta_forecasts` row — whichever forecast is most recent at poll time
-(the Morning run at 7am ET, or the Midday run at 12pm ET once it lands — there's no explicit
+(the Morning run at 12am ET, or the Midday run at 12pm ET once it lands — there's no explicit
 time-window switch in code, "latest row" naturally *is* whichever session is current, since each new
 run overwrites which row `get_latest_ta_forecast()` returns). Trades **all four** scenarios
 `ta_forecast_job.py` generates — the two "fade the nearest zone" scenarios *and* their mirrored

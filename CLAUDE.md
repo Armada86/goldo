@@ -446,7 +446,7 @@ the "today" case), but that's a cache/audit copy only -- `dashboard.py` never re
 needs the ability to re-render with a candle for a past date and would otherwise need two code paths.
 `--dry-run` prints the text without any DB read/write or diagram render, and is how the
 read-only `technical-analyst` subagent can run it. Triggered through `.github/workflows/ta_forecast.yml`
-(`workflow_dispatch` only; two cron-job.org entries fire it weekdays at 7:00am and 12:00pm
+(`workflow_dispatch` only; two cron-job.org entries fire it weekdays at 12:00am and 12:00pm
 America/New_York). The header labels each run Morning or Midday by its ET hour (`session_label()`, also
 stored as `levels.session`); each run grades whichever row came before it, so the midday run grades the
 morning plan and the next morning's run grades the midday one. After
@@ -560,7 +560,7 @@ directly, in `America/New_York`, without any code in this repo.
 `.github/workflows/release_watch_adp.yml`/`release_watch_nfp.yml` follow the same pattern for
 `release_watch_job.py` (see "Same-minute release detection" above), weekdays at 8:14am/8:29am
 America/New_York respectively. `.github/workflows/ta_forecast.yml` follows the same pattern for `ta_forecast_job.py` (see "XAU/USD
-technical forecast" above), weekdays at 7:00am and 12:00pm America/New_York (two cron-job.org
+technical forecast" above), weekdays at 12:00am and 12:00pm America/New_York (two cron-job.org
 entries for the same workflow). `.github/workflows/oil_weekly_watch.yml` follows the same pattern again
 for `oil_weekly_job.py` (see "API Weekly Crude Oil Stock data" above), but triggered *repeatedly* —
 roughly every 10 minutes across a Tuesday-evening window (~3pm-6pm ET) — rather than once, since that
