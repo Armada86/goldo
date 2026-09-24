@@ -139,6 +139,16 @@ def load_gold_day_ohlc(d):
     }
 
 
+def load_latest_gold_price() -> float | None:
+    """The single most recent `gold` reading's price -- the diagram's live-price dot for today's
+    forecast, distinct from `levels['price']`, which is frozen at whenever the forecast itself ran and
+    can be hours stale by the time the dashboard is viewed. None if there are no gold readings yet."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT price FROM readings WHERE name = 'gold' ORDER BY ts DESC LIMIT 1")
+        row = cur.fetchone()
+    return float(row[0]) if row else None
+
+
 def load_broker_pnl_for_date(d) -> dict:
     """Broker A (`trades`) + Broker B (`broker_b_trades`) realized P&L for trades that *closed* within
     one ET calendar day -- a trade opened the day before but closed today counts as today's, matching
@@ -241,10 +251,13 @@ if min_forecast_date is not None:
 
     try:
         forecast = load_forecast_for_date_session(selected_date, selected_session)
-        candle = load_gold_day_ohlc(selected_date) if (forecast and selected_date != today_et) else None
+        if forecast and selected_date != today_et:
+            candle, live_price = load_gold_day_ohlc(selected_date), None
+        else:
+            candle, live_price = None, (load_latest_gold_price() if forecast else None)
     except Exception as e:
         st.error(f"Could not load the forecast for {selected_date}: {e}")
-        forecast, candle = None, None
+        forecast, candle, live_price = None, None, None
 
     if forecast and forecast.get("levels"):
         levels = forecast["levels"] or {}
@@ -266,7 +279,8 @@ if min_forecast_date is not None:
         st.caption(caption)
         st.markdown(
             render_diagram_svg(
-                levels["price"], levels["resistances"], levels["supports"], levels["scenarios"], candle
+                levels["price"], levels["resistances"], levels["supports"], levels["scenarios"],
+                candle, live_price,
             ),
             unsafe_allow_html=True,
         )
