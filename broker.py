@@ -5,9 +5,10 @@ section -- that file is the human-readable spec, this module is what actually ex
 The two must be kept in sync by hand when the rules change (same convention as `docs/market.md` vs.
 `config.py`): a rule change here without the matching prose update there is an incomplete change.
 See broker_b.py for Broker B -- a completely independent second engine (own table, own Telegram
-identity) trading the TA forecast's price zones instead of this module's alert-consensus signal, but
-sharing this module's exit logic (_pnl/_exit_levels/_scan_exit_crossing/_find_exit) and the
-TA-forecast bias gate (_bias_allows()) both engines apply to their entries.
+identity) trading the TA forecast's four price levels instead of this module's alert-consensus signal,
+sharing this module's exit logic (_pnl/_exit_levels/_scan_exit_crossing/_find_exit) but deliberately
+NOT the TA-forecast bias gate below (_bias_allows()) -- that gate is Broker A-only; Broker B trades
+whichever level price reaches regardless of the forecast's overall directional read.
 
 Every trade lives only in the `trades` table in Postgres (see storage.py) -- there is deliberately no
 markdown/doc mirror to keep in sync, so a trade never requires a repo commit.
@@ -80,11 +81,10 @@ MIN_FLAGGING_COUNT = 5
 
 def _latest_bias_score() -> float:
     """Latest ta_forecasts row's overall directional bias score (positive = bullish-leaning,
-    negative = bearish-leaning, 0/no forecast yet = neutral). Shared TA-forecast gate applied to
-    every entry rule in both Broker A (here) and Broker B (broker_b.py, which fetches its own
-    forecast row anyway and calls _bias_allows() directly rather than this wrapper). Fails open (0,
-    i.e. no restriction) on a DB hiccup or before the first forecast run ever completes, so a
-    problem reading ta_forecasts never blocks Broker A from trading entirely."""
+    negative = bearish-leaning, 0/no forecast yet = neutral). Broker A-only gate (see
+    _bias_allows() below) -- Broker B (broker_b.py) does not apply it. Fails open (0, i.e. no
+    restriction) on a DB hiccup or before the first forecast run ever completes, so a problem
+    reading ta_forecasts never blocks Broker A from trading entirely."""
     try:
         forecast = get_latest_ta_forecast()
     except Exception:
@@ -95,9 +95,10 @@ def _latest_bias_score() -> float:
 
 
 def _bias_allows(trade_type: str, bias_score: float) -> bool:
-    """The TA bias gate: a Sell only opens when the latest forecast's bias isn't bullish (score
-    <= 0), a Buy only when it isn't bearish (score >= 0) -- score 0 (Neutral) allows either. See
-    .claude/agents/broker.md's "TA bias gate" section."""
+    """Broker A's TA bias gate: a Sell only opens when the latest forecast's bias isn't bullish
+    (score <= 0), a Buy only when it isn't bearish (score >= 0) -- score 0 (Neutral) allows either.
+    Broker A-only -- Broker B deliberately does not call this. See .claude/agents/broker.md's "TA
+    bias gate" section."""
     if trade_type == "Sell":
         return bias_score <= 0
     return bias_score >= 0

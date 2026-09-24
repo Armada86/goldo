@@ -206,8 +206,8 @@ poll still closes at the true level (`broker._find_exit()`). Every entry is also
 `broker._bias_allows()`/`_latest_bias_score()` — the latest `ta_forecasts` row's overall bias score
 (see "XAU/USD technical forecast" below): a Buy is skipped if that forecast reads bearish (score < 0),
 a Sell skipped if it reads bullish (score > 0); Neutral (0) or no forecast yet allows either direction.
-This same gate function is imported by `broker_b.py` (below) rather than reimplemented, so both
-engines apply identical bias logic. Trade state lives in a Postgres `trades` table (mirrors
+This gate is Broker A-only — `broker_b.py` (below) deliberately does **not** import or apply it, so the
+two engines' bias handling has diverged on purpose (see Broker B's entry below). Trade state lives in a Postgres `trades` table (mirrors
 `readings`/`alerts` — required since `poll_job.py` is a stateless one-shot run each cloud poll, so
 in-memory state can't survive between polls); only one trade open at a time, and a fresh entry only
 considers alerts newer than the last trade's open time so a stale alert can't retrigger. Every
@@ -224,26 +224,33 @@ trade never requires a repo commit; `poll.yml` doesn't need write access to the 
 `main.poll_once()` (right after Broker A, wrapped in its own `try/except` so a problem here can't
 break the rest of the poll) — a second, fully independent imaginary buy/sell engine, this one trading
 the **latest** `ta_forecasts` row's price zones instead of Broker A's alert-consensus signal. See
-`.claude/agents/broker.md`'s "Broker B" section for the full spec. Two rules, `TA-Zone-sell`/
-`TA-Zone-buy`, each trading one of the forecast's two "fade the nearest zone" scenarios
-(`sell_resistance`/`buy_support` — not the mirrored breakout scenarios, which are deliberately not
-traded yet): enters at the exact zone edge price the moment a real 1-minute candle touches it (same
-candle-scan technique as Broker A's exit, applied to an entry instead — `broker_b._scan_zone_entry()`)
-rather than at whatever the live spot price is when the poll notices, since that edge is the price a
-resting order would actually fill at; invalidated (no trade) if price already broke the zone's far
-side (the scenario's `stop`) before/without a clean touch. Also gated by the same
-`broker._bias_allows()` Broker A uses. Fires **at most once per (forecast row, zone)** —
-`storage.trade_b_exists_for_forecast()` blocks a zone from re-firing off the same forecast row even
-after Broker B goes flat again, until the next `ta_forecast_job.py` run supplies fresh zones — so a
-choppy session can't rack up repeated losses re-fading the same level. Same $10 flat take-profit/
-stop-loss as Broker A (`broker._find_exit()`, imported directly rather than reimplemented, so the two
-engines' exit math can't drift apart), same 1 oz size. Entirely separate Postgres `broker_b_trades`
-table (`trades`' columns plus `ta_forecast_id`, so a trade can be traced back to the exact forecast
-row/zone that produced it) and separate open-trade tracking — Broker A and Broker B never see or
-affect each other's positions. Telegram messages are prefixed 🟦 (`broker_b.TRADE_ALERT_PREFIX`, a
-deep-blue square — same blue family as Broker A's 🔵 but a different shape, since there's no darker-blue
-circle emoji) and labeled "BROKER B"; squares only, so closes add a 🟩 profit / 🟥 loss square
-(`🟦🟩`/`🟦🟥`) rather than Broker A's circles.
+`.claude/agents/broker.md`'s "Broker B" section for the full spec. **Trades all four** of the
+forecast's scenarios, not just the two fade zones — `sell_resistance`/`buy_support` (`TA-Zone-sell`/
+`TA-Zone-buy`) *and* their mirrored breakout scenarios `bull_breakout`/`bear_breakdown`
+(`TA-Breakout-buy`/`TA-Breakout-sell`), each entering at the exact level price the moment a real
+1-minute candle touches it (same candle-scan technique as Broker A's exit, applied to an entry instead
+— `broker_b._scan_zone_entry()`) rather than at whatever the live spot price is when the poll notices,
+since that level is the price a resting order would actually fill at. The two fade rules are
+invalidated (no trade) if price already broke the zone's far side (the scenario's `stop`)
+before/without a clean touch; the two breakout rules have no such invalidation, since crossing the
+trigger is the entire signal. **Deliberately does not apply `broker._bias_allows()`** — unlike Broker
+A, Broker B trades whichever of the four levels price actually reaches, buy or sell, regardless of
+what the forecast's overall bias score says (this bias check and the breakout scenarios were both
+added/removed at the user's explicit request; see `.claude/agents/broker.md`'s "TA bias gate (Broker A
+only)" section). Fires **at most once per (forecast row, rule)** — `storage.trade_b_exists_for_forecast()`
+blocks a rule from re-firing off the same forecast row even after Broker B goes flat again, until the
+next `ta_forecast_job.py` run supplies fresh levels — so a choppy session can't rack up repeated losses
+re-trading the same level. Still only **one Broker B position open at a time, across all four rules** —
+a rule can't fire while any other already has an open trade. When more than one rule's level is touched
+within the same poll's candle window, whichever was reached earliest chronologically wins, not any fixed
+rule priority. Same $10 flat take-profit/stop-loss as Broker A (`broker._find_exit()`, imported directly
+rather than reimplemented, so the two engines' exit math can't drift apart), same 1 oz size. Entirely
+separate Postgres `broker_b_trades` table (`trades`' columns plus `ta_forecast_id`, so a trade can be
+traced back to the exact forecast row/scenario that produced it) and separate open-trade tracking —
+Broker A and Broker B never see or affect each other's positions. Telegram messages are prefixed 🟦
+(`broker_b.TRADE_ALERT_PREFIX`, a deep-blue square — same blue family as Broker A's 🔵 but a different
+shape, since there's no darker-blue circle emoji) and labeled "BROKER B"; squares only, so closes add a
+🟩 profit / 🟥 loss square (`🟦🟩`/`🟦🟥`) rather than Broker A's circles.
 
 **Forex broker (`forex_broker.py`, `forex_client.py`) — built but deliberately disconnected**: a third
 paper-trading engine, the "Forex" broker, that runs the *identical* entry rules (exits differ — see below) as `broker.py`'s
@@ -608,7 +615,8 @@ mechanisms above, its actual trading logic is NOT this subagent; it's the fully 
 (Broker A) and `broker_b.py` (Broker B) (see the "Broker A"/"Broker B automated paper-trading" entries
 above), which run every poll with no human/session involved. The subagent itself is **read-only**
 (`Read`, `Grep`, `Glob`, `Bash` — no `Edit`/`Write`, same as `technical-analyst`): it explains rules
-(including the shared TA bias gate), explains why a specific trade in the Postgres `trades` or
+(including Broker A's TA bias gate, which Broker B deliberately does not apply), explains why a
+specific trade in the Postgres `trades` or
 `broker_b_trades` table fired, and analyzes performance by rule/engine, querying those tables plus
 `alerts`/`ta_forecasts` directly (there is no markdown trade log to read instead). Its own "Rules"
 section is the human-readable spec for what the two modules implement — the two are kept in sync by
