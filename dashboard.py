@@ -184,15 +184,23 @@ if min_forecast_date is not None:
     if FORECAST_DATE_KEY not in st.session_state:
         st.session_state[FORECAST_DATE_KEY] = today_et
 
+    # Each button's own disabled= is computed once per script run, before its click (if any) updates
+    # session_state further down -- without the st.rerun() below, the *same* rerun that processes a
+    # click still renders both arrows from the pre-click state, so a click that lands on a boundary
+    # (e.g. reaching today) briefly shows the wrong arrow enabled/disabled until some other widget
+    # triggers a fresh run. st.rerun() forces that fresh run immediately, so the arrows are always
+    # correct right after the click that caused them to change.
     nav_prev, nav_date, nav_next = st.columns([1, 5, 1])
     with nav_prev:
         if st.button("◀", key="forecast_date_prev",
                      disabled=st.session_state[FORECAST_DATE_KEY] <= min_forecast_date):
             st.session_state[FORECAST_DATE_KEY] -= timedelta(days=1)
+            st.rerun()
     with nav_next:
         if st.button("▶", key="forecast_date_next",
                      disabled=st.session_state[FORECAST_DATE_KEY] >= today_et):
             st.session_state[FORECAST_DATE_KEY] += timedelta(days=1)
+            st.rerun()
     with nav_date:
         st.date_input(
             "Forecast date", min_value=min_forecast_date, max_value=today_et,
@@ -214,16 +222,23 @@ if min_forecast_date is not None:
     if FORECAST_SESSION_KEY not in st.session_state or st.session_state[FORECAST_SESSION_KEY] not in available_sessions:
         st.session_state[FORECAST_SESSION_KEY] = available_sessions[-1] if available_sessions else "Morning"
 
+    # Same st.rerun()-after-mutation fix as the date row above, and more visibly necessary here: both
+    # arrows' disabled= share one cur_idx computed before either button runs, so without forcing a
+    # fresh run, a click here left *both* arrows showing the pre-click (and therefore inverted) state
+    # on screen until some unrelated widget interaction happened to trigger a real rerun -- this was
+    # reported as "the arrows point the wrong way" after switching from Morning to Midday.
     sess_prev, sess_label, sess_next = st.columns([1, 5, 1])
     cur_idx = SESSIONS.index(st.session_state[FORECAST_SESSION_KEY])
     with sess_prev:
         if st.button("◀", key="forecast_session_prev",
                      disabled=cur_idx <= 0 or SESSIONS[cur_idx - 1] not in available_sessions):
             st.session_state[FORECAST_SESSION_KEY] = SESSIONS[cur_idx - 1]
+            st.rerun()
     with sess_next:
         if st.button("▶", key="forecast_session_next",
                      disabled=cur_idx >= len(SESSIONS) - 1 or SESSIONS[cur_idx + 1] not in available_sessions):
             st.session_state[FORECAST_SESSION_KEY] = SESSIONS[cur_idx + 1]
+            st.rerun()
     with sess_label:
         st.markdown(
             f"<div style='text-align:center;padding-top:6px;font-size:13px;color:#444;'>"

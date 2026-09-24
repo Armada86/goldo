@@ -518,6 +518,16 @@ whichever end doesn't have a row, and the selected session falls back to the lat
 (`available[-1]`) whenever the currently selected session doesn't exist for a newly selected date (first
 load, or navigating to a date lacking it) -- this reproduces the old "show the latest" default without
 overriding a session the user deliberately picked, as long as it's still available after a date change.
+**Gotcha:** every ◀/▶ button in both navigator rows calls `st.rerun()` right after mutating its
+`st.session_state` key, not just the mutation alone -- without it, the *same* script run that processes
+a click still renders every arrow's `disabled=` from the state as of *before* that click (the mutation
+happens later in the script than the buttons that read it, and Streamlit doesn't re-execute the script
+just because `session_state` changed internally, only on a fresh widget interaction), so landing on a
+boundary (today, or the last available session) left the wrong arrow looking enabled/disabled on screen
+until some unrelated widget happened to force a real rerun -- reported as "the arrows point the wrong
+way" after switching from Morning to Midday. This bit the session row harder than the date row: both of
+its arrows share one `cur_idx` computed once before either button runs, so a click there left *both*
+arrows showing the fully inverted, pre-click state, not just the clicked one's own.
 `load_forecast_for_date_session(d, session)` replaces the old date-only `load_forecast_for_date()`,
 looking up that exact (date, session) pair, with the same NULL-counts-as-Morning handling. Either way
 `dashboard.py` calls `render_diagram_svg()` itself, from that row's `levels`, rather than ever reading
