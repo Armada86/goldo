@@ -17,6 +17,7 @@ load_dotenv()  # local runs: .env into os.environ. No-op on Streamlit Cloud (no 
 if "DATABASE_URL" not in os.environ and "DATABASE_URL" in st.secrets:
     os.environ["DATABASE_URL"] = st.secrets["DATABASE_URL"]
 
+import broker_b
 from config import DASHBOARD_INDICATOR_NAMES, DOLLAR_UNIT_NAMES
 from storage import get_connection
 from ta_forecast_job import render_diagram_svg
@@ -93,22 +94,52 @@ def load_forecast_sessions_for_date(d) -> list[str]:
 def load_forecast_for_date_session(d, session: str) -> dict | None:
     """The forecast for a specific ET date *and* session (Morning/Midday), or None if there isn't one.
     `levels->>'session' IS NULL` counts as Morning: see `load_forecast_sessions_for_date()`'s docstring
-    for why."""
+    for why. Includes `id` -- needed to look up this row's own Broker B trades for the diagram's
+    per-level outcome markers (see `load_broker_b_outcomes()`)."""
     with get_connection() as conn, conn.cursor() as cur:
         if session == "Morning":
             cur.execute(
-                "SELECT ts, analysis, levels FROM ta_forecasts WHERE forecast_date = %s "
+                "SELECT id, ts, analysis, levels FROM ta_forecasts WHERE forecast_date = %s "
                 "AND (levels->>'session' = 'Morning' OR levels->>'session' IS NULL) ORDER BY ts LIMIT 1",
                 (d,),
             )
         else:
             cur.execute(
-                "SELECT ts, analysis, levels FROM ta_forecasts WHERE forecast_date = %s "
+                "SELECT id, ts, analysis, levels FROM ta_forecasts WHERE forecast_date = %s "
                 "AND levels->>'session' = %s ORDER BY ts LIMIT 1",
                 (d, session),
             )
         row = cur.fetchone()
-    return {"ts": row[0], "analysis": row[1], "levels": row[2]} if row else None
+    return {"id": row[0], "ts": row[1], "analysis": row[2], "levels": row[3]} if row else None
+
+
+def load_broker_b_outcomes(forecast_id: int) -> dict[str, dict]:
+    """Broker B's actual trade record against this forecast row's four scenarios -- the diagram's
+    per-level outcome markers (see `render_diagram_svg()`'s `scenario_outcomes` docstring). Keyed by
+    *scenario* name (`sell_resistance`/`buy_support`/`bull_breakout`/`bear_breakdown`), translated from
+    `broker_b_trades.rule_name` via `broker_b.ZONE_SCENARIOS`, the same mapping `broker_b.py` itself
+    uses -- so this can never drift from which rule actually trades which scenario. `wins` counts closed
+    trades with `pnl > 0`; `loss` is True if any closed trade has `pnl <= 0` (at most one ever, since
+    `broker_b.py` retires a rule for the rest of this forecast row after its first stop-out). An open
+    trade with no closed result yet counts toward neither."""
+    rule_to_scenario = {rule_name: name for name, (_, rule_name) in broker_b.ZONE_SCENARIOS.items()}
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT rule_name, pnl, status FROM broker_b_trades WHERE ta_forecast_id = %s",
+            (forecast_id,),
+        )
+        rows = cur.fetchall()
+    outcomes: dict[str, dict] = {}
+    for rule_name, pnl, status in rows:
+        scenario_name = rule_to_scenario.get(rule_name)
+        if scenario_name is None or status != "Closed" or pnl is None:
+            continue
+        o = outcomes.setdefault(scenario_name, {"wins": 0, "loss": False})
+        if pnl > 0:
+            o["wins"] += 1
+        elif pnl < 0:
+            o["loss"] = True
+    return outcomes
 
 
 def load_forecast_date_bounds():
@@ -292,10 +323,15 @@ if min_forecast_date is not None:
                 f"L \\${candle['low']:,.2f} C \\${candle['close']:,.2f}"
             )
         st.caption(caption)
+        try:
+            scenario_outcomes = load_broker_b_outcomes(forecast["id"]) if forecast.get("id") else {}
+        except Exception as e:
+            st.error(f"Could not load Broker B outcomes for this forecast: {e}")
+            scenario_outcomes = {}
         st.markdown(
             render_diagram_svg(
                 levels["price"], levels["resistances"], levels["supports"], levels["scenarios"],
-                candle, live_price,
+                candle, live_price, scenario_outcomes,
             ),
             unsafe_allow_html=True,
         )

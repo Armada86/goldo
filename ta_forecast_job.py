@@ -593,6 +593,7 @@ def render_diagram_svg(
     scenarios: list[dict],
     candle: dict | None = None,
     live_price: float | None = None,
+    scenario_outcomes: dict[str, dict] | None = None,
 ) -> str:
     """Self-contained SVG price ladder: resistance zones above price in red, support zones below in
     green, a thin price line, and the two breakout/breakdown stop lines -- modelled on the reference
@@ -624,7 +625,18 @@ def render_diagram_svg(
     frozen at whenever the forecast ran and can be hours stale by the time it's viewed) -- drawn as a
     small dot (`DIAGRAM_PRICE_DOT_RADIUS`) centered in the band column, distinct in color from the price
     hairline, so both are visible together: the plan's reference price (line) and where spot actually
-    is right now (dot)."""
+    is right now (dot).
+
+    `scenario_outcomes`, if given, is Broker B's actual trade record for this forecast row's four
+    scenarios (dashboard.py builds it from `broker_b_trades`, keyed by scenario name: `{"wins": int,
+    "loss": bool}`) -- drawn as a small marker on the left edge, beside whichever level each scenario
+    trades: `sell_resistance`/`buy_support` beside their zone's own row, `bull_breakout`/
+    `bear_breakdown` beside the breakout stop-line they share a trigger price with (a breakout's
+    trigger is literally a fade's stop -- see `build_scenarios()`). A scenario with any closed loss
+    (`broker_b.py` retires a rule for the rest of that forecast row after its first stop-out, so there's
+    at most one) shows a red ✗; one with only wins shows a green ✓ plus the win count (1-3, `broker_b`'s
+    `MAX_TRADES_PER_LEVEL`); a scenario never yet triggered, or still on its first open trade with no
+    closed result yet, shows nothing."""
     zones = [(z, True) for z in resistances] + [(z, False) for z in supports]
     stops = {sc["name"]: sc for sc in scenarios}
     stop_lines = [
@@ -661,6 +673,21 @@ def render_diagram_svg(
         rows.append(("live", None, None))
 
     band_center_x = DIAGRAM_BAND_X + DIAGRAM_BAND_WIDTH / 2
+
+    def outcome_marker(scenario_name: str) -> tuple[str, str]:
+        """(marker text, color) for a scenario's Broker B record, or ("", "") if there's nothing to
+        show yet -- see this function's docstring for the win/loss/blank rules."""
+        outcome = (scenario_outcomes or {}).get(scenario_name)
+        if not outcome:
+            return "", ""
+        if outcome.get("loss"):
+            return "✗", DIAGRAM_COLOR_RESISTANCE
+        wins = outcome.get("wins", 0)
+        if wins > 0:
+            return f"✓{wins}", DIAGRAM_COLOR_SUPPORT
+        return "", ""
+
+    markers = []
 
     def row_sort_key(r):
         if r[0] == "price":
@@ -729,6 +756,20 @@ def render_diagram_svg(
             f'fill="{color}">{_fmt_zone(zone)}</tspan> {escape(_short_zone_label(zone))}'
             f'<title>{escape(tooltip)}</title></text>'
         )
+        # Only the nearest zone each side actually has a scenario traded against it
+        # (build_scenarios() only fades resistances[0]/supports[0]) -- the rest are informational only.
+        scenario_name = (
+            "sell_resistance" if is_resistance and resistances and zone is resistances[0]
+            else "buy_support" if not is_resistance and supports and zone is supports[0]
+            else None
+        )
+        if scenario_name:
+            mk, mk_color = outcome_marker(scenario_name)
+            if mk:
+                markers.append(
+                    f'<text x="4" y="{label_y:.1f}" font-size="10" font-weight="700" '
+                    f'fill="{mk_color}">{mk}</text>'
+                )
 
     axis_ticks = "".join(
         f'<line x1="{DIAGRAM_AXIS_X - 4}" x2="{DIAGRAM_AXIS_X}" y1="{y_of(tk):.1f}" y2="{y_of(tk):.1f}" '
@@ -737,13 +778,33 @@ def render_diagram_svg(
         f'text-anchor="end">{tk:,.0f}</text>'
         for tk in ticks
     )
-    stop_svg = "".join(
-        f'<line x1="{DIAGRAM_BAND_X}" x2="{DIAGRAM_BAND_X + DIAGRAM_BAND_WIDTH}" y1="{y_of(s):.1f}" '
-        f'y2="{y_of(s):.1f}" stroke="{DIAGRAM_COLOR_MUTED}" stroke-width="1" stroke-dasharray="4 3"/>'
-        f'<text x="{DIAGRAM_BAND_X + 2}" y="{y_of(s) - 2:.1f}" font-size="7.5" fill="{DIAGRAM_COLOR_MUTED}">'
-        f'{s:,.0f}</text>'
-        for s in stop_lines
-    )
+    # Each stop line is also the trigger for the mirrored breakout scenario (bull_breakout shares
+    # sell_resistance's stop, bear_breakdown shares buy_support's stop -- see build_scenarios()), so
+    # that's where its outcome marker goes; there's no separate zone band for a breakout to attach to.
+    stop_entries = [
+        (s, breakout_name)
+        for s, breakout_name in (
+            (stops.get("sell_resistance", {}).get("stop"), "bull_breakout"),
+            (stops.get("buy_support", {}).get("stop"), "bear_breakdown"),
+        )
+        if s is not None
+    ]
+    stop_svg_parts = []
+    for s, breakout_name in stop_entries:
+        y = y_of(s)
+        stop_svg_parts.append(
+            f'<line x1="{DIAGRAM_BAND_X}" x2="{DIAGRAM_BAND_X + DIAGRAM_BAND_WIDTH}" y1="{y:.1f}" '
+            f'y2="{y:.1f}" stroke="{DIAGRAM_COLOR_MUTED}" stroke-width="1" stroke-dasharray="4 3"/>'
+            f'<text x="{DIAGRAM_BAND_X + 2}" y="{y - 2:.1f}" font-size="7.5" fill="{DIAGRAM_COLOR_MUTED}">'
+            f'{s:,.0f}</text>'
+        )
+        mk, mk_color = outcome_marker(breakout_name)
+        if mk:
+            markers.append(
+                f'<text x="4" y="{y + 3.3:.1f}" font-size="10" font-weight="700" '
+                f'fill="{mk_color}">{mk}</text>'
+            )
+    stop_svg = "".join(stop_svg_parts)
 
     candle_svg = ""
     if candle:
@@ -787,7 +848,7 @@ def render_diagram_svg(
         f'<line x1="{DIAGRAM_AXIS_X}" x2="{DIAGRAM_AXIS_X}" y1="{DIAGRAM_TOP}" '
         f'y2="{DIAGRAM_TOP + DIAGRAM_PLOT_HEIGHT}" stroke="{DIAGRAM_COLOR_RULE}"/>'
         f'{axis_ticks}{"".join(bands)}{stop_svg}{candle_svg}'
-        f'{"".join(labels)}'
+        f'{"".join(labels)}{"".join(markers)}'
         f'<g font-size="9" fill="{DIAGRAM_COLOR_MUTED}">'
         f'<rect x="4" y="{height - 32}" width="10" height="10" fill="{DIAGRAM_COLOR_RESISTANCE}" fill-opacity="0.5"/>'
         f'<text x="18" y="{height - 23}">Resistance</text>'
