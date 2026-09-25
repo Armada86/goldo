@@ -258,8 +258,25 @@ still trivially satisfy "touched," so each poll opened another phantom trade at 
 virgin level (its first trade this forecast row) still fires on the first touch, no retreat needed.
 Still only **one Broker B position open at a time, across all four rules** —
 a rule can't fire while any other already has an open trade. When more than one rule's level is touched
-within the same poll's candle window, whichever was reached earliest chronologically wins, not any fixed
-rule priority. Same $10 flat take-profit/stop-loss as Broker A (`broker._find_exit()`, imported directly
+within the same poll's candle window, whichever was reached earliest chronologically wins **and passes
+its entry filters**; a touch that fails one is skipped in favor of the next-earliest touch, not treated
+as blocking the whole poll.
+
+**Three entry filters (added 25 Sep 2026, gate fresh entries only — never exits)**, after a live double
+loss (`TA-Zone-sell` sold $4,283.21 resistance at 9:01pm ET while DXY was already sliding — a real
+tailwind, not a fakeout — so price ran through the zone to $4,295.53, stopping that short out, and the
+immediate `TA-Breakout-buy` then also stopped out on the round-trip back down, all inside the 9-11pm ET
+window, the day's thinnest-liquidity stretch): (1) **trading hours** — no new entry outside
+`broker_b.ENTRY_WINDOW_START_ET`-`ENTRY_WINDOW_END_ET` (8am-4pm America/New_York, weekdays; 4pm is the
+NY cash close) — both incident trades fired at 9pm ET, so this alone would have blocked both; (2)
+**DXY confirmation** (`broker_b._dxy_confirms()`) — a Buy is skipped if DXY has risen, a Sell skipped
+if DXY has fallen, by at least its own calibrated 15-min companion-swing threshold
+(`config.INTRAHOUR_SWING_ALERT_THRESHOLD["dxy"][15]`) over the trailing 15 minutes — this is the check
+that would have stopped the incident's short, since DXY was already easing before it fired; (3) **RSI
+exhaustion, breakout rules only** (`broker_b._rsi_confirms()`) — `TA-Breakout-buy` is skipped if gold's
+RSI(14) (same computation as `rules.check_rsi_alerts()`) is already >= `RSI_OVERBOUGHT_THRESHOLD` (70),
+`TA-Breakout-sell` skipped if already <= `RSI_OVERSOLD_THRESHOLD` (30); the two fade rules aren't RSI-gated.
+All three fail open (no block) on missing data, same convention as Broker A's `_bias_allows()`. Same $10 flat take-profit/stop-loss as Broker A (`broker._find_exit()`, imported directly
 rather than reimplemented, so the two engines' exit math can't drift apart), same 1 oz size. Entirely
 separate Postgres `broker_b_trades` table (`trades`' columns plus `ta_forecast_id`, so a trade can be
 traced back to the exact forecast row/scenario that produced it) and separate open-trade tracking —

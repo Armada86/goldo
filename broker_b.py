@@ -45,22 +45,73 @@ An earlier version (24 Sep 2026) added a $2 entry tolerance, treating a level as
 came within $2 of it, to cover the routine $1-2 gap between Twelve Data (this engine's feed) and a
 broker platform's own feed. Removed at the user's explicit request the next day -- back to an exact
 touch.
+
+**Three entry filters, added 25 Sep 2026 after analyzing a live double-loss** (TA-Zone-sell sold
+$4,283.21 resistance at 9:01pm ET while DXY was already sliding -- a real tailwind, not a fakeout --
+so price ran through the zone to $4,295.53 before the immediate TA-Breakout-buy also stopped out on
+the round-trip back down, all inside the 9-11pm ET window, the market's thinnest liquidity stretch):
+
+1. **Trading-hours window** (`_within_entry_window()`): no *new* entries outside
+   `ENTRY_WINDOW_START_ET`-`ENTRY_WINDOW_END_ET` (8:00am-4:00pm ET, the NY cash close, weekdays only).
+   Both incident trades opened at 9pm ET -- outside this window alone would have blocked both. Exits
+   are never gated by this -- an open Broker B trade still gets managed to its $10 exit at any hour,
+   the same way Broker A's exits and forex_broker.py's close-check both run around the clock; only a
+   *fresh* entry waits for the window.
+2. **DXY confirmation** (`_dxy_confirms()`): a Buy is skipped if DXY has risen by at least its own
+   calibrated 15-minute swing threshold (`config.INTRAHOUR_SWING_ALERT_THRESHOLD["dxy"][15]`, from
+   `intrahour_swing_thresholds.json` -- reusing the project's existing calibration rather than a new
+   arbitrary number) over the trailing 15 minutes; a Sell is skipped if DXY has *fallen* by that much.
+   Gold and DXY move inversely, so this blocks a fade into a real, live macro headwind/tailwind --
+   exactly what let the incident's short get run over (DXY was already easing before that Sell fired).
+3. **RSI exhaustion, breakout rules only** (`_rsi_confirms()`): `TA-Breakout-buy` is skipped if gold's
+   RSI(14) (`data_fetcher.fetch_gold_candles()`/`compute_rsi()`, `config.RSI_PERIOD`, the same 15-min-candle
+   computation `rules.check_rsi_alerts()` uses) is already >= `RSI_OVERBOUGHT_THRESHOLD` (70) --
+   don't chase a rally that's already stretched. `TA-Breakout-sell` is skipped, mirrored, if RSI is
+   already <= `RSI_OVERSOLD_THRESHOLD` (30). Left off the two fade rules (`TA-Zone-sell`/`TA-Zone-buy`):
+   an extended RSI at the level being faded is not obviously wrong for a fade the way it is for a
+   breakout being chased.
+
+All three fail open (no block) on a DB/API hiccup or missing data, same convention as Broker A's own
+`_bias_allows()`/`_latest_bias_score()` -- a data problem should degrade Broker B toward its old
+unfiltered behavior, never toward refusing to trade at all. Applied per-candidate touch, earliest
+first: if the earliest touch fails a gate, the next-earliest touch (a different rule) is tried instead
+of giving up the whole poll.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, time, timezone
+from zoneinfo import ZoneInfo
 
 from broker import _find_exit, _result_marker
-from config import GOLD_SPOT_SYMBOL
-from data_fetcher import fetch_candles
+from config import (
+    GOLD_SPOT_SYMBOL,
+    INTRAHOUR_SWING_ALERT_THRESHOLD,
+    RSI_OVERBOUGHT_THRESHOLD,
+    RSI_OVERSOLD_THRESHOLD,
+    RSI_PERIOD,
+)
+from data_fetcher import compute_rsi, fetch_candles, fetch_gold_candles
 from notifier import send_telegram_message
 from storage import (
     close_trade_row_b,
     get_latest_ta_forecast,
     get_last_close_ts_b,
     get_open_trade_b,
+    get_recent_readings,
     insert_trade_b,
     trade_b_level_history,
 )
+
+DISPLAY_TZ = ZoneInfo("America/New_York")
+
+# No *new* Broker B entry outside this window (weekdays only) -- see module docstring's "Trading-hours
+# window" entry. Existing open trades are exempt; only fresh entries wait for it.
+ENTRY_WINDOW_START_ET = time(8, 0)
+ENTRY_WINDOW_END_ET = time(16, 0)  # the NY cash close
+
+# How far back the DXY confirmation check looks for a net move against the trade -- see module
+# docstring's "DXY confirmation" entry. Matches the fastest calibrated companion-swing window
+# (INTRAHOUR_SWING_WINDOWS_MINUTES' shortest longer tier) rather than a made-up number.
+DXY_CONFIRM_WINDOW_MINUTES = 15
 
 # How many minutes of 1-min candles the entry scan pulls each poll -- same value/reasoning as
 # broker.py's EXIT_CANDLE_LOOKBACK_MINUTES: comfortably more than one 5-min poll interval, so a
@@ -150,6 +201,51 @@ def _scan_zone_entry(
     return None
 
 
+def _within_entry_window(now_utc: datetime) -> bool:
+    """True on a weekday between ENTRY_WINDOW_START_ET and ENTRY_WINDOW_END_ET -- see module
+    docstring's "Trading-hours window" entry. Only gates fresh entries; an already-open trade's exit
+    is checked unconditionally by check_broker_b_trades() regardless of this."""
+    local = now_utc.astimezone(DISPLAY_TZ)
+    return local.weekday() < 5 and ENTRY_WINDOW_START_ET <= local.time() < ENTRY_WINDOW_END_ET
+
+
+def _dxy_confirms(trade_type: str) -> bool:
+    """True unless DXY has just made a real move against this trade -- see module docstring's "DXY
+    confirmation" entry. Fails open (True) on missing/insufficient data, same convention as
+    broker._latest_bias_score()."""
+    try:
+        readings = get_recent_readings("dxy", DXY_CONFIRM_WINDOW_MINUTES)
+        threshold = INTRAHOUR_SWING_ALERT_THRESHOLD["dxy"][DXY_CONFIRM_WINDOW_MINUTES]
+    except Exception:
+        return True
+    if len(readings) < 2:
+        return True
+    change = readings[-1][1] - readings[0][1]
+    # Gold and DXY move inversely: a Buy wants DXY not rising (no fresh headwind), a Sell wants DXY
+    # not falling (no fresh tailwind).
+    if trade_type == "Buy":
+        return change < threshold
+    return change > -threshold
+
+
+def _rsi_confirms(scenario_name: str) -> bool:
+    """True unless a breakout scenario would chase gold's RSI(14) already past the overbought/oversold
+    threshold -- see module docstring's "RSI exhaustion" entry. Only gates the two breakout rules; the
+    two fade rules pass unconditionally. Fails open (True) on a candle-fetch problem."""
+    if scenario_name == "bull_breakout":
+        threshold, over = RSI_OVERBOUGHT_THRESHOLD, True
+    elif scenario_name == "bear_breakdown":
+        threshold, over = RSI_OVERSOLD_THRESHOLD, False
+    else:
+        return True
+    try:
+        rsi = compute_rsi(fetch_gold_candles()["close"], period=RSI_PERIOD).dropna()
+        current = rsi.iloc[-1]
+    except Exception:
+        return True
+    return current < threshold if over else current > threshold
+
+
 def _open_message(trade_type: str, rule_name: str, price: float, session: str, forecast_date) -> str:
     return (
         f"{TRADE_ALERT_PREFIX}BROKER B: opened {trade_type} 1 oz XAU/USD @ ${price:.2f} (rule {rule_name}).\n"
@@ -172,7 +268,11 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
     for a fresh entry on any of the four TA forecast levels (TA-Zone-sell/-buy,
     TA-Breakout-sell/-buy) -- no bias gate, price actually reaching a level is the entire signal --
     up to MAX_TRADES_PER_LEVEL times per (forecast, level) pair, re-arming only
-    after a win there (trade_b_level_history()), and only while no Broker B trade is already open. See .claude/agents/broker.md's Broker B rules."""
+    after a win there (trade_b_level_history()), and only while no Broker B trade is already open. A
+    fresh entry additionally requires: the trading-hours window (_within_entry_window()), DXY not
+    having just moved against the trade (_dxy_confirms()), and, for the two breakout rules only, RSI
+    not already past the level being chased (_rsi_confirms()) -- see module docstring. See
+    .claude/agents/broker.md's Broker B rules."""
     gold_price = prices.get("gold")
     if gold_price is None:
         return
@@ -190,6 +290,9 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
 
     if open_trade is not None:
         return  # still open -- only one Broker B position at a time, across all four rules
+
+    if not _within_entry_window(now):
+        return  # outside 8am-4pm ET weekdays -- see module docstring's "Trading-hours window" entry
 
     try:
         forecast = get_latest_ta_forecast()
@@ -235,7 +338,15 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
     if not touches:
         return
 
-    trigger_ts, trigger_price, trade_type, rule_name, scenario_name = min(touches, key=lambda t: t[0])
+    # Earliest touch first; a touch that fails the DXY/RSI confirmation gates is skipped in favor of
+    # the next-earliest one (a different rule) rather than giving up the whole poll on it.
+    touches.sort(key=lambda t: t[0])
+    for trigger_ts, trigger_price, trade_type, rule_name, scenario_name in touches:
+        if _dxy_confirms(trade_type) and _rsi_confirms(scenario_name):
+            break
+    else:
+        return
+
     session = levels.get("session", "?")
     trigger_text = f"{session} TA forecast {forecast['forecast_date']}, {scenario_name} @ ${trigger_price:.2f}"
     insert_trade_b(rule_name, trade_type, trigger_price, trigger_ts, trigger_text, forecast["id"])
