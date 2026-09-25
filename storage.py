@@ -104,14 +104,6 @@ def init_db() -> None:
         )
         cur.execute(
             """
-            CREATE TABLE IF NOT EXISTS telegram_command_state (
-                id SMALLINT PRIMARY KEY CHECK (id = 1),
-                last_update_id BIGINT NOT NULL
-            )
-            """
-        )
-        cur.execute(
-            """
             CREATE TABLE IF NOT EXISTS broker_a_blocked (
                 id SERIAL PRIMARY KEY,
                 rule_name TEXT NOT NULL,
@@ -978,23 +970,3 @@ def get_all_trades_b() -> list[dict]:
         }
         for r in rows
     ]
-
-
-def get_last_telegram_update_id() -> int:
-    """The highest Telegram update_id telegram_command_job.py has already processed, or 0 if it
-    has never run -- getUpdates' own `offset` parameter uses this so a stateless one-shot job
-    (triggered fresh by cron-job.org each run, no long-running process to hold this in memory)
-    never re-processes a message it already acted on."""
-    with get_connection() as conn, conn.cursor() as cur:
-        cur.execute("SELECT last_update_id FROM telegram_command_state WHERE id = 1")
-        row = cur.fetchone()
-    return row[0] if row is not None else 0
-
-
-def set_last_telegram_update_id(update_id: int) -> None:
-    with get_connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            "INSERT INTO telegram_command_state (id, last_update_id) VALUES (1, %s) "
-            "ON CONFLICT (id) DO UPDATE SET last_update_id = EXCLUDED.last_update_id",
-            (update_id,),
-        )

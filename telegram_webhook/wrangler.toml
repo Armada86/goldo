@@ -1,0 +1,8 @@
+name = "goldo-telegram-webhook"
+main = "src/index.js"
+compatibility_date = "2024-09-23"
+
+# Secrets (DATABASE_URL, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_WEBHOOK_SECRET,
+# TWELVE_DATA_API_KEY) are NOT set here -- they're pushed with `wrangler secret put <NAME>` so they
+# never land in this file or in git. See CLAUDE.md's "Inbound Telegram commands" entry for the full
+# deployment/setup steps.

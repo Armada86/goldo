@@ -1,0 +1,18 @@
+{
+  "name": "goldo-telegram-webhook",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cloudflare Worker: receives Telegram's webhook and opens/closes Broker A/B positions in real time. See CLAUDE.md's \"Inbound Telegram commands\" entry for the full design and deployment steps.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "node --test test/index.test.js"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.0.0"
+  }
+}
