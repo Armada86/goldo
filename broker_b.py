@@ -231,71 +231,94 @@ def _within_entry_window(now_utc: datetime) -> bool:
     return local.weekday() < 5 and ENTRY_WINDOW_START_ET <= local.time() < ENTRY_WINDOW_END_ET
 
 
-def _dxy_confirms(trade_type: str, readings: list) -> tuple[bool, str | None]:
-    """(ok, reason) -- ok unless DXY has just made a real move against this trade, see module
-    docstring's "DXY confirmation" entry; `reason` is a human-readable explanation set only when
-    ok is False, for the blocked-entry Telegram notice. `readings` is the caller's single shared
-    get_recent_readings("dxy", DXY_CONFIRM_WINDOW_MINUTES) fetch (a poll may check several touches;
-    fetching once and passing it in avoids repeating that DB read per touch). Fails open (ok=True) on
-    missing/insufficient data, same convention as broker._latest_bias_score()."""
+def _dxy_confirms(trade_type: str, readings: list) -> tuple[bool, str | None, str | None]:
+    """(ok, category, detail) -- ok unless DXY has just made a real move against this trade, see
+    module docstring's "DXY confirmation" entry; both set only when ok is False. `category` is a
+    fixed string with no live numbers in it, safe to use as the blocked-entry dedup key (see
+    _notify_blocked() -- a reason string that changes every poll, e.g. by embedding the live DXY
+    delta, would defeat that dedup and re-send every poll); `detail` carries the actual numbers, for
+    the Telegram text only. `readings` is the caller's single shared get_recent_readings("dxy",
+    DXY_CONFIRM_WINDOW_MINUTES) fetch (a poll may check several touches; fetching once and passing it
+    in avoids repeating that DB read per touch). Fails open (ok=True) on missing/insufficient data,
+    same convention as broker._latest_bias_score()."""
     if not readings or len(readings) < 2:
-        return True, None
+        return True, None, None
     try:
         threshold = INTRAHOUR_SWING_ALERT_THRESHOLD["dxy"][DXY_CONFIRM_WINDOW_MINUTES]
     except Exception:
-        return True, None
+        return True, None, None
     change = readings[-1][1] - readings[0][1]
     # Gold and DXY move inversely: a Buy wants DXY not rising (no fresh headwind), a Sell wants DXY
     # not falling (no fresh tailwind).
     if trade_type == "Buy":
         if change >= threshold:
-            return False, (
+            return (
+                False,
+                "DXY rose against the Buy (fresh headwind)",
                 f"DXY rose {change:+.4f} in {DXY_CONFIRM_WINDOW_MINUTES} min "
-                f"(fresh headwind, threshold {threshold:.4f})"
+                f"(fresh headwind, threshold {threshold:.4f})",
             )
-        return True, None
+        return True, None, None
     if change <= -threshold:
-        return False, (
+        return (
+            False,
+            "DXY fell against the Sell (fresh tailwind)",
             f"DXY fell {change:+.4f} in {DXY_CONFIRM_WINDOW_MINUTES} min "
-            f"(fresh tailwind, threshold {threshold:.4f})"
+            f"(fresh tailwind, threshold {threshold:.4f})",
         )
-    return True, None
+    return True, None, None
 
 
-def _rsi_confirms(scenario_name: str, rsi_value: float | None) -> tuple[bool, str | None]:
-    """(ok, reason) -- ok unless a breakout scenario would chase gold's RSI(14) already past the
-    overbought/oversold threshold, see module docstring's "RSI exhaustion" entry; `reason` set only
-    when ok is False. Only gates the two breakout rules; the two fade rules always pass. `rsi_value`
-    is the caller's single shared RSI(14) computation (see check_broker_b_trades) -- None if it
-    couldn't be computed this poll, which fails this open (ok=True)."""
+def _rsi_confirms(scenario_name: str, rsi_value: float | None) -> tuple[bool, str | None, str | None]:
+    """(ok, category, detail) -- ok unless a breakout scenario would chase gold's RSI(14) already
+    past the overbought/oversold threshold, see module docstring's "RSI exhaustion" entry; both set
+    only when ok is False. `category` has no live number (dedup key, see _dxy_confirms()'s docstring
+    for why); `detail` carries the actual reading, for the Telegram text only. Only gates the two
+    breakout rules; the two fade rules always pass. `rsi_value` is the caller's single shared RSI(14)
+    computation (see check_broker_b_trades) -- None if it couldn't be computed this poll, which fails
+    this open (ok=True)."""
     if scenario_name == "bull_breakout":
         threshold, over = RSI_OVERBOUGHT_THRESHOLD, True
     elif scenario_name == "bear_breakdown":
         threshold, over = RSI_OVERSOLD_THRESHOLD, False
     else:
-        return True, None
+        return True, None, None
     if rsi_value is None:
-        return True, None
+        return True, None, None
     ok = rsi_value < threshold if over else rsi_value > threshold
     if ok:
-        return True, None
+        return True, None, None
     word, cmp = ("overbought", ">=") if over else ("oversold", "<=")
-    return False, f"RSI(14) already {word}: {rsi_value:.1f} ({cmp} {threshold})"
-
-
-def _blocked_message(rule_name: str, price: float, reasons: str) -> str:
     return (
-        f"{TRADE_ALERT_PREFIX.rstrip()}{BLOCKED_MARKER}BROKER B: {rule_name} level ${price:.2f} "
-        f"reached but blocked -- {reasons}."
+        False,
+        f"RSI(14) already {word} (threshold {cmp} {threshold})",
+        f"RSI(14) already {word}: {rsi_value:.1f} ({cmp} {threshold})",
     )
 
 
-def _notify_blocked(forecast: dict, rule_name: str, trigger_price: float, reasons: str) -> None:
-    """Sends the blocked-entry Telegram notice, unless this exact (forecast, rule, reasons) was
+def _blocked_message(rule_name: str, price: float, message_reasons: str) -> str:
+    return (
+        f"{TRADE_ALERT_PREFIX.rstrip()}{BLOCKED_MARKER}BROKER B: {rule_name} level ${price:.2f} "
+        f"reached but blocked -- {message_reasons}."
+    )
+
+
+def _notify_blocked(
+    forecast: dict, rule_name: str, trigger_price: float, dedup_reasons: str, message_reasons: str | None = None
+) -> None:
+    """Sends the blocked-entry Telegram notice, unless this exact (forecast, rule, dedup_reasons) was
     already notified (see module docstring). Shared by both the real candle-scan touch path (DXY/RSI
-    gates) and the cheap point-price timing-block path."""
-    if record_broker_b_blocked_if_new(forecast["id"], rule_name, trigger_price, reasons):
-        send_telegram_message(_blocked_message(rule_name, trigger_price, reasons))
+    gates) and the cheap point-price timing-block path.
+
+    `dedup_reasons` is what gets stored/compared for the anti-spam check -- it must stay the same
+    across polls describing the *same* ongoing block, so it must never embed anything that changes
+    every poll (a live clock reading, a live DXY delta) or the dedup silently never fires twice in a
+    row and every poll re-sends. `message_reasons` (defaulting to `dedup_reasons` when the reason text
+    is already poll-invariant, e.g. RSI/DXY's numbers are fixed to the touch that triggered them) is
+    what the Telegram text actually shows, which may safely include such detail since only the first
+    qualifying poll's copy is ever sent."""
+    if record_broker_b_blocked_if_new(forecast["id"], rule_name, trigger_price, dedup_reasons):
+        send_telegram_message(_blocked_message(rule_name, trigger_price, message_reasons or dedup_reasons))
 
 
 def _notify_timing_block(candidates: list, gold_price: float, forecast: dict, now: datetime) -> None:
@@ -305,7 +328,11 @@ def _notify_timing_block(candidates: list, gold_price: float, forecast: dict, no
     the window; see module docstring for why this path stays cheap). Dedup'd the same way as
     _notify_gate_block()."""
     local = now.astimezone(DISPLAY_TZ)
-    reasons = (
+    dedup_reasons = (
+        f"outside trading hours (window is "
+        f"{ENTRY_WINDOW_START_ET:%H:%M}-{ENTRY_WINDOW_END_ET:%H:%M} ET, weekdays)"
+    )
+    message_reasons = (
         f"outside trading hours (now {local:%H:%M} ET; window is "
         f"{ENTRY_WINDOW_START_ET:%H:%M}-{ENTRY_WINDOW_END_ET:%H:%M} ET, weekdays)"
     )
@@ -314,7 +341,7 @@ def _notify_timing_block(candidates: list, gold_price: float, forecast: dict, no
         rising = scenario_name in RISING_APPROACH_SCENARIOS
         reached = gold_price >= trigger_price if rising else gold_price <= trigger_price
         if reached:
-            _notify_blocked(forecast, rule_name, trigger_price, reasons)
+            _notify_blocked(forecast, rule_name, trigger_price, dedup_reasons, message_reasons)
 
 
 def _open_message(trade_type: str, rule_name: str, price: float, session: str, forecast_date) -> str:
@@ -433,13 +460,14 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
     touches.sort(key=lambda t: t[0])
     selected = None
     for trigger_ts, trigger_price, trade_type, rule_name, scenario_name in touches:
-        dxy_ok, dxy_reason = _dxy_confirms(trade_type, dxy_readings)
-        rsi_ok, rsi_reason = _rsi_confirms(scenario_name, rsi_value)
+        dxy_ok, dxy_category, dxy_detail = _dxy_confirms(trade_type, dxy_readings)
+        rsi_ok, rsi_category, rsi_detail = _rsi_confirms(scenario_name, rsi_value)
         if dxy_ok and rsi_ok:
             selected = (trigger_ts, trigger_price, trade_type, rule_name, scenario_name)
             break
-        reasons = "; ".join(r for r in (dxy_reason, rsi_reason) if r)
-        _notify_blocked(forecast, rule_name, trigger_price, reasons)
+        dedup_reasons = "; ".join(r for r in (dxy_category, rsi_category) if r)
+        message_reasons = "; ".join(r for r in (dxy_detail, rsi_detail) if r)
+        _notify_blocked(forecast, rule_name, trigger_price, dedup_reasons, message_reasons)
     if selected is None:
         return
     trigger_ts, trigger_price, trade_type, rule_name, scenario_name = selected

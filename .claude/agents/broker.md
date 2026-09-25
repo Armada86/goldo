@@ -248,7 +248,17 @@ Both are deduplicated in Postgres (`broker_b_blocked` table, `storage.record_bro
 keyed on `(ta_forecast_id, rule_name, reasons)`) — a level sitting past its trigger for hours (price
 idling outside trading hours, or DXY/RSI staying against it) sends one notice total, not one every
 5-minute poll; a genuinely different reasons string for the same forecast row and rule (blocked by DXY,
-then later by RSI) still gets its own notice.
+then later by RSI) still gets its own notice. The `reasons` column stores a **dedup category** string —
+e.g. `"outside trading hours (window is 08:00-16:00 ET, weekdays)"`, `"DXY rose against the Buy (fresh
+headwind)"`, `"RSI(14) already overbought (threshold >= 70)"` — deliberately without any number that
+changes from poll to poll (a live clock reading, a live DXY delta, a live RSI value), which would
+otherwise defeat the `UNIQUE` constraint and re-send every poll; that live detail (the actual clock
+time/DXY delta/RSI value) only ever goes into the Telegram message text itself
+(`broker_b._notify_blocked()`'s `message_reasons` argument), which is safe to vary since only the first
+qualifying poll's copy is ever sent. Fixed 25 Sep 2026 — the original implementation put the live
+numbers straight into the dedup key, so the same ongoing block re-sent a fresh Telegram message every
+~5 minutes instead of once (`_dxy_confirms()`/`_rsi_confirms()` now return `(ok, category, detail)`
+instead of `(ok, reason)`, and `_notify_timing_block()` builds separate dedup/message strings).
 
 ### Broker B: position sizing & concurrency
 
