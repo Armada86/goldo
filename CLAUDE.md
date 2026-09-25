@@ -583,7 +583,17 @@ in `DIAGRAM_COLOR_LIVE` -- distinct from the price hairline's `DIAGRAM_COLOR_PRI
 together) centered in the same band column `candle` would use. In practice the two are mutually
 exclusive in how `dashboard.py` calls this function (`candle` only for a past date, `live_price` only
 for today), so they never actually share that column, but neither is enforced against the other here.
-The legend gains a "Live" dot entry only when `live_price` is given. The SVG itself is set to
+The legend gains a "Live" dot entry only when `live_price` is given. A third optional argument,
+`scenario_outcomes` (`dict[str, dict]`, keyed by scenario name -- `sell_resistance`/`buy_support`/
+`bull_breakout`/`bear_breakdown`, each value `{"wins": int, "loss": bool}`), draws Broker B's actual
+track record for that forecast row's four levels as a small marker on the left edge of the diagram, at
+the same y-position as the zone/stop line it belongs to: a green "✓N" if the level has been hit and won
+N times (`DIAGRAM_COLOR_SUPPORT`, reusing the same green as a support zone), a red "✗" if its most
+recent close was a loss (`DIAGRAM_COLOR_RESISTANCE`), or nothing at all if Broker B has never traded it
+this forecast row. `dashboard.py` supplies this for every forecast it renders, not just the latest one
+-- browsing to any past date/session shows that row's own outcomes, not just today's. No legend entry
+was added for these markers (the ✓/✗ symbols and existing red/green zone coloring were judged
+self-explanatory, and the legend row is already tight on a phone-width screen). The SVG itself is set to
 `width:100%; height:auto` so it stretches to fill its container on any screen instead of rendering at a
 fixed intrinsic size (which used to leave a blank margin on a wide phone screen); a live/current forecast
 never passes a `candle` (the day isn't finished yet), but `dashboard.py`'s historical date view does (see
@@ -662,7 +672,16 @@ way" after switching from Morning to Midday. This bit the session row harder tha
 its arrows share one `cur_idx` computed once before either button runs, so a click there left *both*
 arrows showing the fully inverted, pre-click state, not just the clicked one's own.
 `load_forecast_for_date_session(d, session)` replaces the old date-only `load_forecast_for_date()`,
-looking up that exact (date, session) pair, with the same NULL-counts-as-Morning handling. Either way
+looking up that exact (date, session) pair, with the same NULL-counts-as-Morning handling, and now also
+returns that row's `id` -- needed to look up its own Broker B trades. `load_broker_b_outcomes(forecast_id)`
+queries `broker_b_trades WHERE ta_forecast_id = %s`, translates each row's `rule_name` to a scenario name
+via `broker_b.ZONE_SCENARIOS` (the same mapping `broker_b.py` itself uses, so this can never drift from
+which rule actually trades which scenario), and returns `{scenario_name: {"wins": int, "loss": bool}}`
+counting only `status == 'Closed'` rows (`wins` increments per win, `loss` is set if any closed trade lost
+-- at most one, since `broker_b.py` retires a rule for the rest of a forecast row after its first
+stop-out; an open trade with no result yet counts toward neither) -- passed to `render_diagram_svg()`'s
+`scenario_outcomes` argument (see "XAU/USD technical forecast" above) so every forecast the dashboard
+renders, past or present, shows its own real outcome markers, not just the latest one. Either way
 `dashboard.py` calls `render_diagram_svg()` itself, from that row's `levels`, rather than ever reading
 the job's cached `diagram_svg` column back (see "XAU/USD technical forecast" above for why) -- one code
 path for both cases, and it always reflects the diagram code's current look even for an old row. A
