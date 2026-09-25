@@ -264,8 +264,13 @@ reaches the level (same candle-scan technique as Broker A's exit, applied to an 
 filled at — rather than at whatever the live spot price is when the poll notices. (A $2 entry
 tolerance was added 24 Sep 2026 to cover the routine $1–2 gap between Twelve Data and a broker
 platform's feed, then removed the next day at the user's request; back to an exact touch.)
-Candles at or before the last Broker B trade's close are ignored (`storage.get_last_close_ts_b()`), so
-a touch can never open a back-dated trade — needed for the re-arm rule below. The two fade rules are
+Candles at or before the last Broker B trade's close, **and** at or before the current forecast row's
+own `ts`, are ignored (`storage.get_last_close_ts_b()`, `ta_forecasts.ts`) — needed for the re-arm rule
+below, and (the `ts` guard, fixed 25 Sep 2026) to stop a brand-new forecast whose levels happen to land
+on a price the market already touched minutes earlier from retroactively opening a trade timestamped
+before that forecast even existed. Observed live: the Midday forecast (ts 16:00:39 UTC) landed with a
+`buy_support` zone at $4,283.21 that gold had already touched at 15:43 UTC, 17 minutes earlier, and
+`TA-Zone-buy` opened citing that forecast with an `open_ts` stamped before it was generated. The two fade rules are
 invalidated (no trade) if price already broke the zone's far side (the scenario's `stop`)
 before/without a clean touch; the two breakout rules have no such invalidation, since crossing the
 trigger is the entire signal. **Deliberately does not apply `broker._bias_allows()`** — unlike Broker
