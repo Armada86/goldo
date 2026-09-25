@@ -249,7 +249,14 @@ only)" section). Fires **up to `MAX_TRADES_PER_LEVEL` (3) times per (forecast ro
 win**: `storage.trade_b_level_history()` returns that level's trade count and whether any was stopped
 out, and the first stop-out retires the rule for that forecast row (the level broke; a fade stopped out
 above resistance would otherwise re-enter at once), until the next `ta_forecast_job.py` run supplies
-fresh levels. Still only **one Broker B position open at a time, across all four rules** —
+fresh levels. **A re-arm only counts a touch after price is actually seen back on the away side of the
+trigger first** (`_scan_zone_entry()`'s `require_retreat`, true whenever that rule already has a trade
+this forecast row) — fixed 25 Sep 2026 after `TA-Breakout-buy` opened three "Buy @ $4293.21" trades
+within ~30 minutes even though real price never dropped back below $4293.21 after the first one closed;
+without the retreat check, a level that broke out and kept running had every later candle's high/low
+still trivially satisfy "touched," so each poll opened another phantom trade at the same stale price. A
+virgin level (its first trade this forecast row) still fires on the first touch, no retreat needed.
+Still only **one Broker B position open at a time, across all four rules** —
 a rule can't fire while any other already has an open trade. When more than one rule's level is touched
 within the same poll's candle window, whichever was reached earliest chronologically wins, not any fixed
 rule priority. Same $10 flat take-profit/stop-loss as Broker A (`broker._find_exit()`, imported directly

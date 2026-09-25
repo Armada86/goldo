@@ -17,7 +17,14 @@ zone" scenarios (`sell_resistance`/`buy_support`) *and* their mirrored breakout 
 mapping. Only one trade open at a time, across all four rules, same as Broker A -- a fresh entry is
 never opened while a Broker B position is already open, no matter which of the four levels it is.
 **Each level re-arms after a win**: up to MAX_TRADES_PER_LEVEL (3) trades per (forecast, level), but
-the first stop-out at a level retires it for that forecast (trade_b_level_history()).
+the first stop-out at a level retires it for that forecast (trade_b_level_history()). A re-arm only
+fires on a genuine fresh touch -- price must be observed back on the away side of the trigger at
+some point after the previous trade closed before the next touch counts (see
+_scan_zone_entry()'s `require_retreat`). Without this, a level that broke out and kept running
+(never came back) would have every later candle's high/low still trivially satisfy "touched",
+opening back-to-back phantom trades at the same stale price on successive polls -- observed live on
+25 Sep 2026: TA-Breakout-buy opened three "Buy @ $4293.21" trades in ~30 minutes although the real
+price never returned below $4293.21 after the first one closed; the second and third were bogus.
 
 **Entry is a candle scan, mirroring Broker A's exit scan exactly (same technique, same reasoning).**
 check_broker_b_trades() runs once per poll (every 5 minutes); a naive "is the live spot price at the
@@ -107,25 +114,39 @@ def _entry_price_and_invalidation(scenario_name: str, scenario: dict) -> tuple[f
     return scenario["trigger"], None  # bull_breakout / bear_breakdown
 
 
-def _scan_zone_entry(scenario_name: str, scenario: dict, candles) -> tuple[float, datetime] | None:
+def _scan_zone_entry(
+    scenario_name: str, scenario: dict, candles, require_retreat: bool
+) -> tuple[float, datetime] | None:
     """Scans 1-min candles in chronological order for the first bar whose high/low actually reached
     this scenario's level without the same or an earlier bar already invalidating it -- same
     technique as broker._scan_exit_crossing(), applied to an entry instead of an exit. Returns
     (trigger_price, trigger_ts) at the first qualifying bar, or None if the level was never cleanly
-    reached (or was invalidated before/without one) in `candles`."""
+    reached (or was invalidated before/without one) in `candles`.
+
+    `require_retreat` guards re-armed levels (see MAX_TRADES_PER_LEVEL): when True, a touch only
+    counts once price has first been seen back on the away side of the trigger somewhere in
+    `candles` -- otherwise a level that broke out and simply kept running (never came back) would
+    have its every subsequent bar's high/low still satisfy "touched" and get treated as a brand-new
+    touch on each poll, opening phantom trades at the stale trigger price. A virgin level
+    (require_retreat=False) still fires on its first-ever touch, no retreat needed."""
     trigger_price, invalidation_price = _entry_price_and_invalidation(scenario_name, scenario)
     rising = scenario_name in RISING_APPROACH_SCENARIOS
+    retreated = not require_retreat
     for _, bar in candles.iterrows():
         if rising:
             touched = bar["high"] >= trigger_price
             invalidated = invalidation_price is not None and bar["high"] >= invalidation_price
+            away = bar["low"] < trigger_price
         else:
             touched = bar["low"] <= trigger_price
             invalidated = invalidation_price is not None and bar["low"] <= invalidation_price
-        if touched and not invalidated:
+            away = bar["high"] > trigger_price
+        if touched and not invalidated and retreated:
             return trigger_price, bar["datetime"].to_pydatetime()
         if invalidated:
             return None
+        if away:
+            retreated = True
     return None
 
 
@@ -188,7 +209,7 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
         history = trade_b_level_history(forecast["id"], rule_name)
         if history["stopped_out"] or history["count"] >= MAX_TRADES_PER_LEVEL:
             continue
-        candidates.append((scenario_name, trade_type, rule_name, scenario))
+        candidates.append((scenario_name, trade_type, rule_name, scenario, history["count"] > 0))
 
     if not candidates:
         return
@@ -205,8 +226,8 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
         candles = candles[candles["datetime"] > last_close_ts]
 
     touches = []
-    for scenario_name, trade_type, rule_name, scenario in candidates:
-        touch = _scan_zone_entry(scenario_name, scenario, candles)
+    for scenario_name, trade_type, rule_name, scenario, require_retreat in candidates:
+        touch = _scan_zone_entry(scenario_name, scenario, candles, require_retreat)
         if touch is not None:
             trigger_price, trigger_ts = touch
             touches.append((trigger_ts, trigger_price, trade_type, rule_name, scenario_name))

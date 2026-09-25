@@ -215,6 +215,16 @@ invalidation check, same reasoning as `TA-Breakout-buy`.
   have hit its +$10 take-profit, but only the first could trade. An already-open trade isn't
   affected when a newer forecast lands; it keeps running to its own $10 exit, and only a *new* entry
   after that will use the refreshed levels.
+- **A re-arm requires a genuine retreat first, not just "still touching."** Fixed 25 Sep 2026: a
+  re-armed level only counts its next touch once price has actually been seen back on the *away* side
+  of the trigger sometime after the previous trade closed (`broker_b._scan_zone_entry()`'s
+  `require_retreat`, `True` whenever `trade_b_level_history()["count"] > 0` for that rule). Before this,
+  once a breakout ran and never came back, every later candle's high/low still trivially satisfied
+  "touched," so the very next poll (and the one after) opened another trade at the same stale trigger
+  price even though real price was nowhere near it anymore. Observed live: `TA-Breakout-buy` opened
+  three "Buy @ $4293.21" trades within ~30 minutes on 25 Sep 2026 even though price never dropped back
+  below $4293.21 after the first trade closed — only the first was real. A virgin level (its first
+  trade off this forecast row) still fires on the first touch, no retreat required.
 - When more than one of the four rules is eligible and touched within the same poll's candle window,
   Broker B opens whichever one's level was reached **earliest** chronologically, not in any fixed rule
   priority order (`min()` over each candidate's trigger timestamp in `check_broker_b_trades()`).
