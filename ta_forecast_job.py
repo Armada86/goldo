@@ -636,7 +636,18 @@ def render_diagram_svg(
     (`broker_b.py` retires a rule for the rest of that forecast row after its first stop-out, so there's
     at most one) shows a red ✗; one with only wins shows a green ✓ plus the win count (1-3, `broker_b`'s
     `MAX_TRADES_PER_LEVEL`); a scenario never yet triggered, or still on its first open trade with no
-    closed result yet, shows nothing."""
+    closed result yet, shows nothing.
+
+    When a zone/price/live-price row's label gets pushed off its true position by the
+    `DIAGRAM_MIN_LABEL_GAP` anti-collision nudge (common in a crowded cluster, e.g. price/live-price/a
+    zone all landing within a few dollars of each other), a thin dashed leader line, colored to match
+    the row it belongs to (not a single generic gray, so it reads correctly even with several
+    differently-colored rows packed together), is drawn from the row's true proportional y-position to
+    wherever its label actually ended up -- so a reader can tell which bar/line a displaced label (or,
+    for a zone with an outcome marker, the marker) really belongs to instead of guessing from vertical
+    proximity alone. A zone's outcome marker gets its own leader on the left (axis side), colored to the
+    marker's own win/loss color, under the same condition; a breakout/breakdown marker never needs one,
+    since it's anchored directly to its stop line's true position, never nudged."""
     zones = [(z, True) for z in resistances] + [(z, False) for z in supports]
     stops = {sc["name"]: sc for sc in scenarios}
     stop_lines = [
@@ -688,6 +699,31 @@ def render_diagram_svg(
         return "", ""
 
     markers = []
+    leaders = []
+
+    def leader_right(true_y: float, label_y: float, color: str) -> str:
+        """Dashed connector from a row's true y-position to its (nudged) label on the right, plus a
+        small dot marking the true position precisely -- see this function's docstring. `color` matches
+        the row's own color (band/price/live) so the connector visually ties back to the right row even
+        when several differently-colored rows are packed close together, rather than reading as one
+        generic gray line among several."""
+        anchor_x = DIAGRAM_BAND_X + DIAGRAM_BAND_WIDTH
+        return (
+            f'<circle cx="{anchor_x:.1f}" cy="{true_y:.1f}" r="1.6" fill="{color}"/>'
+            f'<line x1="{anchor_x + 2:.1f}" x2="{DIAGRAM_LABEL_X - 4:.1f}" y1="{true_y:.1f}" '
+            f'y2="{label_y - 3:.1f}" stroke="{color}" stroke-width="0.75" stroke-opacity="0.6" '
+            f'stroke-dasharray="1.5 1.5"/>'
+        )
+
+    def leader_left(true_y: float, label_y: float, color: str) -> str:
+        """Same as leader_right, mirrored to the left (axis side) -- used only for a zone's outcome
+        marker, so the marker's own displaced position can also be traced back to its true level."""
+        anchor_x = DIAGRAM_AXIS_X - 4
+        return (
+            f'<circle cx="{anchor_x:.1f}" cy="{true_y:.1f}" r="1.6" fill="{color}"/>'
+            f'<line x1="16" x2="{anchor_x - 2:.1f}" y1="{label_y - 3:.1f}" y2="{true_y:.1f}" '
+            f'stroke="{color}" stroke-width="0.75" stroke-opacity="0.6" stroke-dasharray="1.5 1.5"/>'
+        )
 
     def row_sort_key(r):
         if r[0] == "price":
@@ -707,10 +743,13 @@ def render_diagram_svg(
                 f'<line x1="{DIAGRAM_AXIS_X}" x2="{DIAGRAM_BAND_X + DIAGRAM_BAND_WIDTH}" y1="{y:.1f}" '
                 f'y2="{y:.1f}" stroke="{DIAGRAM_COLOR_PRICE}" stroke-width="1.25"/>'
             )
-            label_y = y + 3.3
+            natural_label_y = y + 3.3
+            label_y = natural_label_y
             if prev_label_y is not None and label_y - prev_label_y < DIAGRAM_MIN_LABEL_GAP:
                 label_y = prev_label_y + DIAGRAM_MIN_LABEL_GAP
             prev_label_y = label_y
+            if label_y != natural_label_y:
+                leaders.append(leader_right(y, label_y, DIAGRAM_COLOR_PRICE))
             labels.append(
                 f'<text x="{DIAGRAM_LABEL_X}" y="{label_y:.1f}" font-size="9.5" fill="{DIAGRAM_COLOR_INK}">'
                 f'<tspan font-family="IBM Plex Mono, ui-monospace, monospace" font-weight="700" '
@@ -726,10 +765,13 @@ def render_diagram_svg(
                 f'<circle cx="{band_center_x:.1f}" cy="{y:.1f}" r="{DIAGRAM_PRICE_DOT_RADIUS}" '
                 f'fill="{DIAGRAM_COLOR_LIVE}"/>'
             )
-            label_y = y + 3.3
+            natural_label_y = y + 3.3
+            label_y = natural_label_y
             if prev_label_y is not None and label_y - prev_label_y < DIAGRAM_MIN_LABEL_GAP:
                 label_y = prev_label_y + DIAGRAM_MIN_LABEL_GAP
             prev_label_y = label_y
+            if label_y != natural_label_y:
+                leaders.append(leader_right(y, label_y, DIAGRAM_COLOR_LIVE))
             labels.append(
                 f'<text x="{DIAGRAM_LABEL_X}" y="{label_y:.1f}" font-size="9.5" fill="{DIAGRAM_COLOR_INK}">'
                 f'<tspan font-family="IBM Plex Mono, ui-monospace, monospace" font-weight="700" '
@@ -743,10 +785,15 @@ def render_diagram_svg(
             f'height="{max(3.0, y_bot - y_top):.1f}" fill="{color}" fill-opacity="0.22" '
             f'stroke="{color}" stroke-width="1"/>'
         )
-        label_y = (y_top + y_bot) / 2 + 3.3
+        true_y = (y_top + y_bot) / 2
+        natural_label_y = true_y + 3.3
+        label_y = natural_label_y
         if prev_label_y is not None and label_y - prev_label_y < DIAGRAM_MIN_LABEL_GAP:
             label_y = prev_label_y + DIAGRAM_MIN_LABEL_GAP
         prev_label_y = label_y
+        nudged = label_y != natural_label_y
+        if nudged:
+            leaders.append(leader_right(true_y, label_y, color))
         tooltip = ", ".join(zone["labels"])
         if zone.get("nearby"):
             tooltip += "; nearby " + "; ".join(f"{_fmt_zone(n)}: {', '.join(n['labels'])}" for n in zone["nearby"])
@@ -770,6 +817,8 @@ def render_diagram_svg(
                     f'<text x="4" y="{label_y:.1f}" font-size="10" font-weight="700" '
                     f'fill="{mk_color}">{mk}</text>'
                 )
+                if nudged:
+                    leaders.append(leader_left(true_y, label_y, mk_color))
 
     axis_ticks = "".join(
         f'<line x1="{DIAGRAM_AXIS_X - 4}" x2="{DIAGRAM_AXIS_X}" y1="{y_of(tk):.1f}" y2="{y_of(tk):.1f}" '
@@ -847,7 +896,7 @@ def render_diagram_svg(
         f'aria-label="Gold price ladder: resistance above {price:,.2f}, support below">'
         f'<line x1="{DIAGRAM_AXIS_X}" x2="{DIAGRAM_AXIS_X}" y1="{DIAGRAM_TOP}" '
         f'y2="{DIAGRAM_TOP + DIAGRAM_PLOT_HEIGHT}" stroke="{DIAGRAM_COLOR_RULE}"/>'
-        f'{axis_ticks}{"".join(bands)}{stop_svg}{candle_svg}'
+        f'{axis_ticks}{"".join(bands)}{"".join(leaders)}{stop_svg}{candle_svg}'
         f'{"".join(labels)}{"".join(markers)}'
         f'<g font-size="9" fill="{DIAGRAM_COLOR_MUTED}">'
         f'<rect x="4" y="{height - 32}" width="10" height="10" fill="{DIAGRAM_COLOR_RESISTANCE}" fill-opacity="0.5"/>'
