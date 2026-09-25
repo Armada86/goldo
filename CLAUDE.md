@@ -613,7 +613,23 @@ recent close was a loss (`DIAGRAM_COLOR_RESISTANCE`), or nothing at all if Broke
 this forecast row. `dashboard.py` supplies this for every forecast it renders, not just the latest one
 -- browsing to any past date/session shows that row's own outcomes, not just today's. No legend entry
 was added for these markers (the ✓/✗ symbols and existing red/green zone coloring were judged
-self-explanatory, and the legend row is already tight on a phone-width screen). The SVG itself is set to
+self-explanatory, and the legend row is already tight on a phone-width screen).
+
+**Leader lines for nudged labels/markers**: zone/price/live-price labels (and a zone's outcome marker,
+which rides the same y-position as its label) are placed at `DIAGRAM_MIN_LABEL_GAP`-nudged positions,
+not their true proportional price position, whenever rows land close together -- common in a crowded
+cluster (e.g. price/live-price/the nearest zone/its breakout stop all within a few dollars of each
+other), and this used to make it genuinely ambiguous which bar/line a displaced label or outcome marker
+actually belonged to (reported live: a support zone's ✓N marker, nudged down by the crowd above it,
+ended up sitting almost on top of the unrelated dashed breakdown stop line below). Fixed by drawing a
+thin dashed leader line, colored to match the row it belongs to (the zone's own band color for a zone
+label, `DIAGRAM_COLOR_PRICE`/`DIAGRAM_COLOR_LIVE` for the price/live-price rows, a marker's own win/loss
+color for a zone's outcome-marker leader) rather than one generic gray, from the row's true
+y-position (with a small dot marking it precisely) to wherever the nudge actually placed its label --
+so a reader can trace the color back to the real level instead of guessing from vertical proximity. Only
+drawn when a row actually got nudged (`label_y != natural_label_y`); a well-spaced diagram (no crowding)
+never shows one. A breakout/breakdown marker never needs a leader, since it's anchored directly to its
+stop line's own true position (`y_of(stop) + 3.3`), never nudged in the first place. The SVG itself is set to
 `width:100%; height:auto` so it stretches to fill its container on any screen instead of rendering at a
 fixed intrinsic size (which used to leave a blank margin on a wide phone screen); a live/current forecast
 never passes a `candle` (the day isn't finished yet), but `dashboard.py`'s historical date view does (see
