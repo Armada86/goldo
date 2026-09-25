@@ -14,9 +14,11 @@ signals filtered by an overall directional bias, `trades` table) and **Broker B*
 directional filter at all, `broker_b_trades` table) — both called from `main.poll_once()` every poll,
 both the local `main.py` loop and the cloud `poll_job.py`/`poll.yml`. The two never interact: separate
 tables, separate open-trade tracking, separate Telegram identities (🔵 Broker A, circles: closes
-🔵🟢/🔵🔴; 🟦 Broker B, squares: closes 🟦🟩/🟦🟥). They share one thing by import, not duplication, so it
-can't drift apart: the exit mechanics (`broker._pnl()`/`_exit_levels()`/`_scan_exit_crossing()`/
-`_find_exit()`). They deliberately do **not** share the TA bias gate (`broker._bias_allows()`) — that
+🔵🟢/🔵🔴; 🟦 Broker B, squares: closes 🟦🟩/🟦🟥). They share two things by import, not duplication, so
+neither can drift apart: the exit mechanics (`broker._pnl()`/`_exit_levels()`/`_scan_exit_crossing()`/
+`_find_exit()`), and the `Filled: <date> <time> <tz>` line every open/close Telegram message ends with
+(`broker._format_ts()`, ET) — the real `open_ts`/`exit_ts` a trade actually happened at, which can be
+several minutes before the poll that notices it sends the message. They deliberately do **not** share the TA bias gate (`broker._bias_allows()`) — that
 filter is Broker A-only; see "TA bias gate" below for why the two diverge here. There is no
 markdown/doc log of trades for either engine — the two tables are the only records, deliberately, so a
 trade never requires a repo commit. You do not do any of the trading yourself. Your job is to read and
