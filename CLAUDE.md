@@ -207,7 +207,27 @@ poll still closes at the true level (`broker._find_exit()`). Every entry is also
 (see "XAU/USD technical forecast" below): a Buy is skipped if that forecast reads bearish (score < 0),
 a Sell skipped if it reads bullish (score > 0); Neutral (0) or no forecast yet allows either direction.
 This gate is Broker A-only — `broker_b.py` (below) deliberately does **not** import or apply it, so the
-two engines' bias handling has diverged on purpose (see Broker B's entry below). Trade state lives in a Postgres `trades` table (mirrors
+two engines' bias handling has diverged on purpose (see Broker B's entry below). **Two further entry
+filters, added 26 Sep 2026** after analyzing a live loss (`Consensus5of7-sell` sold $4,264.94 at
+14:06:57 UTC on 25 Sep, the exact poll gold dropped $12.04 in five minutes and RSI(14) alerted "entered
+oversold territory" in the same cycle — all 7 of 7 indicators flagged off that single spike, DXY only
+barely cleared its own 10-min threshold and had stalled within minutes; price mean-reverted straight
+through the $10 stop): `broker._rsi_confirms()` skips a Sell if gold's RSI(14) is already
+`<= RSI_OVERSOLD_THRESHOLD` (30), a Buy if already `>= RSI_OVERBOUGHT_THRESHOLD` (70) — the same
+computation `broker_b._rsi_confirms()` uses for its two breakout rules, and the exact check that would
+have blocked the loss trade (RSI read 30.0 in that same poll); `broker._dxy_confirms()` requires DXY's
+own net move over the trailing `DXY_CONFIRM_WINDOW_MINUTES` (15) to independently clear its own
+calibrated 15-min companion-swing threshold in the trade's favor, since Consensus5of7 only needs 5 of 7
+indicators to flag on any of their own windows — DXY might not have flagged at all, or only on a thin
+blip (as happened in the loss trade: barely cleared its 10-min threshold, then stalled). This is
+**stricter** than `broker_b._dxy_confirms()`, which only blocks a clear *opposing* move — Broker A
+requires genuine confirmation, since DXY here is just one of seven alert sources rather than Broker B's
+dedicated fade signal. Both fail open on missing/insufficient data, same convention as
+`_bias_allows()`. A block from either sends a deduplicated Telegram notice (🔵⛔,
+`broker._notify_blocked()`, `storage.record_broker_a_blocked_if_new()`, `broker_a_blocked` table, keyed
+on `(rule_name, reasons, since_ts)` where `since_ts` is Broker A's own entry watermark since there's no
+forecast row to scope by here) — unlike a bias-gate skip or an already-open-trade skip, which stay
+unlogged beyond the GitHub Actions run log. Trade state lives in a Postgres `trades` table (mirrors
 `readings`/`alerts` — required since `poll_job.py` is a stateless one-shot run each cloud poll, so
 in-memory state can't survive between polls); only one trade open at a time, and a fresh entry only
 considers alerts newer than the last trade's open time so a stale alert can't retrigger. Every

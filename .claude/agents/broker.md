@@ -110,6 +110,42 @@ trailing 10-minute window, at least 5 of the 7 fire together in this direction:
 **Exit**: same as above — close at unrealized P/L of **+$10** or **-$10**, computed as
 `entry_price - spot_now` for a Sell.
 
+### Broker A: entry filters (added 26 Sep 2026)
+
+A signal that passes the TA bias gate above still has to clear two further checks before it opens —
+added after analyzing a live loss (`Consensus5of7-sell` sold $4,264.94 at 14:06:57 UTC on 25 Sep, the
+exact poll gold dropped $12.04 in five minutes and RSI(14) alerted "entered oversold territory" in the
+same cycle — all 7 of 7 indicators flagged off that single spike, DXY only barely cleared its own
+10-min threshold and had stalled within minutes; price mean-reverted straight through the $10 stop by
+14:47):
+
+1. **RSI exhaustion** (`broker._rsi_confirms()`) — a Sell is skipped if gold's RSI(14) is already
+   `<= RSI_OVERSOLD_THRESHOLD` (30), a Buy skipped if already `>= RSI_OVERBOUGHT_THRESHOLD` (70). Same
+   computation `rules.check_rsi_alerts()`/`broker_b._rsi_confirms()` already use — don't chase a move
+   that's already technically exhausted. This is the check that would have blocked the loss trade
+   directly: RSI read exactly 30.0, oversold, the same poll the Sell fired.
+2. **DXY confirmation on the real 15-minute move** (`broker._dxy_confirms()`) — since Consensus5of7
+   only needs 5 of 7 named indicators to flag on *any* of their own 5/10/15-min windows, DXY might not
+   have flagged at all, or only on a thin 5-minute blip. This requires DXY's own net move over the
+   trailing `DXY_CONFIRM_WINDOW_MINUTES` (15) to independently clear its own calibrated 15-min
+   companion-swing threshold (`config.INTRAHOUR_SWING_ALERT_THRESHOLD["dxy"][15]`) in the trade's
+   favor — up for a Sell, down for a Buy. **Stricter than `broker_b._dxy_confirms()`**, which only
+   blocks a clear *opposing* move (a "no fresh headwind" gate) — this one requires genuine
+   confirmation, since DXY here is just one of seven alert sources rather than Broker B's dedicated
+   fade signal. This is the second check the loss trade would have failed: DXY's 10-min move barely
+   cleared its own 10-min threshold and had already stalled by the time the trade opened.
+
+Both fail open (no block) on missing/insufficient data, same convention as `_bias_allows()`/
+`_latest_bias_score()` above. Unlike a bias-gate skip, a block from either of these filters **sends a
+deduplicated Telegram notice** (`🔵⛔`, `broker._notify_blocked()`) naming the rule, price, and reason(s)
+— e.g. `🔵⛔ BROKER A: Consensus5of7-sell signal @ $4264.94 reached but blocked -- RSI(14) already
+oversold: 30.0 (<= 30); DXY moved only +0.0500 in 15 min (needs >= 0.0532 to confirm).` Deduplicated in
+Postgres (`broker_a_blocked` table, `storage.record_broker_a_blocked_if_new()`, keyed on `(rule_name,
+reasons, since_ts)`) so the same ongoing block doesn't re-send every 5-minute poll while it persists —
+`since_ts` is Broker A's own entry watermark (`get_last_trade_open_ts()`, or the epoch if no trade has
+ever opened) rather than a forecast-row id (Broker A has none), so the same `(rule_name, reasons)` pair
+can notify again on a later, genuinely separate occasion once the watermark advances past a new trade.
+
 ### Broker A: position sizing & concurrency
 
 - Every trade is exactly 1 troy ounce of gold spot, so entry/exit prices and P/L are all in the same
@@ -119,10 +155,11 @@ trailing 10-minute window, at least 5 of the 7 fire together in this direction:
   to close first. The 5-of-7 threshold means it's *possible*, if the alert stream is genuinely
   conflicting, for both the buy pattern and the sell pattern to independently reach 5 in the same
   window — `broker.py` treats that as an incoherent signal and opens no trade either way (see
-  `_match_entry_rule()`'s tie-break). A signal skipped this way (whether from an already-open trade, a
-  buy/sell tie, or the TA bias gate above) isn't logged anywhere beyond the GitHub Actions run log for
-  that poll — revisit this default if the user ever wants concurrent trades or a record of skipped
-  signals.
+  `_match_entry_rule()`'s tie-break). A signal skipped this way (an already-open trade, a buy/sell tie,
+  or the TA bias gate above) isn't logged anywhere beyond the GitHub Actions run log for that poll —
+  revisit this default if the user ever wants concurrent trades or a record of skipped signals. A
+  signal blocked by the RSI/DXY entry filters (above) is the one exception: those *do* get a
+  deduplicated Telegram notice and a Postgres record (`broker_a_blocked`).
 - To avoid a stale alert re-triggering a new entry right after a trade closes, `broker.py` only
   considers alerts newer than the most recent trade's open time (`storage.get_last_trade_open_ts()`)
   as eligible signals.
@@ -303,6 +340,10 @@ instead of `(ok, reason)`, and `_notify_timing_block()` builds separate dedup/me
 - **The `trades` table in Postgres** — the *only* record of every Broker A trade (`id`, `rule_name`,
   `trade_type`, `entry_price`, `open_ts`, `triggering_alerts`, `exit_price`, `close_ts`, `pnl`,
   `status` — see `storage.py`'s `get_all_trades()`/`get_open_trade()`).
+- **The `broker_a_blocked` table** — every blocked-entry notice Broker A has sent (`rule_name`, `price`,
+  `reasons`, `since_ts`, `detected_ts` — see `storage.get_broker_a_blocked()`), useful for asking "how
+  often is Broker A being blocked, and by what" or comparing a blocked signal's later outcome against
+  the trades it did take.
 - **The `broker_b_trades` table** — the same shape plus `ta_forecast_id` (which forecast row
   produced/would-dedup this trade — see `storage.py`'s `get_all_trades_b()`/`get_open_trade_b()`).
 - **The `broker_b_blocked` table** — every blocked-entry notice Broker B has sent (`ta_forecast_id`,

@@ -104,6 +104,19 @@ def init_db() -> None:
         )
         cur.execute(
             """
+            CREATE TABLE IF NOT EXISTS broker_a_blocked (
+                id SERIAL PRIMARY KEY,
+                rule_name TEXT NOT NULL,
+                price DOUBLE PRECISION NOT NULL,
+                reasons TEXT NOT NULL,
+                since_ts TIMESTAMPTZ NOT NULL,
+                detected_ts TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                UNIQUE (rule_name, reasons, since_ts)
+            )
+            """
+        )
+        cur.execute(
+            """
             CREATE TABLE IF NOT EXISTS threshold_history (
                 id SERIAL PRIMARY KEY,
                 date DATE NOT NULL,
@@ -884,6 +897,48 @@ def get_broker_b_blocked() -> list[dict]:
             "rule_name": r[2],
             "trigger_price": r[3],
             "reasons": r[4],
+            "detected_ts": r[5],
+        }
+        for r in rows
+    ]
+
+
+def record_broker_a_blocked_if_new(rule_name: str, price: float, reasons: str, since_ts: datetime) -> bool:
+    """Records one Broker A blocked-entry notice and returns True if it's newly recorded (i.e. the
+    caller should send a Telegram message), False if this exact (rule_name, reasons) combination was
+    already recorded since `since_ts` -- the dedup that stops the same ongoing block (RSI still
+    exhausted, DXY still unconfirmed) from sending a new notice every 5-minute poll while it persists.
+    `since_ts` is broker.py's own entry watermark (get_last_trade_open_ts(), or the epoch if no trade
+    has ever opened) -- there's no forecast row to scope by here the way broker_b_blocked has, so the
+    watermark plays that role instead: it advances the moment a new trade actually opens, which lets
+    the same (rule_name, reasons) pair notify again on a genuinely later, separate occurrence. See
+    broker.py's _notify_blocked()."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO broker_a_blocked (rule_name, price, reasons, since_ts) "
+            "VALUES (%s, %s, %s, %s) ON CONFLICT (rule_name, reasons, since_ts) DO NOTHING "
+            "RETURNING id",
+            (rule_name, price, reasons, since_ts),
+        )
+        return cur.fetchone() is not None
+
+
+def get_broker_a_blocked() -> list[dict]:
+    """Every recorded Broker A blocked-entry notice, oldest first -- for ad hoc querying/analysis
+    (e.g. by the Broker subagent); not used by broker.py's own trading logic."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, rule_name, price, reasons, since_ts, detected_ts "
+            "FROM broker_a_blocked ORDER BY detected_ts"
+        )
+        rows = cur.fetchall()
+    return [
+        {
+            "id": r[0],
+            "rule_name": r[1],
+            "price": r[2],
+            "reasons": r[3],
+            "since_ts": r[4],
             "detected_ts": r[5],
         }
         for r in rows

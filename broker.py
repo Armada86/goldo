@@ -27,13 +27,42 @@ correctness (the right exit price gets recorded, the trade actually closes), not
 If the candle fetch fails or the API confirms no crossing occurred, this falls back to the previous
 point-price check unchanged, so a transient Twelve Data hiccup never leaves the Broker unable to close
 a trade at all.
+
+**Two entry filters, added 26 Sep 2026 after analyzing a live loss** (Consensus5of7-sell sold $4,264.94
+at 14:06:57 UTC on 25 Sep, the exact poll gold dropped $12.04 in five minutes and RSI(14) alerted
+"entered oversold territory" -- all 7 of 7 indicators flagged off that single spike, DXY only barely
+cleared its own 10-min threshold and had stalled within minutes; price mean-reverted through the $10
+stop by 14:47): (1) **RSI exhaustion** (`_rsi_confirms()`) -- a Sell is skipped if gold's RSI(14) is
+already <= `RSI_OVERSOLD_THRESHOLD` (30), a Buy skipped if already >= `RSI_OVERBOUGHT_THRESHOLD` (70) --
+don't chase a move that's already technically exhausted, the same check `broker_b._rsi_confirms()` uses
+for its two breakout rules. (2) **DXY confirmation on the real 15-min move** (`_dxy_confirms()`) -- since
+Consensus5of7 only needs 5 of 7 named indicators to flag on any of their own 5/10/15-min windows, DXY
+could be the omitted 2, or could have flagged on a thin 5-minute blip that isn't real confirmation; this
+requires DXY's own net move over the trailing `DXY_CONFIRM_WINDOW_MINUTES` (15) to independently clear
+its own calibrated 15-min companion-swing threshold (`config.INTRAHOUR_SWING_ALERT_THRESHOLD["dxy"][15]`)
+in the trade's favor, regardless of which window(s) actually flagged. Unlike broker_b's same-named
+function (which only blocks a *clear opposing* move), this one requires genuine *confirmation* -- a
+stricter bar, since DXY here is just one of seven alert sources rather than the dedicated signal Broker
+B fades. Both fail open (no block) on missing/insufficient data, same convention as `_bias_allows()`.
+A blocked signal sends a deduplicated Telegram notice (`_notify_blocked()`,
+`storage.record_broker_a_blocked_if_new()`) rather than failing silently, same idea as Broker B's own
+blocked-entry notice -- deduplicated by `(rule_name, reasons, since_ts)` where `since_ts` is this
+module's own entry watermark (`get_last_trade_open_ts()`), since Broker A has no forecast row to scope
+by the way Broker B does; the watermark advancing when a trade actually opens is what lets the same
+notice fire again on a later, separate occasion instead of never again.
 """
 
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from config import GOLD_SPOT_SYMBOL
-from data_fetcher import fetch_candles
+from config import (
+    GOLD_SPOT_SYMBOL,
+    INTRAHOUR_SWING_ALERT_THRESHOLD,
+    RSI_OVERBOUGHT_THRESHOLD,
+    RSI_OVERSOLD_THRESHOLD,
+    RSI_PERIOD,
+)
+from data_fetcher import compute_rsi, fetch_candles, fetch_gold_candles
 from notifier import send_telegram_message
 from storage import (
     close_trade_row,
@@ -41,7 +70,9 @@ from storage import (
     get_latest_ta_forecast,
     get_open_trade,
     get_recent_alerts,
+    get_recent_readings,
     insert_trade,
+    record_broker_a_blocked_if_new,
 )
 
 # Consensus5of7-buy / Consensus5of7-sell entry window and exit target -- see
@@ -54,6 +85,10 @@ EXIT_THRESHOLD = 10.0  # take-profit and stop-loss, symmetric, $ per troy ounce
 # check. See _scan_exit_crossing() / module docstring.
 EXIT_CANDLE_LOOKBACK_MINUTES = 20
 
+# How far back the DXY confirmation check looks for a net move backing the trade -- see module
+# docstring's entry-filter entry. Matches broker_b._dxy_confirms()'s own window.
+DXY_CONFIRM_WINDOW_MINUTES = 15
+
 # Prefix for every Broker open/close Telegram message -- distinguishes trade alerts from
 # XAU/USD price alerts (rules.XAUUSD_ALERT_PREFIX) in the chat. See rules.py's module comment
 # for why an emoji, not real text color -- Telegram's Bot API doesn't support that.
@@ -63,6 +98,7 @@ TRADE_ALERT_PREFIX = "\U0001f535 "  # blue circle
 # red for a loss. Broker A uses circles only (Broker B uses squares -- see broker_b.py).
 PROFIT_MARKER = "\U0001f7e2 "  # green circle
 LOSS_MARKER = "\U0001f534 "  # red circle
+BLOCKED_MARKER = "⛔ "  # no-entry sign -- a signal was reached but a filter stopped the trade
 
 # Same zone/format dashboard.py's to_display_str() and ta_forecast_job.py use for every other
 # human-facing timestamp in this project. Trade open/close messages need it because open_ts/close_ts
@@ -115,6 +151,72 @@ def _bias_allows(trade_type: str, bias_score: float) -> bool:
     if trade_type == "Sell":
         return bias_score <= 0
     return bias_score >= 0
+
+
+def _rsi_confirms(trade_type: str, rsi_value: float | None) -> tuple[bool, str | None, str | None]:
+    """(ok, category, detail) -- ok unless gold's RSI(14) is already past the threshold this trade
+    would be chasing further: a Sell wants RSI not already oversold (<= RSI_OVERSOLD_THRESHOLD), a Buy
+    wants RSI not already overbought (>= RSI_OVERBOUGHT_THRESHOLD). See module docstring's "RSI
+    exhaustion" entry -- same computation/thresholds broker_b._rsi_confirms() uses for its two
+    breakout rules. `category` is a fixed string with no live number (safe as the blocked-entry dedup
+    key -- see _notify_blocked()); `detail` carries the actual reading, for the Telegram text only.
+    `rsi_value` is the caller's single RSI(14) computation for this poll -- None if it couldn't be
+    computed, which fails this open (ok=True)."""
+    if rsi_value is None:
+        return True, None, None
+    if trade_type == "Sell":
+        if rsi_value <= RSI_OVERSOLD_THRESHOLD:
+            return (
+                False,
+                f"RSI(14) already oversold (threshold <= {RSI_OVERSOLD_THRESHOLD})",
+                f"RSI(14) already oversold: {rsi_value:.1f} (<= {RSI_OVERSOLD_THRESHOLD})",
+            )
+        return True, None, None
+    if rsi_value >= RSI_OVERBOUGHT_THRESHOLD:
+        return (
+            False,
+            f"RSI(14) already overbought (threshold >= {RSI_OVERBOUGHT_THRESHOLD})",
+            f"RSI(14) already overbought: {rsi_value:.1f} (>= {RSI_OVERBOUGHT_THRESHOLD})",
+        )
+    return True, None, None
+
+
+def _dxy_confirms(trade_type: str, readings: list) -> tuple[bool, str | None, str | None]:
+    """(ok, category, detail) -- ok unless DXY's own net move over the trailing
+    DXY_CONFIRM_WINDOW_MINUTES minutes fails to independently clear its own calibrated 15-min
+    companion-swing threshold in the direction this trade needs -- see module docstring's "DXY
+    confirmation" entry. Stricter than broker_b._dxy_confirms() (which only blocks a clear *opposing*
+    move): this requires genuine confirmation, since Consensus5of7 only needs 5 of 7 indicators to
+    flag on any of their own windows, so DXY might not have flagged at all, or only on a thin 5-min
+    blip. `category`/`detail` follow _rsi_confirms()'s convention. `readings` is the caller's single
+    get_recent_readings("dxy", DXY_CONFIRM_WINDOW_MINUTES) fetch. Fails open (ok=True) on
+    missing/insufficient data, same convention as _latest_bias_score()."""
+    if not readings or len(readings) < 2:
+        return True, None, None
+    try:
+        threshold = INTRAHOUR_SWING_ALERT_THRESHOLD["dxy"][DXY_CONFIRM_WINDOW_MINUTES]
+    except Exception:
+        return True, None, None
+    change = readings[-1][1] - readings[0][1]
+    # Gold and DXY move inversely: a Sell needs DXY to have genuinely risen, a Buy needs it to have
+    # genuinely fallen, each by at least its own calibrated 15-min move.
+    if trade_type == "Sell":
+        if change < threshold:
+            return (
+                False,
+                "DXY's 15-min move doesn't confirm the Sell",
+                f"DXY moved only {change:+.4f} in {DXY_CONFIRM_WINDOW_MINUTES} min "
+                f"(needs >= {threshold:.4f} to confirm)",
+            )
+        return True, None, None
+    if change > -threshold:
+        return (
+            False,
+            "DXY's 15-min move doesn't confirm the Buy",
+            f"DXY moved only {change:+.4f} in {DXY_CONFIRM_WINDOW_MINUTES} min "
+            f"(needs <= {-threshold:.4f} to confirm)",
+        )
+    return True, None, None
 
 
 def _has_alert(alerts: list[tuple[datetime, str]], name: str, direction: str) -> bool:
@@ -262,6 +364,21 @@ def _close_message(trade: dict, exit_price: float, exit_ts: datetime, pnl: float
     )
 
 
+def _blocked_message(rule_name: str, price: float, message_reasons: str) -> str:
+    return (
+        f"{TRADE_ALERT_PREFIX.rstrip()}{BLOCKED_MARKER}BROKER A: {rule_name} signal @ ${price:.2f} "
+        f"reached but blocked -- {message_reasons}."
+    )
+
+
+def _notify_blocked(rule_name: str, price: float, dedup_reasons: str, message_reasons: str, since_ts: datetime) -> None:
+    """Sends the blocked-entry Telegram notice, unless this exact (rule_name, dedup_reasons) was
+    already notified since `since_ts` (see storage.record_broker_a_blocked_if_new()'s docstring for
+    why the watermark plays the role Broker B's forecast-row id does here)."""
+    if record_broker_a_blocked_if_new(rule_name, price, dedup_reasons, since_ts):
+        send_telegram_message(_blocked_message(rule_name, price, message_reasons))
+
+
 def check_broker_trades(prices: dict[str, float]) -> None:
     """Runs once per poll, after this cycle's alerts are saved. Closes the open trade (if any) the
     moment its unrealized P/L reaches the $10 take-profit/stop-loss, then looks for a fresh
@@ -269,7 +386,11 @@ def check_broker_trades(prices: dict[str, float]) -> None:
     intrahour-swing indicators, in the required directions, landing in the alerts table within the
     trailing ENTRY_WINDOW_MINUTES (10) minutes -- gated by _bias_allows(): a signal against the
     latest TA forecast's overall bias (e.g. a Buy while the forecast reads bearish) is skipped, not
-    opened. See .claude/agents/broker.md for the rules themselves."""
+    opened. A signal that passes the bias gate still needs RSI not already exhausted
+    (_rsi_confirms()) and DXY's own 15-min move to genuinely confirm it (_dxy_confirms()) -- see
+    module docstring's entry-filter entry; a signal either of these blocks sends a deduplicated
+    Telegram notice instead of opening (_notify_blocked()). See .claude/agents/broker.md for the
+    rules themselves."""
     gold_price = prices.get("gold")
     if gold_price is None:
         return
@@ -293,7 +414,25 @@ def check_broker_trades(prices: dict[str, float]) -> None:
 
         trade_type, rule_name = _match_entry_rule(alerts)
         if trade_type is not None and _bias_allows(trade_type, _latest_bias_score()):
-            triggering_text = _triggering_text(alerts, trade_type)
-            insert_trade(rule_name, trade_type, gold_price, now, triggering_text)
-            triggering_names = _triggering_names(alerts, trade_type)
-            send_telegram_message(_open_message(trade_type, rule_name, gold_price, triggering_names, now))
+            try:
+                rsi_value = compute_rsi(fetch_gold_candles()["close"], period=RSI_PERIOD).dropna().iloc[-1]
+            except Exception:
+                rsi_value = None
+            try:
+                dxy_readings = get_recent_readings("dxy", DXY_CONFIRM_WINDOW_MINUTES)
+            except Exception:
+                dxy_readings = None
+
+            rsi_ok, rsi_category, rsi_detail = _rsi_confirms(trade_type, rsi_value)
+            dxy_ok, dxy_category, dxy_detail = _dxy_confirms(trade_type, dxy_readings)
+
+            if rsi_ok and dxy_ok:
+                triggering_text = _triggering_text(alerts, trade_type)
+                insert_trade(rule_name, trade_type, gold_price, now, triggering_text)
+                triggering_names = _triggering_names(alerts, trade_type)
+                send_telegram_message(_open_message(trade_type, rule_name, gold_price, triggering_names, now))
+            else:
+                dedup_reasons = "; ".join(r for r in (rsi_category, dxy_category) if r)
+                message_reasons = "; ".join(r for r in (rsi_detail, dxy_detail) if r)
+                since_ts = watermark if watermark is not None else datetime(1970, 1, 1, tzinfo=timezone.utc)
+                _notify_blocked(rule_name, gold_price, dedup_reasons, message_reasons, since_ts)
