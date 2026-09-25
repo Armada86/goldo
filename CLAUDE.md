@@ -190,6 +190,26 @@ workflow, so it needs no extra external scheduling setup: the existing 5-minute 
 already visits the boundary each side of these two weekly instants, and a `minute < 5` window keeps
 each notification firing exactly once.
 
+**Weekend price-fetch skip (`market_hours.is_market_closed()`)**: `poll_once()` calls this right after
+`check_market_hours_alert()` above and returns immediately if it's true — added after Twelve Data's
+free-tier daily cap started getting exhausted, since `poll.yml` fires every 5 minutes with no
+weekday/weekend distinction (unlike `frequency_check.yml`/`ta_forecast.yml`/the two release-watch
+workflows, which are already weekday-only), so roughly 49 of every 168 hours (Friday 5pm ET through
+Sunday 6pm ET, ~29% of the week) were spending a full poll's worth of API calls — `fetch_gold_spot_price()`
+and `fetch_gold_candles()` from Twelve Data, all eight yfinance indicators, and, whenever an open
+trade/entry signal would have triggered one, Broker A/B's own Twelve Data candle-scan calls too — on a
+market that simply isn't trading and can't have moved. Nothing is lost by skipping: every one of those
+instruments (XAU/USD plus gld/iau/gldm/gdx/gdxj/ring/dxy/us10y) shares this same closed window per
+`check_market_hours_alert()`'s own docstring, and `inflation`/`financial_stress` (FRED) don't publish
+new values on weekends either. Reuses `check_market_hours_alert()`'s own `MARKET_CLOSE_WEEKDAY`/
+`MARKET_CLOSE_HOUR`/`MARKET_OPEN_WEEKDAY`/`MARKET_OPEN_HOUR` constants so the two can't drift apart, but
+compares on the hour boundary alone (no `minute < 5` narrowing) since this needs to hold true for every
+poll across the whole closed window, not fire once like the notification does. An already-open Broker
+A/B trade is simply left alone over the weekend — its unrealized P/L is frozen with no price movement to
+check against, so skipping the exit-scan calls loses nothing; the next poll after Sunday 6pm ET picks
+back up normally. The first post-reopen reading naturally compares against Friday's last saved price,
+which is correct — a real weekend gap is exactly the kind of move worth alerting on.
+
 **Broker A automated paper-trading (`broker.py`)**: `check_broker_trades()`, called from
 `main.poll_once()` right after this cycle's alerts are saved, is a fully automated imaginary
 buy/sell engine layered on top of the alert mechanisms above — see `.claude/agents/broker.md`'s

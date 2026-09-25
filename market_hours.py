@@ -36,3 +36,22 @@ def check_market_hours_alert() -> None:
         send_telegram_message("Market closed for the week (Friday 5:00 PM ET).")
     elif now.weekday() == MARKET_OPEN_WEEKDAY and now.hour == MARKET_OPEN_HOUR and now.minute < 5:
         send_telegram_message("Market open for the week (Sunday 6:00 PM ET).")
+
+
+def is_market_closed() -> bool:
+    """True during the same weekly dead window check_market_hours_alert() announces -- Friday 5:00 PM
+    ET through Sunday 6:00 PM ET -- when XAU/USD and every other intraday indicator this project tracks
+    (gld/iau/gldm/gdx/gdxj/ring/dxy/us10y) simply isn't trading. Lets poll_once() skip fetching prices
+    (Twelve Data gold spot + RSI candles, the yfinance indicators, and the Broker A/B candle-scan calls
+    that ride along with them) for that whole ~49-hour stretch each week -- nothing moves, so there's no
+    signal being missed, only API calls saved. Hour-boundary comparisons deliberately match
+    check_market_hours_alert()'s own close/open instants exactly (closed from the Friday-close poll
+    itself, open again from the Sunday-open poll itself), not the finer `minute < 5` firing window that
+    exists only to make the one-off notification fire once."""
+    now = datetime.now(MARKET_TZ)
+    if now.weekday() == MARKET_CLOSE_WEEKDAY:
+        return now.hour >= MARKET_CLOSE_HOUR
+    if now.weekday() == MARKET_OPEN_WEEKDAY:
+        return now.hour < MARKET_OPEN_HOUR
+    # Saturday, and every weekday strictly between Friday close and Sunday open, is fully closed.
+    return now.weekday() == 5

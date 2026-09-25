@@ -9,7 +9,7 @@ from broker_b import check_broker_b_trades
 from config import INTRAHOUR_SWING_SEND_TELEGRAM, POLL_INTERVAL_MINUTES #goes to config page and gets the value of POLL_INTERVAL_MINUTES
 from data_fetcher import fetch_latest_prices
 from forex_broker import check_forex_closes
-from market_hours import check_market_hours_alert
+from market_hours import check_market_hours_alert, is_market_closed
 from notifier import send_telegram_message
 from routine_trigger import RELEASE_TRIGGER_NAMES, trigger_release_analysis
 from rules import (
@@ -30,6 +30,15 @@ def poll_once() -> None:
     # Checked before the price fetch (and its early-return below) so the weekly open/close
     # notification still fires even if prices are briefly unavailable right at the market boundary.
     check_market_hours_alert()
+
+    if is_market_closed():
+        # Friday 5pm ET - Sunday 6pm ET: XAU/USD and every other intraday indicator here is shut, so
+        # there's nothing new to fetch -- skip the Twelve Data/yfinance calls entirely rather than
+        # burning API budget on ~49 hours/week of unchanged prices. Broker A/B's own Twelve Data calls
+        # (candle-scan exit/entry checks) never run either, since they're only reached from below this
+        # point -- an open position's unrealized P/L is frozen over the weekend regardless.
+        log.info("Market closed for the weekend -- skipping price fetch")
+        return
 
     prices = fetch_latest_prices()
     if not prices:
