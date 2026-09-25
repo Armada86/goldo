@@ -76,6 +76,26 @@ All three fail open (no block) on a DB/API hiccup or missing data, same conventi
 unfiltered behavior, never toward refusing to trade at all. Applied per-candidate touch, earliest
 first: if the earliest touch fails a gate, the next-earliest touch (a different rule) is tried instead
 of giving up the whole poll.
+
+**A Telegram notice when a level is reached but blocked, added 25 Sep 2026** (same request as the
+filters above): whenever a level would otherwise have opened a trade but a filter stopped it, one
+message names which level, and which of timing/DXY/RSI stopped it, e.g. "TA-Zone-sell level $4283.21
+reached but blocked -- DXY fell -0.0680 in 15 min (fresh tailwind, threshold 0.0532)." Two paths:
+- **DXY/RSI blocks** (`_notify_gate_block()`): raised from the normal per-touch loop below, using the
+  real candle-scan touch already computed -- no extra cost.
+- **Timing blocks** (`_notify_timing_block()`): raised when outside the entry window, using a cheap
+  point check against this poll's already-fetched spot price (`prices["gold"]`) instead of a real
+  candle scan -- fetching 1-minute candles on every one of the ~16 off-hours a day just to report a
+  timing block would add ~190 Twelve Data calls/day, most of this project's 800/day free-tier cap,
+  for a notice that isn't opening a trade anyway. This point check is coarser than the real scan (no
+  invalidation check against the scenario's own stop), which is fine for a heads-up notice but means
+  it isn't a claim that a real touch definitely happened.
+
+Both are deduplicated in Postgres (`storage.record_broker_b_blocked_if_new()`, keyed on
+`(ta_forecast_id, rule_name, reasons)`, `broker_b_blocked` table) so a level sitting past its trigger
+for hours -- the exact scenario that motivated this, price idling outside trading hours -- sends one
+notice, not one every 5-minute poll; a *different* reasons string (DXY blocks it, then later RSI does)
+still gets its own notice, since that's genuinely new information.
 """
 
 from datetime import datetime, time, timezone
@@ -98,6 +118,7 @@ from storage import (
     get_open_trade_b,
     get_recent_readings,
     insert_trade_b,
+    record_broker_b_blocked_if_new,
     trade_b_level_history,
 )
 
@@ -131,6 +152,7 @@ MAX_TRADES_PER_LEVEL = 3
 TRADE_ALERT_PREFIX = "\U0001f7e6 "  # blue square
 PROFIT_MARKER = "\U0001f7e9 "  # green square
 LOSS_MARKER = "\U0001f7e5 "  # red square
+BLOCKED_MARKER = "⛔ "  # no-entry sign -- a level was reached but a filter stopped the trade
 
 # All four scenarios ta_forecast_job.py's build_scenarios() produces, each mapped to its trade
 # direction and a stable, distinct rule name -- see .claude/agents/broker.md's Broker B rules.
@@ -209,41 +231,90 @@ def _within_entry_window(now_utc: datetime) -> bool:
     return local.weekday() < 5 and ENTRY_WINDOW_START_ET <= local.time() < ENTRY_WINDOW_END_ET
 
 
-def _dxy_confirms(trade_type: str) -> bool:
-    """True unless DXY has just made a real move against this trade -- see module docstring's "DXY
-    confirmation" entry. Fails open (True) on missing/insufficient data, same convention as
-    broker._latest_bias_score()."""
+def _dxy_confirms(trade_type: str, readings: list) -> tuple[bool, str | None]:
+    """(ok, reason) -- ok unless DXY has just made a real move against this trade, see module
+    docstring's "DXY confirmation" entry; `reason` is a human-readable explanation set only when
+    ok is False, for the blocked-entry Telegram notice. `readings` is the caller's single shared
+    get_recent_readings("dxy", DXY_CONFIRM_WINDOW_MINUTES) fetch (a poll may check several touches;
+    fetching once and passing it in avoids repeating that DB read per touch). Fails open (ok=True) on
+    missing/insufficient data, same convention as broker._latest_bias_score()."""
+    if not readings or len(readings) < 2:
+        return True, None
     try:
-        readings = get_recent_readings("dxy", DXY_CONFIRM_WINDOW_MINUTES)
         threshold = INTRAHOUR_SWING_ALERT_THRESHOLD["dxy"][DXY_CONFIRM_WINDOW_MINUTES]
     except Exception:
-        return True
-    if len(readings) < 2:
-        return True
+        return True, None
     change = readings[-1][1] - readings[0][1]
     # Gold and DXY move inversely: a Buy wants DXY not rising (no fresh headwind), a Sell wants DXY
     # not falling (no fresh tailwind).
     if trade_type == "Buy":
-        return change < threshold
-    return change > -threshold
+        if change >= threshold:
+            return False, (
+                f"DXY rose {change:+.4f} in {DXY_CONFIRM_WINDOW_MINUTES} min "
+                f"(fresh headwind, threshold {threshold:.4f})"
+            )
+        return True, None
+    if change <= -threshold:
+        return False, (
+            f"DXY fell {change:+.4f} in {DXY_CONFIRM_WINDOW_MINUTES} min "
+            f"(fresh tailwind, threshold {threshold:.4f})"
+        )
+    return True, None
 
 
-def _rsi_confirms(scenario_name: str) -> bool:
-    """True unless a breakout scenario would chase gold's RSI(14) already past the overbought/oversold
-    threshold -- see module docstring's "RSI exhaustion" entry. Only gates the two breakout rules; the
-    two fade rules pass unconditionally. Fails open (True) on a candle-fetch problem."""
+def _rsi_confirms(scenario_name: str, rsi_value: float | None) -> tuple[bool, str | None]:
+    """(ok, reason) -- ok unless a breakout scenario would chase gold's RSI(14) already past the
+    overbought/oversold threshold, see module docstring's "RSI exhaustion" entry; `reason` set only
+    when ok is False. Only gates the two breakout rules; the two fade rules always pass. `rsi_value`
+    is the caller's single shared RSI(14) computation (see check_broker_b_trades) -- None if it
+    couldn't be computed this poll, which fails this open (ok=True)."""
     if scenario_name == "bull_breakout":
         threshold, over = RSI_OVERBOUGHT_THRESHOLD, True
     elif scenario_name == "bear_breakdown":
         threshold, over = RSI_OVERSOLD_THRESHOLD, False
     else:
-        return True
-    try:
-        rsi = compute_rsi(fetch_gold_candles()["close"], period=RSI_PERIOD).dropna()
-        current = rsi.iloc[-1]
-    except Exception:
-        return True
-    return current < threshold if over else current > threshold
+        return True, None
+    if rsi_value is None:
+        return True, None
+    ok = rsi_value < threshold if over else rsi_value > threshold
+    if ok:
+        return True, None
+    word, cmp = ("overbought", ">=") if over else ("oversold", "<=")
+    return False, f"RSI(14) already {word}: {rsi_value:.1f} ({cmp} {threshold})"
+
+
+def _blocked_message(rule_name: str, price: float, reasons: str) -> str:
+    return (
+        f"{TRADE_ALERT_PREFIX.rstrip()}{BLOCKED_MARKER}BROKER B: {rule_name} level ${price:.2f} "
+        f"reached but blocked -- {reasons}."
+    )
+
+
+def _notify_blocked(forecast: dict, rule_name: str, trigger_price: float, reasons: str) -> None:
+    """Sends the blocked-entry Telegram notice, unless this exact (forecast, rule, reasons) was
+    already notified (see module docstring). Shared by both the real candle-scan touch path (DXY/RSI
+    gates) and the cheap point-price timing-block path."""
+    if record_broker_b_blocked_if_new(forecast["id"], rule_name, trigger_price, reasons):
+        send_telegram_message(_blocked_message(rule_name, trigger_price, reasons))
+
+
+def _notify_timing_block(candidates: list, gold_price: float, forecast: dict, now: datetime) -> None:
+    """Cheap point-price check (this poll's already-fetched spot price, no extra API call) for
+    whether price has reached one of the candidates' levels while outside the entry window -- purely
+    to notify, never to open a trade (that still needs the precise candle scan, which only runs inside
+    the window; see module docstring for why this path stays cheap). Dedup'd the same way as
+    _notify_gate_block()."""
+    local = now.astimezone(DISPLAY_TZ)
+    reasons = (
+        f"outside trading hours (now {local:%H:%M} ET; window is "
+        f"{ENTRY_WINDOW_START_ET:%H:%M}-{ENTRY_WINDOW_END_ET:%H:%M} ET, weekdays)"
+    )
+    for scenario_name, _trade_type, rule_name, scenario, _require_retreat in candidates:
+        trigger_price, _invalidation = _entry_price_and_invalidation(scenario_name, scenario)
+        rising = scenario_name in RISING_APPROACH_SCENARIOS
+        reached = gold_price >= trigger_price if rising else gold_price <= trigger_price
+        if reached:
+            _notify_blocked(forecast, rule_name, trigger_price, reasons)
 
 
 def _open_message(trade_type: str, rule_name: str, price: float, session: str, forecast_date) -> str:
@@ -271,8 +342,10 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
     after a win there (trade_b_level_history()), and only while no Broker B trade is already open. A
     fresh entry additionally requires: the trading-hours window (_within_entry_window()), DXY not
     having just moved against the trade (_dxy_confirms()), and, for the two breakout rules only, RSI
-    not already past the level being chased (_rsi_confirms()) -- see module docstring. See
-    .claude/agents/broker.md's Broker B rules."""
+    not already past the level being chased (_rsi_confirms()) -- see module docstring. Whenever a
+    level is actually reached but one of these blocks it, a deduplicated Telegram notice names the
+    level and the reason(s) (_notify_blocked()/_notify_timing_block()). See .claude/agents/broker.md's
+    Broker B rules."""
     gold_price = prices.get("gold")
     if gold_price is None:
         return
@@ -290,9 +363,6 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
 
     if open_trade is not None:
         return  # still open -- only one Broker B position at a time, across all four rules
-
-    if not _within_entry_window(now):
-        return  # outside 8am-4pm ET weekdays -- see module docstring's "Trading-hours window" entry
 
     try:
         forecast = get_latest_ta_forecast()
@@ -317,6 +387,12 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
     if not candidates:
         return
 
+    if not _within_entry_window(now):
+        # Outside 8am-4pm ET weekdays -- no candle fetch (see module docstring for the API-budget
+        # reasoning), just a cheap point-price check purely to notify if a level looks reached.
+        _notify_timing_block(candidates, gold_price, forecast, now)
+        return
+
     try:
         candles = fetch_candles(GOLD_SPOT_SYMBOL, interval="1min", outputsize=ENTRY_CANDLE_LOOKBACK_MINUTES)
     except Exception:
@@ -338,14 +414,35 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
     if not touches:
         return
 
-    # Earliest touch first; a touch that fails the DXY/RSI confirmation gates is skipped in favor of
-    # the next-earliest one (a different rule) rather than giving up the whole poll on it.
+    # DXY readings and gold's RSI are each fetched at most once per poll, however many touches there
+    # are to check, rather than once per touch.
+    try:
+        dxy_readings = get_recent_readings("dxy", DXY_CONFIRM_WINDOW_MINUTES)
+    except Exception:
+        dxy_readings = None
+    rsi_value = None
+    if any(t[4] in ("bull_breakout", "bear_breakdown") for t in touches):
+        try:
+            rsi_value = compute_rsi(fetch_gold_candles()["close"], period=RSI_PERIOD).dropna().iloc[-1]
+        except Exception:
+            rsi_value = None
+
+    # Earliest touch first; a touch that fails a confirmation gate gets a blocked-entry notice and is
+    # skipped in favor of the next-earliest one (a different rule) rather than giving up the whole
+    # poll on it.
     touches.sort(key=lambda t: t[0])
+    selected = None
     for trigger_ts, trigger_price, trade_type, rule_name, scenario_name in touches:
-        if _dxy_confirms(trade_type) and _rsi_confirms(scenario_name):
+        dxy_ok, dxy_reason = _dxy_confirms(trade_type, dxy_readings)
+        rsi_ok, rsi_reason = _rsi_confirms(scenario_name, rsi_value)
+        if dxy_ok and rsi_ok:
+            selected = (trigger_ts, trigger_price, trade_type, rule_name, scenario_name)
             break
-    else:
+        reasons = "; ".join(r for r in (dxy_reason, rsi_reason) if r)
+        _notify_blocked(forecast, rule_name, trigger_price, reasons)
+    if selected is None:
         return
+    trigger_ts, trigger_price, trade_type, rule_name, scenario_name = selected
 
     session = levels.get("session", "?")
     trigger_text = f"{session} TA forecast {forecast['forecast_date']}, {scenario_name} @ ${trigger_price:.2f}"
