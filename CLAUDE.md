@@ -405,6 +405,58 @@ three through from repo secrets of the same names for the close-check above; unt
 exist they arrive empty, `ForexClient()` raises `ForexClientError`, and the close-check skips with only a
 log line.
 
+**Inbound Telegram commands (`telegram_webhook/`)**: the project's first (and, so far, only) inbound
+path — every other Telegram interaction is one-way, `notifier.send_telegram_message()` only ever
+sending. Lets the user open or close a Broker A or Broker B position in real time by sending a
+plain-text message to the bot — "sell broker A" / "Broker B buy" to open, "close broker A"/"close
+broker B" to close — and have it take effect the instant the message is sent, not on the next poll.
+**This is a Cloudflare Worker (JavaScript), not a Python job** — the one piece of this project not
+written in Python, and deliberately so: a true webhook needs a fixed, always-reachable public HTTPS
+URL for Telegram to POST to the moment a message arrives, and nothing else in this repo can be that.
+GitHub Actions (every other job here) can only be *triggered by* an API call this project makes,
+never the reverse — there is no way to point a Telegram webhook at a `workflow_dispatch` endpoint. A
+Cloudflare Worker is the smallest "no server to manage" way to get that fixed URL: it sits dormant
+between requests and wakes in milliseconds, so it's still nothing to babysit, just a different kind
+of infrastructure than the rest of the repo. `parseCommand()`'s regex match is deliberately forgiving
+about phrasing/case/spacing but requires "broker a"/"broker b" plus either "close" or a buy/sell word
+to be present, or the message is silently ignored (no reply), so the chat doesn't become a bot that
+talks back to unrelated messages.
+
+**Scope is deliberately narrow**: Broker A and Broker B only. The Forex broker (`forex_broker.py`,
+real orders on a FOREX.com demo account) is **not** reachable from here — wiring a real-money-adjacent
+broker to an inbound command path is exactly the kind of decision `forex_broker.py`'s own docstring
+says must stay a deliberate, separate ask, not a side effect of adding Telegram commands. An **open**
+command writes straight into the same `trades`/`broker_b_trades` tables `broker.py`/`broker_b.py` use
+(via Neon's serverless driver, `@neondatabase/serverless` — HTTP-based single queries, built for edge
+runtimes that can't hold a normal TCP pool open), `rule_name` set to `Telegram-buy`/`Telegram-sell`
+(distinguishable from `Consensus5of7-buy`/`TA-Zone-buy`), `triggering_alerts` set to `"Manual
+(Telegram command)"`; if that broker already has an open trade, or (Broker B only) no `ta_forecasts`
+row exists yet to attribute the trade to, it replies explaining why instead of opening one. If no
+manual **close** command ever arrives, a Telegram-opened trade is still picked up and auto-closed the
+normal way by the existing Python poll (`check_broker_trades()`/`check_broker_b_trades()`, already
+scanning for the $10 take-profit/stop-loss every 5 minutes) — the two paths don't conflict, they just
+both watch the same `status = 'Open'` row. A **close** command is an unconditional override: it closes
+at whatever the current spot price is, regardless of unrealized P/L, unlike the automatic $10 target —
+the whole point of a manual close is to not wait for that target.
+
+**Security**: every request's `X-Telegram-Bot-Api-Secret-Token` header is checked against a secret
+set when the webhook was registered (`setWebhook`'s own `secret_token` param) — a request that doesn't
+carry the right header is rejected outright (403), so the Worker can't be triggered by anyone who
+merely finds its URL. Independently, every message's `chat.id` is also checked against
+`TELEGRAM_CHAT_ID` before anything is acted on, same authorization check as this project's other
+Telegram-adjacent logic.
+
+**Deployment lives outside the Python deploy path entirely** — `telegram_webhook/` is a separate
+Node project (`package.json`, `wrangler.toml`) deployed with Cloudflare's `wrangler` CLI, not
+`poll.yml`/cron-job.org. One-time setup: `cd telegram_webhook && npm install`, `wrangler secret put`
+for each of `DATABASE_URL`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TWELVE_DATA_API_KEY`, and a
+newly-generated `TELEGRAM_WEBHOOK_SECRET` (any random string — this is the value `setWebhook` also
+needs to register), then `wrangler deploy`, then call Telegram's `setWebhook` once (`curl
+"https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook?url=<worker-url>&secret_token=<same
+value>"`) so Telegram starts pushing updates to the deployed Worker's URL. `npm test` (Node's built-in
+test runner, no extra framework) covers the pure parsing/formatting/P&L logic
+(`parseCommand()`/`formatTs()`/`pnl()`) without needing live Telegram/Postgres access.
+
 **NFP fundamental-analysis data (`nfp_reports` table)**: `docs/fundamental-analyst-nfp-log.md` used to
 hold a hand-maintained markdown table of Non-Farm Payrolls release data (previous/expected/actual
 figures plus gold spot's reaction at +5/10/30min/1h/2h) — that raw data now lives in Postgres instead,
@@ -705,6 +757,9 @@ report's release minute is far less precise than ADP/NFP's. All six workflows ne
 cron-job.org job pointed at their `workflow_dispatch` endpoint — that setup (including the weekday
 exclusion, the two release-watch workflows' specific 8:14am/8:29am trigger times, and the oil-weekly
 workflow's Tuesday-only repeated-trigger window) lives in the cron-job.org account, not in this repo.
+`telegram_webhook/` (see "Inbound Telegram commands" above) is the one exception to this whole
+scheduling section — it's not a GitHub Actions job at all, so it has no cron-job.org entry; Telegram
+pushes to it directly, on its own schedule of "whenever a message is sent."
 `frequency_check_job.py` reruns `frequency_test.py`'s companion-swing study fresh (see the "Two
 separate frequency-test workflows" entry above for the full methodology) and rewrites
 `intrahour_swing_thresholds.json` with whichever of the twenty-four indicator/window combinations'

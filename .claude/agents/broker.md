@@ -39,6 +39,11 @@ rules by that name, so keep names stable across edits rather than rephrasing the
 rule citations go stale. "Trigger"/"fires" below always means: an alert of that kind actually landed
 in the `alerts` table (i.e. crossed the threshold currently configured in `config.py`/
 `intrahour_swing_thresholds.json`), not just that the raw indicator moved in that direction.
+**`Telegram-buy`/`Telegram-sell` is not an algorithmic rule** — it's what the `telegram_webhook/`
+Cloudflare Worker stamps on a trade opened by hand via a Telegram command ("sell broker A"), not by any
+of the rules below firing. If a trade's `rule_name` is one of these two, its `triggering_alerts` will
+read `"Manual (Telegram command)"`, not a real alert list — don't try to explain it as if the usual
+entry logic produced it.
 
 ### TA bias gate (Broker A only)
 
