@@ -34,9 +34,17 @@ ENTRY_CANDLE_LOOKBACK_MINUTES and scans each bar's high/low for the first point 
 the level -- the trade opens at that exact level (the price a resting order would have filled at, the
 same way a real platform would fill it -- see broker._exit_levels()'s "exit_price is the level, not
 the overshoot" convention, which this mirrors for entries), not at whatever the live spot price happens
-to be when the poll notices. Candles at or before the last Broker B trade's close are ignored, so a
-touch can never open a back-dated trade (a re-armed level re-firing on the very touch that opened its
-previous trade, still inside the 20-min lookback). For the two fade scenarios only, a level reached
+to be when the poll notices. Candles at or before the last Broker B trade's close **and** at or before
+the current forecast's own `ts` are ignored, so a touch can never open a back-dated trade -- the first
+guards a re-armed level re-firing on the very touch that opened its previous trade (still inside the
+20-min lookback); the second guards a brand-new forecast whose levels happen to coincide with a price
+the market already touched minutes earlier (common, since levels are usually derived from recent swing
+points near the current price) from retroactively "finding" that already-past touch and opening a
+trade timestamped before the forecast that supposedly produced it even existed. Fixed 25 Sep 2026 after
+exactly that: the Midday forecast (ts 16:00:39 UTC) landed with a `buy_support` zone at
+$4283.21/stop $4273.21 -- prices gold had already touched at 15:43-15:51 UTC, 9-17 minutes earlier --
+and `TA-Zone-buy`/`TA-Breakout-sell` both opened citing that forecast with `open_ts` stamped before it
+was generated. For the two fade scenarios only, a level reached
 after price already blew through the zone's far side (the scenario's own `stop`) without a clean touch
 first invalidates that fade -- see _entry_price_and_invalidation(). The two breakout scenarios have no
 such invalidation: crossing the trigger is the entire signal.
@@ -431,9 +439,19 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
     # Only touches after the last Broker B trade closed can open a new one -- otherwise a re-armed
     # level would re-fire on the very touch that opened its previous trade (still inside the 20-min
     # lookback), and any level could open a back-dated trade from a touch made while flat was false.
+    # Also only touches after *this* forecast's own ts -- otherwise a brand-new forecast whose levels
+    # happen to coincide with a price the market already touched minutes earlier (common, since levels
+    # are usually derived from recent swing points near the current price) retroactively "finds" that
+    # already-past touch and opens a trade timestamped before the forecast that supposedly produced it
+    # even existed. Observed live 25 Sep 2026: the Midday forecast (ts 16:00:39 UTC) landed with a
+    # buy_support zone at $4283.21/stop $4273.21 -- prices gold had already touched at 15:43-15:51 UTC,
+    # 9-17 minutes earlier -- and TA-Zone-buy/TA-Breakout-sell both opened citing that forecast with
+    # open_ts stamped before it was generated.
+    floor_ts = forecast["ts"]
     last_close_ts = get_last_close_ts_b()
-    if last_close_ts is not None:
-        candles = candles[candles["datetime"] > last_close_ts]
+    if last_close_ts is not None and last_close_ts > floor_ts:
+        floor_ts = last_close_ts
+    candles = candles[candles["datetime"] > floor_ts]
 
     touches = []
     for scenario_name, trade_type, rule_name, scenario, require_retreat in candidates:

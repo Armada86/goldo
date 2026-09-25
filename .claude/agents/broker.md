@@ -194,9 +194,15 @@ limit order would fill, which is the point: this is meant to mirror what a real 
 record. (An earlier version, 24 Sep 2026, added a $2 entry tolerance to cover the routine $1–2 gap
 between Twelve Data and a broker platform's feed — e.g. a 2:40pm ET spike that topped at $4,282.47
 against a $4,283.21 level. Removed the next day at the user's explicit request; back to an exact
-touch.) Only candles after the last Broker B trade's close count (`storage.get_last_close_ts_b()`), so
-a touch can never open a back-dated trade — needed for the re-arm rule below, so a re-armed level
-can't immediately re-fire on the very touch that opened its previous trade. If price
+touch.) Only candles after the last Broker B trade's close **and** after the current forecast row's own
+`ts` count (`storage.get_last_close_ts_b()`, `ta_forecasts.ts`), so a touch can never open a back-dated
+trade — the close-time guard is needed for the re-arm rule below, so a re-armed level can't immediately
+re-fire on the very touch that opened its previous trade; the forecast-ts guard (fixed 25 Sep 2026)
+stops a brand-new forecast whose levels happen to land on a price the market already touched minutes
+earlier from retroactively "finding" that already-past touch — observed live: the Midday forecast (ts
+16:00:39 UTC) landed with a `buy_support` zone at $4,283.21 that gold had already touched at 15:43 UTC,
+17 minutes earlier, and `TA-Zone-buy` opened citing that forecast with an `open_ts` stamped before the
+forecast existed. If price
 already broke through the zone's far side (the scenario's own `stop`, e.g. "stop above 4293") before
 or without a clean touch of the near edge, the fade is invalidated and no trade opens. Only fires
 up to **3 times per (forecast row, rule), re-arming only after a win** — see "Broker B: position
