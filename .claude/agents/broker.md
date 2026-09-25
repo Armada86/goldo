@@ -225,6 +225,31 @@ unfiltered behavior, not toward refusing to trade. When more than one level is t
 poll, the earliest touch is tried first; if it fails a gate, the next-earliest touch (a different rule)
 is tried instead of the whole poll giving up.
 
+### Broker B: blocked-entry Telegram notice
+
+Added 25 Sep 2026, same request: whenever a level is actually reached but one of the three filters
+above stops the trade, one Telegram message names the level and the reason(s), e.g. `🟦⛔ BROKER B:
+TA-Zone-sell level $4283.21 reached but blocked -- DXY fell -0.0900 in 15 min (fresh tailwind,
+threshold 0.0532).` A no-entry-sign marker (⛔, `broker_b.BLOCKED_MARKER`) after the blue square tells
+it apart from a real open/close at a glance. Two paths:
+
+- **DXY/RSI blocks** use the real candle-scan touch already computed for that poll (no extra cost) —
+  raised from the same loop that picks the earliest passing touch, for every touch it rejects on the
+  way, not just the one it finally settles on (or gives up on).
+- **Timing blocks** use a cheap point check against the poll's already-fetched spot price
+  (`prices["gold"]`) instead of a real candle scan, specifically to avoid fetching 1-minute candles on
+  every one of the ~16 off-hours polls a day just to report a block that was never going to trade
+  anyway — that would burn a large share of the 800/day Twelve Data free-tier cap for no trading
+  benefit. This point check is coarser (no invalidation check against the scenario's own stop), fine
+  for a heads-up but not a claim that a real intrabar touch definitely happened the way the trading
+  path's candle scan is.
+
+Both are deduplicated in Postgres (`broker_b_blocked` table, `storage.record_broker_b_blocked_if_new()`,
+keyed on `(ta_forecast_id, rule_name, reasons)`) — a level sitting past its trigger for hours (price
+idling outside trading hours, or DXY/RSI staying against it) sends one notice total, not one every
+5-minute poll; a genuinely different reasons string for the same forecast row and rule (blocked by DXY,
+then later by RSI) still gets its own notice.
+
 ### Broker B: position sizing & concurrency
 
 - Same 1 troy ounce size, same no-multiplier P/L as Broker A — entirely separate position, separate
@@ -268,6 +293,10 @@ is tried instead of the whole poll giving up.
   `status` — see `storage.py`'s `get_all_trades()`/`get_open_trade()`).
 - **The `broker_b_trades` table** — the same shape plus `ta_forecast_id` (which forecast row
   produced/would-dedup this trade — see `storage.py`'s `get_all_trades_b()`/`get_open_trade_b()`).
+- **The `broker_b_blocked` table** — every blocked-entry notice Broker B has sent (`ta_forecast_id`,
+  `rule_name`, `trigger_price`, `reasons`, `detected_ts` — see `storage.get_broker_b_blocked()`), useful
+  for asking "how often is Broker B being blocked, and by what" or comparing a blocked level's later
+  outcome against the trades it did take.
 - **The `ta_forecasts` table** — for explaining a Broker B trade, look up the row by
   `broker_b_trades.ta_forecast_id` to see the exact zones/bias/session it traded off of
   (`storage.get_latest_ta_forecast()` only gets the newest one; query by `id` for an older one).

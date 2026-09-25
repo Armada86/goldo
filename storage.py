@@ -91,6 +91,19 @@ def init_db() -> None:
         )
         cur.execute(
             """
+            CREATE TABLE IF NOT EXISTS broker_b_blocked (
+                id SERIAL PRIMARY KEY,
+                ta_forecast_id INTEGER NOT NULL,
+                rule_name TEXT NOT NULL,
+                trigger_price DOUBLE PRECISION NOT NULL,
+                reasons TEXT NOT NULL,
+                detected_ts TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                UNIQUE (ta_forecast_id, rule_name, reasons)
+            )
+            """
+        )
+        cur.execute(
+            """
             CREATE TABLE IF NOT EXISTS threshold_history (
                 id SERIAL PRIMARY KEY,
                 date DATE NOT NULL,
@@ -837,6 +850,44 @@ def get_last_close_ts_b() -> datetime | None:
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT MAX(close_ts) FROM broker_b_trades")
         return cur.fetchone()[0]
+
+
+def record_broker_b_blocked_if_new(ta_forecast_id: int, rule_name: str, trigger_price: float, reasons: str) -> bool:
+    """Records one Broker B blocked-entry notice and returns True if it's newly recorded (i.e. the
+    caller should send a Telegram message), False if this exact (forecast, rule, reasons) combination
+    was already recorded -- the dedup that stops a level sitting past its trigger for hours (outside
+    trading hours, or DXY/RSI still against it) from sending the same notice every 5-minute poll. See
+    broker_b.py's _notify_timing_block()/_notify_gate_block()."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO broker_b_blocked (ta_forecast_id, rule_name, trigger_price, reasons) "
+            "VALUES (%s, %s, %s, %s) ON CONFLICT (ta_forecast_id, rule_name, reasons) DO NOTHING "
+            "RETURNING id",
+            (ta_forecast_id, rule_name, trigger_price, reasons),
+        )
+        return cur.fetchone() is not None
+
+
+def get_broker_b_blocked() -> list[dict]:
+    """Every recorded Broker B blocked-entry notice, oldest first -- for ad hoc querying/analysis
+    (e.g. by the Broker subagent); not used by broker_b.py's own trading logic."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, ta_forecast_id, rule_name, trigger_price, reasons, detected_ts "
+            "FROM broker_b_blocked ORDER BY detected_ts"
+        )
+        rows = cur.fetchall()
+    return [
+        {
+            "id": r[0],
+            "ta_forecast_id": r[1],
+            "rule_name": r[2],
+            "trigger_price": r[3],
+            "reasons": r[4],
+            "detected_ts": r[5],
+        }
+        for r in rows
+    ]
 
 
 def get_all_trades_b() -> list[dict]:

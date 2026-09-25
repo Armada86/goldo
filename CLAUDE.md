@@ -276,7 +276,20 @@ that would have stopped the incident's short, since DXY was already easing befor
 exhaustion, breakout rules only** (`broker_b._rsi_confirms()`) — `TA-Breakout-buy` is skipped if gold's
 RSI(14) (same computation as `rules.check_rsi_alerts()`) is already >= `RSI_OVERBOUGHT_THRESHOLD` (70),
 `TA-Breakout-sell` skipped if already <= `RSI_OVERSOLD_THRESHOLD` (30); the two fade rules aren't RSI-gated.
-All three fail open (no block) on missing data, same convention as Broker A's `_bias_allows()`. Same $10 flat take-profit/stop-loss as Broker A (`broker._find_exit()`, imported directly
+All three fail open (no block) on missing data, same convention as Broker A's `_bias_allows()`.
+
+**Blocked-entry Telegram notice**: whenever a level is reached but one of the three filters above
+stops the trade, one message names the level and reason(s), e.g. `🟦⛔ BROKER B: TA-Zone-sell level
+$4283.21 reached but blocked -- DXY fell -0.0900 in 15 min (fresh tailwind, threshold 0.0532).`
+(`broker_b.BLOCKED_MARKER`, a no-entry sign, tells it apart from a real open/close). DXY/RSI blocks use
+the real candle-scan touch already computed that poll (no extra cost); a timing block instead uses a
+cheap point check against the poll's already-fetched spot price rather than a real candle scan, so the
+~16 off-hours polls a day don't each burn a Twelve Data 1-minute-candle call (~190/day) purely to
+report a block that was never going to trade anyway. Both paths are deduplicated in Postgres
+(`broker_b_blocked` table, `storage.record_broker_b_blocked_if_new()`, keyed on `(ta_forecast_id,
+rule_name, reasons)`) so a level sitting past its trigger for hours sends one notice, not one per poll.
+
+Same $10 flat take-profit/stop-loss as Broker A (`broker._find_exit()`, imported directly
 rather than reimplemented, so the two engines' exit math can't drift apart), same 1 oz size. Entirely
 separate Postgres `broker_b_trades` table (`trades`' columns plus `ta_forecast_id`, so a trade can be
 traced back to the exact forecast row/scenario that produced it) and separate open-trade tracking —
