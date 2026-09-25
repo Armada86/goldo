@@ -654,15 +654,23 @@ fixed `<colgroup>` so columns can't overflow the viewport width, kept in the CSS
 file rather than per-element `style=` (the per-cell `style=` that remains is just the red/green
 up/down color, computed from the sign of each change). The `$` unit shown on price/change cells is
 picked per-name (`DOLLAR_UNIT_NAMES`) the same way `rules.py` picks it for alert messages. Below the
-symbols table sit two more `st.dataframe` tables (not the hand-built HTML above — no per-cell layout
-control is needed here, so the plain Streamlit widget is enough): "Recent Trades" (`load_trades()` —
-Broker A's `trades` and Broker B's `broker_b_trades` (see "Broker A"/"Broker B automated paper-trading"
-above) `UNION ALL`-ed into one combined timeline, not two separate tables, since a single feed of what
-both engines are doing is more useful at a glance than having to check two tables — most recent 20
-combined by `open_ts`, with an extra `broker` column (`'Broker A'`/`'Broker B'`, a SQL literal, not a
-real column on either table) so `rule_name` alone doesn't have to be the only way to tell which engine
-opened a row; columns renamed for display and `$`-formatted, `exit_price`/`close_ts`/`pnl` are `—` for
-the still-open trade, if any) above "Recent Alerts" (`load_alerts()`, unchanged). `readings`/
+symbols table sit two more `st.dataframe` tables (not the hand-built HTML above, since no per-cell
+layout control is needed here beyond one column's background color — see below): "Recent Trades"
+(`load_trades()` — Broker A's `trades` and Broker B's `broker_b_trades` (see "Broker A"/"Broker B
+automated paper-trading" above) `UNION ALL`-ed into one combined timeline, not two separate tables,
+since a single feed of what both engines are doing is more useful at a glance than having to check two
+tables — most recent 20 combined by `open_ts`, with an extra `broker` column (`'Broker A'`/`'Broker B'`,
+a SQL literal, not a real column on either table) so `rule_name` alone doesn't have to be the only way
+to tell which engine opened a row; columns renamed for display and `$`-formatted, `exit_price`/
+`close_ts`/`pnl` are `—` for the still-open trade, if any). **Gotcha:** `st.dataframe` doesn't apply
+`Styler.apply_index()` styling to the plain pandas index column (confirmed empirically -- it renders
+with no visible effect), so the leftmost "#" row-number column is a real data column instead
+(`trades.insert(0, "#", range(len(trades)))`, captured from `pnl`'s raw numeric sign into `trade_won`
+*before* `pnl` gets formatted to a display string), colored green (win, `pnl > 0`) or red (loss,
+`pnl < 0`) via `Styler.apply(..., subset=["#"])` on that data column, which `st.dataframe` *does* honor
+-- an open or exactly-breakeven trade's "#" cell is left unstyled. `hide_index=True` drops the
+now-redundant default index next to it. "Recent Alerts" (`load_alerts()`, unchanged, no Styler) sits
+below it. `readings`/
 `alerts`/`trades`/`broker_b_trades` timestamps are all stored as UTC (`storage.py`'s
 `datetime.now(timezone.utc)`)
 regardless of where the poll job or dashboard happen to run — the "last loaded" caption and the Recent

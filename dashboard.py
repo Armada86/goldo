@@ -422,12 +422,17 @@ except Exception as e:
     )
 
 if not trades.empty:
+    # Captured from the raw numeric pnl before it's formatted to a "$+X.XX"/"—" string below --
+    # True (win, green), False (loss, red), None (still open or exactly breakeven, left unstyled)
+    # colors the "#" row-number column two paragraphs down.
+    trade_won = [None if pd.isna(v) else (True if v > 0 else (False if v < 0 else None)) for v in trades["pnl"]]
     trades["open_ts"] = to_display_str(trades["open_ts"])
     trades["close_ts"] = to_display_str(trades["close_ts"])
     for col in ("entry_price", "exit_price"):
         trades[col] = trades[col].map(lambda v: f"${v:,.2f}" if pd.notna(v) else "—")
     trades["pnl"] = trades["pnl"].map(lambda v: f"${v:+,.2f}" if pd.notna(v) else "—")
     trades["close_ts"] = trades["close_ts"].fillna("—")
+    trades.insert(0, "#", range(len(trades)))
     trades = trades.rename(columns={
         "broker": "Broker", "rule_name": "Rule", "trade_type": "Type", "entry_price": "Entry",
         "open_ts": "Opened", "triggering_alerts": "Trigger", "exit_price": "Exit",
@@ -437,7 +442,22 @@ if not trades.empty:
 if trades.empty:
     st.write("No trades recorded yet.")
 else:
-    st.dataframe(trades, width='stretch')
+    # st.dataframe doesn't style the plain pandas index (confirmed empirically -- a Styler.apply_index()
+    # renders with no visible effect there), so the row-number "#" column above is a real data column
+    # instead, colored via Styler.apply() on data cells, which st.dataframe does honor; hide_index=True
+    # drops the now-redundant default index next to it.
+    def _color_row_number(_col):
+        colors = []
+        for won in trade_won:
+            if won is True:
+                colors.append("background-color: #1a7f37; color: white; font-weight: 700;")
+            elif won is False:
+                colors.append("background-color: #cf222e; color: white; font-weight: 700;")
+            else:
+                colors.append("")
+        return colors
+
+    st.dataframe(trades.style.apply(_color_row_number, subset=["#"]), width='stretch', hide_index=True)
 
 st.subheader("Recent Alerts")
 try:
