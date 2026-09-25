@@ -139,7 +139,9 @@ run overwrites which row `get_latest_ta_forecast()` returns). Trades **all four*
 breakout scenarios — with **no bias filter** (see "TA bias gate" above): whichever level price
 actually reaches is the entire signal, buy or sell, independent of the forecast's overall directional
 read. (Earlier this only traded the two fade scenarios, gated by bias; both restrictions were
-explicitly removed at the user's request.)
+explicitly removed at the user's request.) It does, since 25 Sep 2026, apply three narrower entry
+filters of its own — see "Broker B: entry filters" below — which are not the TA bias gate and don't
+reintroduce it; they gate on trading hours, DXY, and RSI instead of the forecast's overall bias score.
 
 ### `TA-Zone-sell`
 
@@ -192,6 +194,36 @@ happens first (a rejection at the level, or a break through it).
 Mirror image of `TA-Breakout-buy`: Sell 1 troy ounce when price breaks below the `bear_breakdown`
 scenario's trigger (the same level as `TA-Zone-buy`'s support zone, approached from above). No
 invalidation check, same reasoning as `TA-Breakout-buy`.
+
+### Broker B: entry filters
+
+Added 25 Sep 2026 after analyzing a live double loss: `TA-Zone-sell` sold $4,283.21 resistance at
+9:01pm ET while DXY was already sliding — a real, live tailwind for gold, not a fakeout — so price ran
+through the zone to $4,295.53, stopping that short out; the immediate `TA-Breakout-buy` then also
+stopped out on the round-trip back down. All of it happened in the 9–11pm ET window, the thinnest
+liquidity stretch of the 24-hour gold session. Three filters, evaluated on every *fresh* entry (not on
+exits, which are never gated — an open Broker B trade is always managed to its $10 exit, any hour):
+
+1. **Trading-hours window.** No new entry outside **8:00am–4:00pm America/New_York, weekdays**
+   (`ENTRY_WINDOW_START_ET`/`ENTRY_WINDOW_END_ET` in `broker_b.py`; 4:00pm is the NY cash close). Both
+   incident trades fired at 9pm ET — this alone would have blocked both.
+2. **DXY confirmation.** A Buy is skipped if DXY has *risen* by at least its own calibrated 15-minute
+   companion-swing threshold (`config.INTRAHOUR_SWING_ALERT_THRESHOLD["dxy"][15]`, the same number
+   `check_intrahour_swing_alerts` uses — not a new arbitrary threshold) over the trailing 15 minutes; a
+   Sell is skipped if DXY has *fallen* by that much. Gold and DXY move inversely, so this is exactly
+   the check that would have stopped the incident's short: DXY was already easing before it fired.
+3. **RSI exhaustion, breakout rules only.** `TA-Breakout-buy` is skipped if gold's RSI(14) (same
+   computation as `rules.check_rsi_alerts()`) is already at or above `RSI_OVERBOUGHT_THRESHOLD` (70) —
+   don't chase a rally that's already stretched. `TA-Breakout-sell` is skipped, mirrored, if RSI is
+   already at or below `RSI_OVERSOLD_THRESHOLD` (30). The two fade rules (`TA-Zone-sell`/`TA-Zone-buy`)
+   are **not** gated by RSI — an extended reading at the level being faded isn't obviously wrong for a
+   fade the way it is for a breakout being chased into.
+
+All three fail open (no block) on missing data or a fetch error, the same convention as Broker A's own
+`_bias_allows()`/`_latest_bias_score()` — a data problem should degrade Broker B toward its old
+unfiltered behavior, not toward refusing to trade. When more than one level is touched in the same
+poll, the earliest touch is tried first; if it fails a gate, the next-earliest touch (a different rule)
+is tried instead of the whole poll giving up.
 
 ### Broker B: position sizing & concurrency
 
