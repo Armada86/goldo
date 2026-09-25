@@ -231,14 +231,14 @@ the **latest** `ta_forecasts` row's price zones instead of Broker A's alert-cons
 `.claude/agents/broker.md`'s "Broker B" section for the full spec. **Trades all four** of the
 forecast's scenarios, not just the two fade zones — `sell_resistance`/`buy_support` (`TA-Zone-sell`/
 `TA-Zone-buy`) *and* their mirrored breakout scenarios `bull_breakout`/`bear_breakdown`
-(`TA-Breakout-buy`/`TA-Breakout-sell`), each entering the moment a real 1-minute candle comes within
-`broker_b.ENTRY_TOLERANCE_DOLLARS` ($2) of the level (same candle-scan technique as Broker A's exit,
-applied to an entry instead — `broker_b._scan_zone_entry()`), at that tolerance-adjusted price (level
-∓ $2, a price that actually traded) rather than at whatever the live spot price is when the poll
-notices — the $2 absorbs the routine $1–2 gap between Twelve Data and a broker platform's feed, which
-made an exact-touch rule miss a level the platform's chart showed being reached (24 Sep 2026).
+(`TA-Breakout-buy`/`TA-Breakout-sell`), each entering the moment a real 1-minute candle actually
+reaches the level (same candle-scan technique as Broker A's exit, applied to an entry instead —
+`broker_b._scan_zone_entry()`), at that exact level price — the price a resting order would have
+filled at — rather than at whatever the live spot price is when the poll notices. (A $2 entry
+tolerance was added 24 Sep 2026 to cover the routine $1–2 gap between Twelve Data and a broker
+platform's feed, then removed the next day at the user's request; back to an exact touch.)
 Candles at or before the last Broker B trade's close are ignored (`storage.get_last_close_ts_b()`), so
-a touch can never open a back-dated trade. The two fade rules are
+a touch can never open a back-dated trade — needed for the re-arm rule below. The two fade rules are
 invalidated (no trade) if price already broke the zone's far side (the scenario's `stop`)
 before/without a clean touch; the two breakout rules have no such invalidation, since crossing the
 trigger is the entire signal. **Deliberately does not apply `broker._bias_allows()`** — unlike Broker

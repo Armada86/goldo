@@ -143,19 +143,19 @@ explicitly removed at the user's request.)
 
 ### `TA-Zone-sell`
 
-**Entry**: Sell 1 troy ounce of gold spot when price comes within **$2** (`ENTRY_TOLERANCE_DOLLARS`)
-of the latest forecast's `sell_resistance` scenario's zone (its `entry` low/high) — detected the same
-way Broker A's exit works, not a point-in-time price check: each poll fetches real 1-minute candles
-covering the trailing `ENTRY_CANDLE_LOOKBACK_MINUTES` (20) and scans for the first bar whose high
-reached the zone's near edge minus $2. The trade opens **at that tolerance-adjusted price** (e.g.
-$4,281.21 for the forecast's "Sell 4283.21" level) — a price that actually traded, the way a resting
-limit order placed $2 inside the level would fill — not whatever the live spot price happens to be at
-poll time. The $2 exists because Twelve Data (this engine's feed) and a broker platform's own feed
-routinely differ by $1–2: on 24 Sep 2026 a 2:40pm ET spike topped at $4,282.47 on Twelve Data (and
-$4,281.30 on forex.com's chart) against a $4,283.21 level, and an exact-touch rule missed it. The same
-$2 tolerance applies to all four rules below (subtracted for a rising approach, added for a falling
-one). Only candles after the last Broker B trade's close count (`storage.get_last_close_ts_b()`), so a
-touch can never open a back-dated trade. If price
+**Entry**: Sell 1 troy ounce of gold spot the first time price reaches the latest forecast's
+`sell_resistance` scenario's zone (its `entry` low/high) — detected the same way Broker A's exit
+works, not a point-in-time price check: each poll fetches real 1-minute candles covering the trailing
+`ENTRY_CANDLE_LOOKBACK_MINUTES` (20) and scans for the first bar whose high actually reached the
+zone's near edge. The trade opens **at that edge price** (e.g. the forecast's own "Sell 4283.21"
+level), not whatever the live spot price happens to be at poll time — the same way a real resting
+limit order would fill, which is the point: this is meant to mirror what a real platform would
+record. (An earlier version, 24 Sep 2026, added a $2 entry tolerance to cover the routine $1–2 gap
+between Twelve Data and a broker platform's feed — e.g. a 2:40pm ET spike that topped at $4,282.47
+against a $4,283.21 level. Removed the next day at the user's explicit request; back to an exact
+touch.) Only candles after the last Broker B trade's close count (`storage.get_last_close_ts_b()`), so
+a touch can never open a back-dated trade — needed for the re-arm rule below, so a re-armed level
+can't immediately re-fire on the very touch that opened its previous trade. If price
 already broke through the zone's far side (the scenario's own `stop`, e.g. "stop above 4293") before
 or without a clean touch of the near edge, the fade is invalidated and no trade opens. Only fires
 up to **3 times per (forecast row, rule), re-arming only after a win** — see "Broker B: position
