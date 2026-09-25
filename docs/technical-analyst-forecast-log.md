@@ -128,6 +128,28 @@ $3,996. Upside: the wedge top ~$4,365-4,370, then $4,400, $4,500 and the 200-day
   switching SMAs to include today's unfinished bar (ours stay finished-days-only, hence $4,301.78 vs
   their $4,306 for the 50-day).
 
+**4. Aggregator-style outlook (undated, checked 2026-09-25).** "Gold ~$4,293/oz, consolidating below
+$4,300. Immediate support $4,300-$4,268; failure risks a drop to $4,307/deep Fibonacci levels.
+Immediate resistance $4,350 and the 50-day EMA. RSI(14) ~47.8 neutral. MACD negative. Overall
+Sell/Defensive bias. Drivers: surging 10Y/30Y yields and a firm dollar, rebounding crude oil and
+hawkish Fed bets, all capping upside."
+- Checked: the $4,350 resistance matches our daily EMA50 almost exactly ($4,348.39). RSI/MACD only
+  match on the **daily** timeframe (daily RSI(14) 44.0, close to their 47.8; daily MACD histogram
+  -4.68, negative as claimed) -- 15-min/1h read the opposite way (RSI 60.7/61.3, MACD histogram
+  +4.63), i.e. the intraday bounce already contradicts the daily-chart read the article gives. Its
+  overall Sell/Defensive call agrees with our own latest forecast row's Bearish bias.
+- Weak points: same "no timeframe stated" flaw already logged against Reference #1 (fixed in our
+  generator by stating the timeframe on every figure); price ~$4,293 was already ~$12 stale against
+  live spot ($4,305.33) by the time it was checked; the support clause is internally contradictory --
+  "$4,300-$4,268 zone; failure risks a drop to $4,307" names a drop target *above* the support zone it
+  supposedly breaks, which makes no directional sense (reads like a templated/auto-generated piece
+  with a copy-paste error, not a real level); "surging yields, firm dollar" didn't match what DXY/US10Y
+  were actually doing in the checked window (DXY drifting softer $101.11->$101.00, US10Y flat around
+  5.15-5.16%).
+- **Taken from it:** nothing -- no generator change proposed. Everything it gets right (the EMA50
+  zone, stating a timeframe, the daily-chart bearish read) our generator already does natively; its one
+  distinctive claim (the support/failure clause) doesn't survive a sanity check.
+
 ## How each section is computed
 
 All from Twelve Data XAU/USD candles (`data_fetcher.fetch_candles`, UTC): 1h (500 bars), 4h (300),
