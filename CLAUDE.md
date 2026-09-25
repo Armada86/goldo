@@ -217,9 +217,16 @@ XAU/USD price alerts' 🟡 prefix, `rules.XAUUSD_ALERT_PREFIX`) in the chat. The
 line names only the flagging indicators (`broker._triggering_names()`, e.g. "GLD, GDX, GDXJ, RING,
 DXY") — deliberately no prices/swing sizes/thresholds, to keep the message short. The full detail
 (`broker._triggering_text()`) still goes into the `trades` row's `triggering_alerts` column for the
-Broker subagent's later analysis; only the Telegram message is trimmed. Close messages add a second
-marker right after the broker's own: 🟢 for a profit, 🔴 for a loss (`broker._result_marker()`) — so an
-open is `🔵`, a close is `🔵🟢`/`🔵🔴`. Broker A uses circles only; Broker B squares only. Deliberately no
+Broker subagent's later analysis; only the Telegram message is trimmed. Every open/close message also
+ends with a `Filled: <date> <time> <tz>` line (`broker._format_ts()`, ET via the same `DISPLAY_TZ`
+convention `dashboard.py`/`ta_forecast_job.py` use) stating `open_ts`/`exit_ts` exactly — added 25 Sep
+2026 because a poll only runs every 5 minutes, so the Telegram message can arrive several minutes
+after the real crossing it reports (most visibly on a close, whose `exit_ts` comes from the 1-minute
+candle scan rather than "now"); the message now states the real tick time instead of leaving the
+reader to assume it means "just now." Shared by both engines — `broker_b.py` imports `_format_ts()`
+alongside `_find_exit()`/`_result_marker()` so the format can't drift between them. Close messages add
+a second marker right after the broker's own: 🟢 for a profit, 🔴 for a loss (`broker._result_marker()`)
+— so an open is `🔵`, a close is `🔵🟢`/`🔵🔴`. Broker A uses circles only; Broker B squares only. Deliberately no
 markdown/doc log of trades — the `trades` table (`id`, `rule_name`, `trade_type`, `entry_price`,
 `open_ts`, `triggering_alerts`, `exit_price`, `close_ts`, `pnl`, `status`) is the only record, so a
 trade never requires a repo commit; `poll.yml` doesn't need write access to the repo for this reason.

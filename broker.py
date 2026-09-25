@@ -30,6 +30,7 @@ a trade at all.
 """
 
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from config import GOLD_SPOT_SYMBOL
 from data_fetcher import fetch_candles
@@ -63,9 +64,21 @@ TRADE_ALERT_PREFIX = "\U0001f535 "  # blue circle
 PROFIT_MARKER = "\U0001f7e2 "  # green circle
 LOSS_MARKER = "\U0001f534 "  # red circle
 
+# Same zone/format dashboard.py's to_display_str() and ta_forecast_job.py use for every other
+# human-facing timestamp in this project. Trade open/close messages need it because open_ts/close_ts
+# are the real candle-scan crossing times -- up to ~5 minutes earlier than when the poll that
+# notices them actually sends the Telegram message -- so the message states the tick time
+# explicitly rather than leaving the reader to assume "now" is when it happened. Shared with
+# broker_b.py (imported alongside _find_exit()/_result_marker()) so both engines format it the same way.
+DISPLAY_TZ = ZoneInfo("America/New_York")
+
 
 def _result_marker(pnl: float, profit: str = PROFIT_MARKER, loss: str = LOSS_MARKER) -> str:
     return profit if pnl >= 0 else loss
+
+
+def _format_ts(ts: datetime) -> str:
+    return ts.astimezone(DISPLAY_TZ).strftime("%Y-%m-%d %H:%M:%S %Z")
 
 # The six physically/mining-correlated gold ETFs must flag the same direction gold itself is
 # presumed to be moving; dxy (inversely correlated with gold) must flag the opposite direction.
@@ -231,19 +244,21 @@ def _find_exit(trade: dict, fallback_price: float, fallback_ts: datetime) -> tup
     return None
 
 
-def _open_message(trade_type: str, rule_name: str, price: float, triggering_names: str) -> str:
+def _open_message(trade_type: str, rule_name: str, price: float, triggering_names: str, open_ts: datetime) -> str:
     return (
         f"{TRADE_ALERT_PREFIX}BROKER A: opened {trade_type} 1 oz XAU/USD @ ${price:.2f} (rule {rule_name}).\n"
-        f"Trigger: {triggering_names}"
+        f"Trigger: {triggering_names}\n"
+        f"Filled: {_format_ts(open_ts)}"
     )
 
 
-def _close_message(trade: dict, exit_price: float, pnl: float) -> str:
+def _close_message(trade: dict, exit_price: float, exit_ts: datetime, pnl: float) -> str:
     result = "profit" if pnl >= 0 else "loss"
     return (
         f"{TRADE_ALERT_PREFIX.rstrip()}{_result_marker(pnl)}BROKER A: closed {trade['trade_type']} 1 oz XAU/USD @ ${exit_price:.2f} "
         f"(opened @ ${trade['entry_price']:.2f}, rule {trade['rule_name']}) -- "
-        f"{result} of ${abs(pnl):.2f}"
+        f"{result} of ${abs(pnl):.2f}\n"
+        f"Filled: {_format_ts(exit_ts)}"
     )
 
 
@@ -267,7 +282,7 @@ def check_broker_trades(prices: dict[str, float]) -> None:
         if exit_result is not None:
             exit_price, exit_ts, pnl = exit_result
             close_trade_row(open_trade["id"], exit_price, exit_ts, pnl)
-            send_telegram_message(_close_message(open_trade, exit_price, pnl))
+            send_telegram_message(_close_message(open_trade, exit_price, exit_ts, pnl))
             open_trade = None
 
     if open_trade is None:
@@ -281,4 +296,4 @@ def check_broker_trades(prices: dict[str, float]) -> None:
             triggering_text = _triggering_text(alerts, trade_type)
             insert_trade(rule_name, trade_type, gold_price, now, triggering_text)
             triggering_names = _triggering_names(alerts, trade_type)
-            send_telegram_message(_open_message(trade_type, rule_name, gold_price, triggering_names))
+            send_telegram_message(_open_message(trade_type, rule_name, gold_price, triggering_names, now))

@@ -101,7 +101,7 @@ still gets its own notice, since that's genuinely new information.
 from datetime import datetime, time, timezone
 from zoneinfo import ZoneInfo
 
-from broker import _find_exit, _result_marker
+from broker import _find_exit, _format_ts, _result_marker
 from config import (
     GOLD_SPOT_SYMBOL,
     INTRAHOUR_SWING_ALERT_THRESHOLD,
@@ -344,19 +344,23 @@ def _notify_timing_block(candidates: list, gold_price: float, forecast: dict, no
             _notify_blocked(forecast, rule_name, trigger_price, dedup_reasons, message_reasons)
 
 
-def _open_message(trade_type: str, rule_name: str, price: float, session: str, forecast_date) -> str:
+def _open_message(
+    trade_type: str, rule_name: str, price: float, session: str, forecast_date, open_ts: datetime
+) -> str:
     return (
         f"{TRADE_ALERT_PREFIX}BROKER B: opened {trade_type} 1 oz XAU/USD @ ${price:.2f} (rule {rule_name}).\n"
-        f"Trigger: {session} TA forecast level, {forecast_date}"
+        f"Trigger: {session} TA forecast level, {forecast_date}\n"
+        f"Filled: {_format_ts(open_ts)}"
     )
 
 
-def _close_message(trade: dict, exit_price: float, pnl: float) -> str:
+def _close_message(trade: dict, exit_price: float, exit_ts: datetime, pnl: float) -> str:
     result = "profit" if pnl >= 0 else "loss"
     return (
         f"{TRADE_ALERT_PREFIX.rstrip()}{_result_marker(pnl, PROFIT_MARKER, LOSS_MARKER)}BROKER B: closed {trade['trade_type']} 1 oz XAU/USD @ ${exit_price:.2f} "
         f"(opened @ ${trade['entry_price']:.2f}, rule {trade['rule_name']}) -- "
-        f"{result} of ${abs(pnl):.2f}"
+        f"{result} of ${abs(pnl):.2f}\n"
+        f"Filled: {_format_ts(exit_ts)}"
     )
 
 
@@ -385,7 +389,7 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
         if exit_result is not None:
             exit_price, exit_ts, pnl = exit_result
             close_trade_row_b(open_trade["id"], exit_price, exit_ts, pnl)
-            send_telegram_message(_close_message(open_trade, exit_price, pnl))
+            send_telegram_message(_close_message(open_trade, exit_price, exit_ts, pnl))
             open_trade = None
 
     if open_trade is not None:
@@ -475,4 +479,6 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
     session = levels.get("session", "?")
     trigger_text = f"{session} TA forecast {forecast['forecast_date']}, {scenario_name} @ ${trigger_price:.2f}"
     insert_trade_b(rule_name, trade_type, trigger_price, trigger_ts, trigger_text, forecast["id"])
-    send_telegram_message(_open_message(trade_type, rule_name, trigger_price, session, forecast["forecast_date"]))
+    send_telegram_message(
+        _open_message(trade_type, rule_name, trigger_price, session, forecast["forecast_date"], trigger_ts)
+    )
