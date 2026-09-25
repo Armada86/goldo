@@ -288,6 +288,12 @@ cheap point check against the poll's already-fetched spot price rather than a re
 report a block that was never going to trade anyway. Both paths are deduplicated in Postgres
 (`broker_b_blocked` table, `storage.record_broker_b_blocked_if_new()`, keyed on `(ta_forecast_id,
 rule_name, reasons)`) so a level sitting past its trigger for hours sends one notice, not one per poll.
+The stored `reasons` string is a fixed **dedup category** with no poll-varying number in it (e.g. "DXY
+rose against the Buy (fresh headwind)", not the live delta) — `_dxy_confirms()`/`_rsi_confirms()` return
+`(ok, category, detail)` and `_notify_timing_block()` builds its own category/detail pair the same way,
+so the live numbers (clock time, DXY delta, RSI value) only ever land in the Telegram text itself, never
+the dedup key. Fixed 25 Sep 2026 — the original version put the live number straight into the dedup
+key, so the same ongoing block re-sent every ~5-minute poll instead of once.
 
 Same $10 flat take-profit/stop-loss as Broker A (`broker._find_exit()`, imported directly
 rather than reimplemented, so the two engines' exit math can't drift apart), same 1 oz size. Entirely
