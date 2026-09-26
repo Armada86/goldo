@@ -760,8 +760,28 @@ much history doesn't exist yet, e.g. right after a fresh deploy). Deliberately s
 fixed `<colgroup>` so columns can't overflow the viewport width, kept in the CSS block at the top of the
 file rather than per-element `style=` (the per-cell `style=` that remains is just the red/green
 up/down color, computed from the sign of each change). The `$` unit shown on price/change cells is
-picked per-name (`DOLLAR_UNIT_NAMES`) the same way `rules.py` picks it for alert messages. Below the
-symbols table sit two more `st.dataframe` tables (not the hand-built HTML above, since no per-cell
+picked per-name (`DOLLAR_UNIT_NAMES`) the same way `rules.py` picks it for alert messages.
+
+**Responsive laptop/desktop layout**: everything above is the mobile-first *default*, unconditional in
+the CSS -- so a phone viewer's experience is completely unchanged by what follows. A single
+`@media (min-width: LAPTOP_BREAKPOINT_PX)` block (700px; the constant lives in Python, interpolated
+into the CSS string via f-string so the two can't drift apart) widens things up once the actual browser
+viewport is wide enough, purely by width, not by detecting "a laptop" as a device -- the standard,
+correct way to do this on the web: one URL, one page, no separate mobile/desktop site. Three things
+change at that breakpoint: (1) `.block-container` gets a `max-width: 1000px; margin: 0 auto`, so
+`layout="wide"`'s available width is capped and centered instead of stretching a single-column page
+edge-to-edge on an ultra-wide monitor; (2) the symbols table's fonts/padding scale up (9px→14px,
+2px→7-10px), and the $/% change cells switch from stacked (two lines, a phone-width space-saver) to
+inline (one line, `display:inline` + a small left margin on the `.pct` span) -- shorter rows more than
+offset the bigger fonts, so the table still isn't taller overall; (3) the forecast diagram's SVG, which
+is `width:100%;height:auto` and therefore fills whatever contains it (and, since its viewBox aspect
+ratio is preserved, grows just as tall as it grows wide), gets capped at `max-width: 640px` and centered
+via a `.goldo-diagram-wrap` div `dashboard.py` wraps it in specifically for this -- otherwise it would
+stretch oversized next to the now-comfortably-sized table below it. The two `st.dataframe` tables below
+("Recent Trades"/"Recent Alerts") aren't touched by the breakpoint -- Streamlit's own dataframe
+component already sizes and paginates itself reasonably at any width, so no custom rule was needed
+there. Below the
+symbols table sit those two more `st.dataframe` tables (not the hand-built HTML above, since no per-cell
 layout control is needed here beyond one column's background color — see below): "Recent Trades"
 (`load_trades()` — Broker A's `trades` and Broker B's `broker_b_trades` (see "Broker A"/"Broker B
 automated paper-trading" above) `UNION ALL`-ed into one combined timeline, not two separate tables,

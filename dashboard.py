@@ -27,31 +27,64 @@ st.set_page_config(page_title="Goldo", layout="wide")
 # handled by this app) still reloads the page immediately regardless of this interval.
 st.markdown('<meta http-equiv="refresh" content="300">', unsafe_allow_html=True)
 
-# Compact layout/fonts so every symbol's row fits on one phone screen
-# (tuned against a Samsung S24 Ultra viewport) without scrolling.
+# Compact layout/fonts so every symbol's row fits on one phone screen (tuned against a Samsung S24
+# Ultra viewport) without scrolling. This is the mobile-first *default* -- unconditional, no media
+# query -- so a phone viewer's experience is completely unchanged by the laptop/desktop block below.
+# LAPTOP_BREAKPOINT_PX (700) is the one place that width is chosen; both here and in the media query
+# below reference it via an f-string so the two can't drift apart.
+LAPTOP_BREAKPOINT_PX = 700
 st.markdown(
-    """
+    f"""
     <style>
-    .block-container { padding-top: 1.5rem; padding-bottom: 1rem; }
-    .goldo-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 9px; }
-    .goldo-table th, .goldo-table td {
+    .block-container {{ padding-top: 1.5rem; padding-bottom: 1rem; }}
+    .goldo-table {{ width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 9px; }}
+    .goldo-table th, .goldo-table td {{
         padding: 2px 1px; text-align: right; overflow-wrap: break-word; line-height: 1.15;
-    }
-    .goldo-table th:first-child, .goldo-table td:first-child { text-align: left; }
-    .goldo-table th { font-size: 8px; color: #888; font-weight: 600; }
-    .goldo-table td.symbol { font-weight: 700; font-size: 10px; }
-    .goldo-table td.price { font-weight: 700; font-size: 9.5px; }
-    .goldo-table td.change span { display: block; }
-    .goldo-table td.change span.pct { font-size: 8px; opacity: 0.85; }
+    }}
+    .goldo-table th:first-child, .goldo-table td:first-child {{ text-align: left; }}
+    .goldo-table th {{ font-size: 8px; color: #888; font-weight: 600; }}
+    .goldo-table td.symbol {{ font-weight: 700; font-size: 10px; }}
+    .goldo-table td.price {{ font-weight: 700; font-size: 9.5px; }}
+    .goldo-table td.change span {{ display: block; }}
+    .goldo-table td.change span.pct {{ font-size: 8px; opacity: 0.85; }}
     /* Streamlit's st.columns() puts every column on its own line below a container-width breakpoint
        (each gets min-width: calc(100% - 24px), which wraps them via flex-wrap once they can't all
        fit) -- that's what stacked the forecast date navigator's ◀/date/▶ row on a phone screen. The
-       only st.columns() call in this file is that nav row, so this override is safe file-wide; if a
-       second one is ever added elsewhere, scope this instead of dropping it. */
-    div[data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; }
-    div[data-testid="stHorizontalBlock"] div[data-testid="stColumn"] {
+       only st.columns() calls in this file are that nav row and the session-picker row below it, so
+       this override is safe file-wide; if a differently-behaved one is ever added elsewhere, scope
+       this instead of dropping it. */
+    div[data-testid="stHorizontalBlock"] {{ flex-wrap: nowrap !important; }}
+    div[data-testid="stHorizontalBlock"] div[data-testid="stColumn"] {{
         min-width: 0 !important; width: auto !important;
-    }
+    }}
+
+    /* Laptop/desktop layout: a real browser window is wide enough to read comfortably without the
+       phone's tight fonts and stacked $/% change cells, so this widens things up -- but reacts to
+       actual viewport width, not device type (see CLAUDE.md's "Dashboard layout" for why that's the
+       deliberate, standard way to do this: the same page, the same URL, one CSS block, no separate
+       "mobile site"/"desktop site"). Purely additive -- everything above still applies below this
+       breakpoint, so the phone view is byte-for-byte the same as before. `.block-container`'s
+       max-width keeps line lengths/row widths reasonable on an ultra-wide monitor too, rather than
+       stretching a single-column table edge-to-edge just because `layout="wide"` has the room. */
+    @media (min-width: {LAPTOP_BREAKPOINT_PX}px) {{
+        .block-container {{ max-width: 1000px; margin: 0 auto; padding-top: 2.5rem; }}
+        .goldo-table {{ font-size: 14px; }}
+        .goldo-table th, .goldo-table td {{ padding: 7px 10px; }}
+        .goldo-table th {{ font-size: 12px; }}
+        .goldo-table td.symbol {{ font-size: 15px; }}
+        .goldo-table td.price {{ font-size: 14.5px; }}
+        /* Stacked delta/pct (two lines) was a phone-width space-saver; there's room to put them on
+           one line here, which also shortens every row so more of the table still fits above the
+           fold despite the bigger fonts. */
+        .goldo-table td.change span {{ display: inline; }}
+        .goldo-table td.change span.pct {{ font-size: 11px; margin-left: 6px; }}
+        /* render_diagram_svg()'s SVG is `width:100%;height:auto`, so it fills whatever contains it --
+           on a wide screen that means stretching (and, since the viewBox aspect ratio is preserved,
+           growing just as tall as it is wide), which looks oversized next to the single-column table
+           below it. Capping and centering the wrapper (dashboard.py wraps the SVG in
+           .goldo-diagram-wrap specifically for this) keeps it at a comfortable reading size instead. */
+        .goldo-diagram-wrap {{ max-width: 640px; margin: 0 auto; }}
+    }}
     </style>
     """,
     unsafe_allow_html=True,
@@ -328,13 +361,13 @@ if min_forecast_date is not None:
         except Exception as e:
             st.error(f"Could not load Broker B outcomes for this forecast: {e}")
             scenario_outcomes = {}
-        st.markdown(
-            render_diagram_svg(
-                levels["price"], levels["resistances"], levels["supports"], levels["scenarios"],
-                candle, live_price, scenario_outcomes,
-            ),
-            unsafe_allow_html=True,
+        diagram_svg = render_diagram_svg(
+            levels["price"], levels["resistances"], levels["supports"], levels["scenarios"],
+            candle, live_price, scenario_outcomes,
         )
+        # Wrapped in .goldo-diagram-wrap so the laptop/desktop media query above can cap+center it --
+        # see that rule's comment for why the SVG needs a sized container to cap against.
+        st.markdown(f'<div class="goldo-diagram-wrap">{diagram_svg}</div>', unsafe_allow_html=True)
         with st.expander("Full forecast text"):
             st.text(forecast["analysis"])
     elif selected_date != today_et:
