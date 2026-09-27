@@ -50,37 +50,37 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    Cron["cron-job.org"]
+    Cron2["cron-job.org"]
     FMP["FMP\n(economic calendar)"]
     TD2["Twelve Data\n(RSI/forecast candles)"]
-    DB[("Postgres / Neon")]
-    Telegram(("notifier.py\n-> Telegram"))
+    DB2[("Postgres / Neon")]
+    Telegram2(("notifier.py\n-> Telegram"))
 
-    Cron -->|weekday 6am ET| FreqCheck["frequency_check_job.py"]
+    Cron2 -->|weekday 6am ET| FreqCheck["frequency_check_job.py"]
     FreqCheck --> Thresholds["intrahour_swing_thresholds.json"]
-    FreqCheck --> Telegram
-    Thresholds -.->|read by the next poll| Rules["rules.py"]
+    FreqCheck --> Telegram2
+    Thresholds -.->|read by the next poll| Rules2["rules.py"]
 
-    Cron -->|weekday 8:14/8:29am ET| ReleaseWatch["release_watch_job.py"]
-    FMP --> ReleaseWatch --> Telegram
+    Cron2 -->|weekday 8:14/8:29am ET| ReleaseWatch["release_watch_job.py"]
+    FMP --> ReleaseWatch --> Telegram2
 
-    Cron -->|Tue, ~every 10 min 3-6pm ET| OilWeekly["oil_weekly_job.py"]
-    FMP --> OilWeekly --> DB
-    OilWeekly --> Telegram
+    Cron2 -->|Tue, ~every 10 min 3-6pm ET| OilWeekly["oil_weekly_job.py"]
+    FMP --> OilWeekly --> DB2
+    OilWeekly --> Telegram2
 
-    Cron -->|weekday 7am + noon ET| TAForecast["ta_forecast_job.py"]
-    TD2 --> TAForecast --> DB
-    TAForecast --> Telegram
-    TAForecast -.->|bias gate + RSI/DXY filters| BrokerA["broker.py\nBroker A"]
-    TAForecast -->|trades the latest zones| BrokerB["broker_b.py\nBroker B"]
+    Cron2 -->|weekday 7am + noon ET| TAForecast["ta_forecast_job.py"]
+    TD2 --> TAForecast --> DB2
+    TAForecast --> Telegram2
+    TAForecast -.->|bias gate + RSI/DXY filters| BrokerA2["broker.py\nBroker A"]
+    TAForecast -->|trades the latest zones| BrokerB2["broker_b.py\nBroker B"]
 
-    RoutineTrigger["routine_trigger.py"] -.->|API trigger, best-effort| Routine(["ADP/NFP release watcher\n(Claude Code Routine)"])
-    Routine -.-> DB
-    Routine -.-> Telegram
+    RoutineTrigger2["routine_trigger.py"] -.->|API trigger, best-effort| Routine(["ADP/NFP release watcher\n(Claude Code Routine)"])
+    Routine -.-> DB2
+    Routine -.-> Telegram2
 
     TelegramUser(["User's Telegram message\n(buy/sell/close broker A or B)"]) -->|webhook, instant| Worker["telegram_webhook/\n(Cloudflare Worker)"]
-    Worker -->|open/close Broker A or B| DB
-    Worker --> Telegram
+    Worker -->|open/close Broker A or B| DB2
+    Worker --> Telegram2
 ```
 
 **Step by step:**
