@@ -210,6 +210,22 @@ check against, so skipping the exit-scan calls loses nothing; the next poll afte
 back up normally. The first post-reopen reading naturally compares against Friday's last saved price,
 which is correct — a real weekend gap is exactly the kind of move worth alerting on.
 
+**Overnight Neon compute pause (`market_hours.is_overnight_polling_pause()`)**: added after Neon
+compute-hour usage hit 80% of the monthly allowance on the Free plan (whose 5-minute suspend-to-zero
+timeout can't be lowered — only a paid plan allows shorter — so a poll every 5 minutes never actually
+lets compute idle out between polls). True from 5:00 PM to 8:00 AM Eastern, every day — unlike
+`is_market_closed()` above, this is a **deliberate cost-saving pause, not a real market-closed fact**:
+gold spot actually trades nearly 24/5, and this window covers real Asian/London session activity, so
+some signal genuinely is lost overnight. `poll_job.py` (the cloud one-shot job `poll.yml` actually runs)
+checks this — and `is_market_closed()` — *before* calling `storage.init_db()` at all, since
+`init_db()`'s `CREATE TABLE IF NOT EXISTS` is itself a Postgres connection that used to run (and wake
+compute) on every single cloud poll regardless of market/pause status; `poll_once()` only ever skipped
+the price fetch below that, never the `init_db()` call above it. The weekly close/open Telegram
+notification (`check_market_hours_alert()`) is called directly in `poll_job.py` in this branch instead
+(no DB needed), since it falls inside this window (Friday 5pm/Sunday 6pm ET) and `poll_once()` — which
+normally fires it — is skipped entirely here. `main.py`'s own local continuous `BlockingScheduler` loop
+is untouched by this (calls `init_db()` once at startup, not per-poll, so it was never the cost driver).
+
 **Broker A automated paper-trading (`broker.py`)**: `check_broker_trades()`, called from
 `main.poll_once()` right after this cycle's alerts are saved, is a fully automated imaginary
 buy/sell engine layered on top of the alert mechanisms above — see `.claude/agents/broker.md`'s
