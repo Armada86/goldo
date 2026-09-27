@@ -675,14 +675,6 @@ def render_diagram_svg(
         ticks.append(t)
         t += step
 
-    # Price is laid out in the same top-to-bottom pass as the zones (not drawn separately afterward)
-    # so it gets the same DIAGRAM_MIN_LABEL_GAP anti-collision nudging -- it's common for price to sit
-    # within a few dollars of the nearest zone.
-    rows = [("zone", z, True) for z in resistances] + [("zone", z, False) for z in supports]
-    rows.append(("price", None, None))
-    if live_price is not None:
-        rows.append(("live", None, None))
-
     band_center_x = DIAGRAM_BAND_X + DIAGRAM_BAND_WIDTH / 2
 
     def outcome_marker(scenario_name: str) -> tuple[str, str]:
@@ -698,111 +690,51 @@ def render_diagram_svg(
             return f"✓{wins}", DIAGRAM_COLOR_SUPPORT
         return "", ""
 
-    markers = []
-    leaders = []
-
-    def leader_right(true_y: float, label_y: float, color: str) -> str:
-        """Dashed connector from a row's true y-position to its (nudged) label on the right, plus a
-        small dot marking the true position precisely -- see this function's docstring. `color` matches
-        the row's own color (band/price/live) so the connector visually ties back to the right row even
+    def leader(true_y: float, label_y: float, color: str, side: str) -> str:
+        """Dashed connector from a row's true y-position to its (nudged) label, plus a small dot
+        marking the true position precisely -- see this function's docstring. `color` matches the row's
+        own color (band/price/live/marker) so the connector visually ties back to the right row even
         when several differently-colored rows are packed close together, rather than reading as one
-        generic gray line among several."""
-        anchor_x = DIAGRAM_BAND_X + DIAGRAM_BAND_WIDTH
+        generic gray line among several. `side` is "right" (label side, the common case) or "left"
+        (axis side, used only for a zone's outcome marker)."""
+        if side == "right":
+            anchor_x, x1, x2 = DIAGRAM_BAND_X + DIAGRAM_BAND_WIDTH, None, DIAGRAM_LABEL_X - 4
+            x1 = anchor_x + 2
+        else:
+            anchor_x, x1, x2 = DIAGRAM_AXIS_X - 4, 16, None
+            x2 = anchor_x - 2
         return (
             f'<circle cx="{anchor_x:.1f}" cy="{true_y:.1f}" r="1.6" fill="{color}"/>'
-            f'<line x1="{anchor_x + 2:.1f}" x2="{DIAGRAM_LABEL_X - 4:.1f}" y1="{true_y:.1f}" '
-            f'y2="{label_y - 3:.1f}" stroke="{color}" stroke-width="0.75" stroke-opacity="0.6" '
-            f'stroke-dasharray="1.5 1.5"/>'
-        )
-
-    def leader_left(true_y: float, label_y: float, color: str) -> str:
-        """Same as leader_right, mirrored to the left (axis side) -- used only for a zone's outcome
-        marker, so the marker's own displaced position can also be traced back to its true level."""
-        anchor_x = DIAGRAM_AXIS_X - 4
-        return (
-            f'<circle cx="{anchor_x:.1f}" cy="{true_y:.1f}" r="1.6" fill="{color}"/>'
-            f'<line x1="16" x2="{anchor_x - 2:.1f}" y1="{label_y - 3:.1f}" y2="{true_y:.1f}" '
+            f'<line x1="{x1:.1f}" x2="{x2:.1f}" y1="{true_y:.1f}" y2="{label_y - 3:.1f}" '
             f'stroke="{color}" stroke-width="0.75" stroke-opacity="0.6" stroke-dasharray="1.5 1.5"/>'
         )
 
-    def row_sort_key(r):
-        if r[0] == "price":
-            return -price
-        if r[0] == "live":
-            return -live_price
-        return -r[1]["low"]
+    # Every labelled row (each zone, plus price, plus the optional live-price dot) goes through one
+    # shared top-to-bottom pass, keyed by true price position, so a close cluster (e.g.
+    # price/live-price/the nearest zone all within a few dollars) gets one consistent
+    # DIAGRAM_MIN_LABEL_GAP anti-collision nudge instead of three near-duplicate implementations of it.
+    class _Row:
+        __slots__ = ("true_y", "sort_price", "color", "render_label", "marker")
 
-    bands, labels = [], []
-    prev_label_y = None
-    for kind, zone, is_resistance in sorted(rows, key=row_sort_key):
-        if kind == "price":
-            y = y_of(price)
-            # A thin line, not a filled badge -- a solid block that width would sit on top of (and
-            # hide) whatever zone band/label happens to be at the same height.
-            bands.append(
-                f'<line x1="{DIAGRAM_AXIS_X}" x2="{DIAGRAM_BAND_X + DIAGRAM_BAND_WIDTH}" y1="{y:.1f}" '
-                f'y2="{y:.1f}" stroke="{DIAGRAM_COLOR_PRICE}" stroke-width="1.25"/>'
-            )
-            natural_label_y = y + 3.3
-            label_y = natural_label_y
-            if prev_label_y is not None and label_y - prev_label_y < DIAGRAM_MIN_LABEL_GAP:
-                label_y = prev_label_y + DIAGRAM_MIN_LABEL_GAP
-            prev_label_y = label_y
-            if label_y != natural_label_y:
-                leaders.append(leader_right(y, label_y, DIAGRAM_COLOR_PRICE))
-            labels.append(
-                f'<text x="{DIAGRAM_LABEL_X}" y="{label_y:.1f}" font-size="9.5" fill="{DIAGRAM_COLOR_INK}">'
-                f'<tspan font-family="IBM Plex Mono, ui-monospace, monospace" font-weight="700" '
-                f'fill="{DIAGRAM_COLOR_PRICE}">{price:,.2f}</tspan> current price</text>'
-            )
-            continue
-        if kind == "live":
-            # The actual live spot price, as of right now -- distinct from the `price` hairline above,
-            # which is frozen at whenever the forecast ran. A dot, not a line, so it doesn't get
-            # mistaken for a second copy of the price hairline.
-            y = y_of(live_price)
-            bands.append(
-                f'<circle cx="{band_center_x:.1f}" cy="{y:.1f}" r="{DIAGRAM_PRICE_DOT_RADIUS}" '
-                f'fill="{DIAGRAM_COLOR_LIVE}"/>'
-            )
-            natural_label_y = y + 3.3
-            label_y = natural_label_y
-            if prev_label_y is not None and label_y - prev_label_y < DIAGRAM_MIN_LABEL_GAP:
-                label_y = prev_label_y + DIAGRAM_MIN_LABEL_GAP
-            prev_label_y = label_y
-            if label_y != natural_label_y:
-                leaders.append(leader_right(y, label_y, DIAGRAM_COLOR_LIVE))
-            labels.append(
-                f'<text x="{DIAGRAM_LABEL_X}" y="{label_y:.1f}" font-size="9.5" fill="{DIAGRAM_COLOR_INK}">'
-                f'<tspan font-family="IBM Plex Mono, ui-monospace, monospace" font-weight="700" '
-                f'fill="{DIAGRAM_COLOR_LIVE}">{live_price:,.2f}</tspan> live price</text>'
-            )
-            continue
+        def __init__(self, true_y, sort_price, color, render_label, marker=None):
+            self.true_y, self.sort_price, self.color = true_y, sort_price, color
+            self.render_label, self.marker = render_label, marker
+
+    def zone_row(zone: dict, is_resistance: bool) -> _Row:
         color = DIAGRAM_COLOR_RESISTANCE if is_resistance else DIAGRAM_COLOR_SUPPORT
-        y_top, y_bot = y_of(zone["high"]), y_of(zone["low"])
-        bands.append(
-            f'<rect x="{DIAGRAM_BAND_X}" y="{y_top:.1f}" width="{DIAGRAM_BAND_WIDTH}" '
-            f'height="{max(3.0, y_bot - y_top):.1f}" fill="{color}" fill-opacity="0.22" '
-            f'stroke="{color}" stroke-width="1"/>'
-        )
-        true_y = (y_top + y_bot) / 2
-        natural_label_y = true_y + 3.3
-        label_y = natural_label_y
-        if prev_label_y is not None and label_y - prev_label_y < DIAGRAM_MIN_LABEL_GAP:
-            label_y = prev_label_y + DIAGRAM_MIN_LABEL_GAP
-        prev_label_y = label_y
-        nudged = label_y != natural_label_y
-        if nudged:
-            leaders.append(leader_right(true_y, label_y, color))
+        true_y = (y_of(zone["high"]) + y_of(zone["low"])) / 2
         tooltip = ", ".join(zone["labels"])
         if zone.get("nearby"):
             tooltip += "; nearby " + "; ".join(f"{_fmt_zone(n)}: {', '.join(n['labels'])}" for n in zone["nearby"])
-        labels.append(
-            f'<text x="{DIAGRAM_LABEL_X}" y="{label_y:.1f}" font-size="9.5" fill="{DIAGRAM_COLOR_INK}">'
-            f'<tspan font-family="IBM Plex Mono, ui-monospace, monospace" font-weight="600" '
-            f'fill="{color}">{_fmt_zone(zone)}</tspan> {escape(_short_zone_label(zone))}'
-            f'<title>{escape(tooltip)}</title></text>'
-        )
+
+        def render_label(label_y: float) -> str:
+            return (
+                f'<text x="{DIAGRAM_LABEL_X}" y="{label_y:.1f}" font-size="9.5" fill="{DIAGRAM_COLOR_INK}">'
+                f'<tspan font-family="IBM Plex Mono, ui-monospace, monospace" font-weight="600" '
+                f'fill="{color}">{_fmt_zone(zone)}</tspan> {escape(_short_zone_label(zone))}'
+                f'<title>{escape(tooltip)}</title></text>'
+            )
+
         # Only the nearest zone each side actually has a scenario traded against it
         # (build_scenarios() only fades resistances[0]/supports[0]) -- the rest are informational only.
         scenario_name = (
@@ -810,15 +742,86 @@ def render_diagram_svg(
             else "buy_support" if not is_resistance and supports and zone is supports[0]
             else None
         )
-        if scenario_name:
-            mk, mk_color = outcome_marker(scenario_name)
-            if mk:
-                markers.append(
-                    f'<text x="4" y="{label_y:.1f}" font-size="10" font-weight="700" '
-                    f'fill="{mk_color}">{mk}</text>'
-                )
-                if nudged:
-                    leaders.append(leader_left(true_y, label_y, mk_color))
+        marker = outcome_marker(scenario_name) if scenario_name else None
+        return _Row(true_y, zone["low"], color, render_label, marker if marker and marker[0] else None)
+
+    def price_row() -> _Row:
+        y = y_of(price)
+
+        def render_label(label_y: float) -> str:
+            return (
+                f'<text x="{DIAGRAM_LABEL_X}" y="{label_y:.1f}" font-size="9.5" fill="{DIAGRAM_COLOR_INK}">'
+                f'<tspan font-family="IBM Plex Mono, ui-monospace, monospace" font-weight="700" '
+                f'fill="{DIAGRAM_COLOR_PRICE}">{price:,.2f}</tspan> current price</text>'
+            )
+
+        return _Row(y, price, DIAGRAM_COLOR_PRICE, render_label)
+
+    def live_row() -> _Row:
+        y = y_of(live_price)
+
+        def render_label(label_y: float) -> str:
+            return (
+                f'<text x="{DIAGRAM_LABEL_X}" y="{label_y:.1f}" font-size="9.5" fill="{DIAGRAM_COLOR_INK}">'
+                f'<tspan font-family="IBM Plex Mono, ui-monospace, monospace" font-weight="700" '
+                f'fill="{DIAGRAM_COLOR_LIVE}">{live_price:,.2f}</tspan> live price</text>'
+            )
+
+        return _Row(y, live_price, DIAGRAM_COLOR_LIVE, render_label)
+
+    all_rows = [zone_row(z, True) for z in resistances] + [zone_row(z, False) for z in supports]
+    all_rows.append(price_row())
+    if live_price is not None:
+        all_rows.append(live_row())
+    all_rows.sort(key=lambda r: -r.sort_price)
+
+    # Price/live-price get a marker on the band itself (line/dot); zones get their band drawn already
+    # by the caller's loop below -- both need this same true_y -> label_y nudge pass either way.
+    bands, labels, leaders_svg, markers = [], [], [], []
+    prev_label_y = None
+    for row in all_rows:
+        natural_label_y = row.true_y + 3.3
+        label_y = natural_label_y
+        if prev_label_y is not None and label_y - prev_label_y < DIAGRAM_MIN_LABEL_GAP:
+            label_y = prev_label_y + DIAGRAM_MIN_LABEL_GAP
+        prev_label_y = label_y
+        nudged = label_y != natural_label_y
+        if nudged:
+            leaders_svg.append(leader(row.true_y, label_y, row.color, "right"))
+        labels.append(row.render_label(label_y))
+        if row.marker:
+            mk, mk_color = row.marker
+            markers.append(
+                f'<text x="4" y="{label_y:.1f}" font-size="10" font-weight="700" fill="{mk_color}">{mk}</text>'
+            )
+            if nudged:
+                leaders_svg.append(leader(row.true_y, label_y, mk_color, "left"))
+
+    # Bands/lines/dots themselves are drawn at their true (never nudged) position -- only labels and
+    # markers move.
+    for zone, is_resistance in zones:
+        color = DIAGRAM_COLOR_RESISTANCE if is_resistance else DIAGRAM_COLOR_SUPPORT
+        y_top, y_bot = y_of(zone["high"]), y_of(zone["low"])
+        bands.append(
+            f'<rect x="{DIAGRAM_BAND_X}" y="{y_top:.1f}" width="{DIAGRAM_BAND_WIDTH}" '
+            f'height="{max(3.0, y_bot - y_top):.1f}" rx="2" fill="{color}" fill-opacity="0.22" '
+            f'stroke="{color}" stroke-width="1"/>'
+        )
+    # A thin line, not a filled badge -- a solid block that width would sit on top of (and hide)
+    # whatever zone band/label happens to be at the same height.
+    bands.append(
+        f'<line x1="{DIAGRAM_AXIS_X}" x2="{DIAGRAM_BAND_X + DIAGRAM_BAND_WIDTH}" y1="{y_of(price):.1f}" '
+        f'y2="{y_of(price):.1f}" stroke="{DIAGRAM_COLOR_PRICE}" stroke-width="1.25"/>'
+    )
+    if live_price is not None:
+        # The actual live spot price, as of right now -- distinct from the `price` hairline above,
+        # which is frozen at whenever the forecast ran. A dot, not a line, so it doesn't get mistaken
+        # for a second copy of the price hairline.
+        bands.append(
+            f'<circle cx="{band_center_x:.1f}" cy="{y_of(live_price):.1f}" r="{DIAGRAM_PRICE_DOT_RADIUS}" '
+            f'fill="{DIAGRAM_COLOR_LIVE}"/>'
+        )
+    leaders = leaders_svg
 
     axis_ticks = "".join(
         f'<line x1="{DIAGRAM_AXIS_X - 4}" x2="{DIAGRAM_AXIS_X}" y1="{y_of(tk):.1f}" y2="{y_of(tk):.1f}" '
