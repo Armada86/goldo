@@ -4,78 +4,70 @@ High-level view of how data moves through the system. Kept deliberately summariz
 for the full breakdown of each piece.
 
 ```mermaid
-flowchart LR
-    subgraph Ext["External"]
-        direction TB
-        Cron["cron-job.org\n(scheduler)"]
-        YF["yfinance"]
-        TD["Twelve Data"]
-        FRED["FRED"]
-        FMP["FMP"]
-        TelegramUser(["User's Telegram\nmessage"])
+flowchart TD
+    subgraph Sources["Data sources"]
+        YF["yfinance\n(dxy, us10y, gld, iau, gldm, gdx, gdxj, ring, GC=F)"]
+        TD["Twelve Data\n(gold spot + RSI/forecast candles)"]
+        FRED["FRED\n(inflation, financial_stress)"]
+        FMP["FMP\n(economic calendar)"]
     end
 
-    subgraph Core["Core poll cycle -- every 5 min"]
-        direction TB
-        Fetcher["data_fetcher.py"]
-        Poll["poll_once()\n(main.py / poll_job.py)"]
-        MarketHours["market_hours.py\n(weekly open/close notice)"]
-        Rules["rules.py\n(6 alert checks)"]
-        Fetcher --> Poll --> MarketHours
-        Poll --> Rules
-    end
+    Cron["cron-job.org\n(external scheduler)"]
+    Cron -->|every 5 min| Poll
+    Cron -->|weekday 6am ET| FreqCheck["frequency_check_job.py"]
+    Cron -->|weekday 8:14am/8:29am ET| ReleaseWatch["release_watch_job.py"]
+    Cron -->|Tuesday, ~every 10 min 3-6pm ET| OilWeekly["oil_weekly_job.py"]
+    Cron -->|weekday 7am + noon ET| TAForecast["ta_forecast_job.py"]
 
-    subgraph Brokers["Paper-trading engines"]
-        direction TB
-        BrokerA["broker.py\nBroker A"]
-        BrokerB["broker_b.py\nBroker B"]
-        ForexBroker["forex_broker.py\nForex (close-check only)"]
-        Worker["telegram_webhook/\nCloudflare Worker"]
-    end
-
-    subgraph Scheduled["Scheduled jobs"]
-        direction TB
-        FreqCheck["frequency_check_job.py\nweekday 6am ET"]
-        ReleaseWatch["release_watch_job.py\nweekday 8:14/8:29am ET"]
-        OilWeekly["oil_weekly_job.py\nTue ~every 10min, 3-6pm ET"]
-        TAForecast["ta_forecast_job.py\nweekday 7am + noon ET"]
-    end
-
-    DB[("Postgres / Neon")]
-    Telegram["notifier.py -> Telegram"]
-    Dashboard["dashboard.py\n(Streamlit Cloud)"]
-    RoutineTrigger["routine_trigger.py"]
-    Routine(["ADP/NFP release watcher\n(Claude Code Routine)"])
-    ForexAPI[["FOREX.com demo\n(forex_client.py)"]]
-    Thresholds["intrahour_swing_\nthresholds.json"]
-
-    YF & TD & FRED --> Fetcher
-    Cron -->|dispatch| Poll
-    Cron -->|dispatch| Scheduled
-
-    Poll --> DB
+    YF --> Fetcher["data_fetcher.py"]
+    TD --> Fetcher
+    FRED --> Fetcher
+    Fetcher --> Poll["poll_once()\n(main.py / poll_job.py)"]
+    Poll --> MarketHours["market_hours.py\n(weekly open/close notice)"]
+    MarketHours --> Telegram["notifier.py -> Telegram"]
+    Poll --> DB[("Postgres / Neon\nreadings, alerts, trades, broker_b_trades,\nbroker_a_blocked, broker_b_blocked, forex_trades,\nnfp_reports, adp_reports, oil_weekly_reports,\nthreshold_history, ta_forecasts")]
+    DB --> Rules["rules.py\n(6 alert checks)"]
     Rules --> Telegram
-    Rules -->|adp_employment /\nnonfarm_payrolls| RoutineTrigger
-    RoutineTrigger -.->|best-effort| Routine -.-> DB & Telegram
+    Rules -->|adp_employment / nonfarm_payrolls alert| RoutineTrigger["routine_trigger.py"]
+    RoutineTrigger -.->|API trigger, best-effort| Routine["ADP/NFP release watcher\n(Claude Code Routine, outside this repo)"]
+    Routine -.-> DB
+    Routine -.-> Telegram
 
-    Poll --> BrokerA & BrokerB
-    TAForecast -.->|bias + RSI/DXY filters| BrokerA
-    TAForecast -->|trades latest zones| BrokerB
-    BrokerA & BrokerB --> DB & Telegram
+    Poll --> BrokerA["broker.py\n(Broker A paper trading)"]
+    TAForecast -.->|bias gate + RSI/DXY filters| BrokerA
+    BrokerA --> DB
+    BrokerA --> Telegram
 
-    Poll -.->|read-only| ForexBroker -.-> ForexAPI & DB & Telegram
+    Poll --> BrokerB["broker_b.py\n(Broker B paper trading)"]
+    TAForecast -->|trades the latest zones| BrokerB
+    BrokerB --> DB
+    BrokerB --> Telegram
 
-    TelegramUser -->|webhook, instant| Worker -->|open/close A or B| DB
+    Poll -.->|read-only close-check only| ForexBroker["forex_broker.py\n(Forex broker -- entry logic disconnected)"]
+    ForexBroker -.-> ForexAPI["FOREX.com demo account\n(forex_client.py)"]
+    ForexBroker -.-> DB
+    ForexBroker -.-> Telegram
+
+    TelegramUser(["User's Telegram message\n(buy/sell/close broker A or B)"]) -->|webhook, instant| Worker["telegram_webhook/\n(Cloudflare Worker)"]
+    Worker -->|open/close Broker A or B| DB
     Worker --> Telegram
 
-    DB --> Dashboard
+    DB --> Dashboard["dashboard.py\n(Streamlit Cloud)"]
 
-    FreqCheck --> Thresholds --> Rules
+    FreqCheck --> Thresholds["intrahour_swing_thresholds.json"]
     FreqCheck --> Telegram
-    FMP --> ReleaseWatch & OilWeekly
+    Thresholds -.-> Rules
+
+    FMP --> ReleaseWatch
     ReleaseWatch --> Telegram
-    OilWeekly --> DB & Telegram
-    TD --> TAForecast --> DB & Telegram
+
+    FMP --> OilWeekly
+    OilWeekly --> DB
+    OilWeekly --> Telegram
+
+    TD --> TAForecast
+    TAForecast --> DB
+    TAForecast --> Telegram
 ```
 
 **Step by step:**
