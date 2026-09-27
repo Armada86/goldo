@@ -25,6 +25,15 @@ MARKET_CLOSE_HOUR = 17
 MARKET_OPEN_WEEKDAY = 6  # Sunday
 MARKET_OPEN_HOUR = 18
 
+# Deliberate cost-saving pause, every day, NOT a real market-closed fact -- gold spot actually trades
+# nearly 24/5 and this window covers real Asian/London session activity. Added to cap Neon Postgres
+# compute-hour usage: poll_job.py checks this before making any DB connection at all (see its own
+# comment), so the ~15 daily cloud polls in this window don't each wake compute from empty --
+# unlike is_market_closed() below, which only ever skipped the price fetch, not the init_db() call
+# that ran (and woke compute) every single poll regardless.
+OVERNIGHT_PAUSE_START_HOUR = 17  # 5:00 PM ET
+OVERNIGHT_PAUSE_END_HOUR = 8  # 8:00 AM ET
+
 
 def check_market_hours_alert() -> None:
     """Sends a one-off Telegram message on the first poll at/after Friday 5:00 PM (market close) and
@@ -55,3 +64,13 @@ def is_market_closed() -> bool:
         return now.hour < MARKET_OPEN_HOUR
     # Saturday, and every weekday strictly between Friday close and Sunday open, is fully closed.
     return now.weekday() == 5
+
+
+def is_overnight_polling_pause() -> bool:
+    """True from 5:00 PM to 8:00 AM Eastern, every day of the week -- a deliberate cost-saving pause,
+    not a real market-closed signal (see OVERNIGHT_PAUSE_START_HOUR/OVERNIGHT_PAUSE_END_HOUR above).
+    poll_job.py checks this (and is_market_closed() above) before making any Postgres connection at all,
+    so Neon compute can actually scale to zero overnight instead of a poll landing inside its 5-minute
+    suspend timeout every single cycle and keeping it perpetually warm."""
+    now = datetime.now(MARKET_TZ)
+    return now.hour >= OVERNIGHT_PAUSE_START_HOUR or now.hour < OVERNIGHT_PAUSE_END_HOUR
