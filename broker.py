@@ -66,6 +66,7 @@ from price_bars import fetch_gold_bars
 from notifier import send_telegram_message
 from storage import (
     close_trade_row,
+    get_last_blocked_signal_ts_a,
     get_last_trade_open_ts,
     get_latest_ta_forecast,
     get_open_trade,
@@ -397,11 +398,20 @@ def _blocked_message(rule_name: str, price: float, message_reasons: str) -> str:
     )
 
 
-def _notify_blocked(rule_name: str, price: float, dedup_reasons: str, message_reasons: str, since_ts: datetime) -> None:
+def _notify_blocked(
+    rule_name: str,
+    price: float,
+    dedup_reasons: str,
+    message_reasons: str,
+    since_ts: datetime,
+    signal_ts: datetime | None = None,
+) -> None:
     """Sends the blocked-entry Telegram notice, unless this exact (rule_name, dedup_reasons) was
     already notified since `since_ts` (see storage.record_broker_a_blocked_if_new()'s docstring for
-    why the watermark plays the role Broker B's forecast-row id does here)."""
-    if record_broker_a_blocked_if_new(rule_name, price, dedup_reasons, since_ts):
+    why that floor plays the role Broker B's forecast-row id does here). `signal_ts` (the newest alert
+    behind the signal) is recorded even on a duplicate notice, so check_broker_trades() can treat the
+    blocked signal's alerts as consumed on later polls."""
+    if record_broker_a_blocked_if_new(rule_name, price, dedup_reasons, since_ts, signal_ts):
         send_telegram_message(_blocked_message(rule_name, price, message_reasons))
 
 
@@ -436,12 +446,22 @@ def check_broker_trades(prices: dict[str, float]) -> None:
 
     if open_trade is None:
         watermark = get_last_trade_open_ts()
+        # A signal that a filter blocked is a missed signal, not a pending one: its alerts are consumed,
+        # so once the block clears a few polls later (the alerts are still inside the 10-minute
+        # window) it isn't opened off the same alerts -- a fresh consensus is needed. The floor is the
+        # later of the last trade's open time and the last blocked signal's newest alert.
+        try:
+            blocked_floor = get_last_blocked_signal_ts_a()
+        except Exception:
+            blocked_floor = None
+        floor = max((t for t in (watermark, blocked_floor) if t is not None), default=None)
         alerts = get_recent_alerts(minutes=ENTRY_WINDOW_MINUTES)
-        if watermark is not None:
-            alerts = [(ts, message) for ts, message in alerts if ts > watermark]
+        if floor is not None:
+            alerts = [(ts, message) for ts, message in alerts if ts > floor]
 
         trade_type, rule_name = _match_entry_rule(alerts)
-        since_ts = watermark if watermark is not None else datetime(1970, 1, 1, tzinfo=timezone.utc)
+        since_ts = floor if floor is not None else datetime(1970, 1, 1, tzinfo=timezone.utc)
+        signal_ts = max((ts for ts, _ in alerts), default=None)
         if trade_type is not None and not _within_entry_window(now):
             local = now.astimezone(DISPLAY_TZ)
             _notify_blocked(
@@ -449,13 +469,14 @@ def check_broker_trades(prices: dict[str, float]) -> None:
                 f"outside trading hours (now {local:%H:%M} ET; window is "
                 f"{ENTRY_WINDOW_START_ET:%H:%M}-{ENTRY_WINDOW_END_ET:%H:%M} ET, weekdays)",
                 since_ts,
+                signal_ts,
             )
             trade_type = None
         if trade_type is not None:
             bias_score = _latest_bias_score()
             if not _bias_allows(trade_type, bias_score):
                 bias_category, bias_detail = _bias_block_reason(trade_type, bias_score)
-                _notify_blocked(rule_name, gold_price, bias_category, bias_detail, since_ts)
+                _notify_blocked(rule_name, gold_price, bias_category, bias_detail, since_ts, signal_ts)
                 trade_type = None
         if trade_type is not None:
             try:
@@ -478,4 +499,4 @@ def check_broker_trades(prices: dict[str, float]) -> None:
             else:
                 dedup_reasons = "; ".join(r for r in (rsi_category, dxy_category) if r)
                 message_reasons = "; ".join(r for r in (rsi_detail, dxy_detail) if r)
-                _notify_blocked(rule_name, gold_price, dedup_reasons, message_reasons, since_ts)
+                _notify_blocked(rule_name, gold_price, dedup_reasons, message_reasons, since_ts, signal_ts)

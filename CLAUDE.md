@@ -275,7 +275,7 @@ dedicated fade signal. Both fail open on missing/insufficient data, same convent
 `broker._notify_blocked()`, `storage.record_broker_a_blocked_if_new()`, `broker_a_blocked` table, keyed
 on `(rule_name, reasons, since_ts)` where `since_ts` is Broker A's own entry watermark since there's no
 forecast row to scope by here) — since 30 Sep 2026 the TA bias gate and a new **trading-hours window** (7am-5pm ET weekdays, `broker._within_entry_window()`,
-shared with Broker B) also send this notice; an already-open-trade skip still stays unlogged beyond the GitHub Actions run log. Trade state lives in a Postgres `trades` table (mirrors
+shared with Broker B) also send this notice; an already-open-trade skip still stays unlogged beyond the GitHub Actions run log. **A blocked signal is never opened later (30 Sep 2026)**: a signal that any of these filters blocks has its alerts consumed (`broker_a_blocked.signal_ts` = the newest alert behind it, `storage.get_last_blocked_signal_ts_a()`; alerts at or before the later of that and the last trade's open time are ignored), so once the block clears a poll or two later it isn't opened off the same still-fresh alerts -- a fresh 5-of-7 consensus is needed. The blocked-notice dedup floor (`since_ts`) advances with it, so the next blocked signal notifies again. Trade state lives in a Postgres `trades` table (mirrors
 `readings`/`alerts` — required since `poll_job.py` is a stateless one-shot run each cloud poll, so
 in-memory state can't survive between polls); only one trade open at a time, and a fresh entry only
 considers alerts newer than the last trade's open time so a stale alert can't retrigger. Every
