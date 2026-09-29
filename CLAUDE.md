@@ -620,31 +620,25 @@ exclusive in how `dashboard.py` calls this function (`candle` only for a past da
 for today), so they never actually share that column, but neither is enforced against the other here.
 The legend gains a "Live" dot entry only when `live_price` is given. A third optional argument,
 `scenario_outcomes` (`dict[str, dict]`, keyed by scenario name -- `sell_resistance`/`buy_support`/
-`bull_breakout`/`bear_breakdown`, each value `{"wins": int, "loss": bool}`), draws Broker B's actual
-track record for that forecast row's four levels as a small marker on the left edge of the diagram, at
-the same y-position as the zone/stop line it belongs to: a green "✓N" if the level has been hit and won
-N times (`DIAGRAM_COLOR_SUPPORT`, reusing the same green as a support zone), a red "✗" if its most
-recent close was a loss (`DIAGRAM_COLOR_RESISTANCE`), or nothing at all if Broker B has never traded it
-this forecast row. `dashboard.py` supplies this for every forecast it renders, not just the latest one
+`bull_breakout`/`bear_breakdown`, each value `{"results": [bool, ...]}`, one bool per closed trade in order, True = win), draws Broker B's
+actual track record for that forecast row's four levels as one mark per trade -- a green "✓" per win
+(`DIAGRAM_COLOR_SUPPORT`) and a red "✗" per loss (`DIAGRAM_COLOR_RESISTANCE`), so a level that won twice
+then lost reads "✓✓✗" (changed 29 Sep 2026 from a single "✓N"/"✗" summarizing the level). A fade's marks
+trail its zone label on the right; a breakout/breakdown's sit on the right end of its stop line. Nothing
+at all if Broker B has never traded the level (or its first trade is still open) this forecast row. this forecast row. `dashboard.py` supplies this for every forecast it renders, not just the latest one
 -- browsing to any past date/session shows that row's own outcomes, not just today's. No legend entry
 was added for these markers (the ✓/✗ symbols and existing red/green zone coloring were judged
 self-explanatory, and the legend row is already tight on a phone-width screen).
 
-**Leader lines for nudged labels/markers**: zone/price/live-price labels (and a zone's outcome marker,
-which rides the same y-position as its label) are placed at `DIAGRAM_MIN_LABEL_GAP`-nudged positions,
-not their true proportional price position, whenever rows land close together -- common in a crowded
-cluster (e.g. price/live-price/the nearest zone/its breakout stop all within a few dollars of each
-other), and this used to make it genuinely ambiguous which bar/line a displaced label or outcome marker
-actually belonged to (reported live: a support zone's ✓N marker, nudged down by the crowd above it,
-ended up sitting almost on top of the unrelated dashed breakdown stop line below). Fixed by drawing a
-thin dashed leader line, colored to match the row it belongs to (the zone's own band color for a zone
-label, `DIAGRAM_COLOR_PRICE`/`DIAGRAM_COLOR_LIVE` for the price/live-price rows, a marker's own win/loss
-color for a zone's outcome-marker leader) rather than one generic gray, from the row's true
-y-position (with a small dot marking it precisely) to wherever the nudge actually placed its label --
-so a reader can trace the color back to the real level instead of guessing from vertical proximity. Only
-drawn when a row actually got nudged (`label_y != natural_label_y`); a well-spaced diagram (no crowding)
-never shows one. A breakout/breakdown marker never needs a leader, since it's anchored directly to its
-stop line's own true position (`y_of(stop) + 3.3`), never nudged in the first place. The SVG itself is set to
+**Leader lines for nudged labels**: zone/price/live-price labels (marks trail their zone's label) are
+placed at `DIAGRAM_MIN_LABEL_GAP`-nudged positions, not their true proportional price position, whenever
+rows land close together -- common in a crowded cluster (e.g. price/live-price/the nearest zone all
+within a few dollars of each other), which makes it ambiguous which bar a displaced label belongs to.
+Fixed by a thin dashed leader line, colored to match the row (the zone's own band color, or
+`DIAGRAM_COLOR_PRICE`/`DIAGRAM_COLOR_LIVE`), from a small dot on the band's right edge at the row's true
+y-position to the label's left edge. Only drawn when a row actually got nudged (`label_y !=
+natural_label_y`). (Outcome marks used to sit on the left edge with their own leader, which crossed the
+axis tick labels and drew from the wrong end; moving them onto the label/stop line removed the need.) The SVG itself is set to
 `width:100%; height:auto` so it stretches to fill its container on any screen instead of rendering at a
 fixed intrinsic size (which used to leave a blank margin on a wide phone screen); a live/current forecast
 never passes a `candle` (the day isn't finished yet), but `dashboard.py`'s historical date view does (see
@@ -727,10 +721,10 @@ looking up that exact (date, session) pair, with the same NULL-counts-as-Morning
 returns that row's `id` -- needed to look up its own Broker B trades. `load_broker_b_outcomes(forecast_id)`
 queries `broker_b_trades WHERE ta_forecast_id = %s`, translates each row's `rule_name` to a scenario name
 via `broker_b.ZONE_SCENARIOS` (the same mapping `broker_b.py` itself uses, so this can never drift from
-which rule actually trades which scenario), and returns `{scenario_name: {"wins": int, "loss": bool}}`
-counting only `status == 'Closed'` rows (`wins` increments per win, `loss` is set if any closed trade lost
--- at most one, since `broker_b.py` retires a rule for the rest of a forecast row after its first
-stop-out; an open trade with no result yet counts toward neither) -- passed to `render_diagram_svg()`'s
+which rule actually trades which scenario), and returns `{scenario_name: {"results": [bool, ...]}}`
+counting only `status == 'Closed'` rows in `open_ts` order (True = win; a loss can only be the last, since
+`broker_b.py` retires a rule for the rest of a forecast row after its first stop-out; an open trade with
+no result yet is left out) -- passed to `render_diagram_svg()`'s
 `scenario_outcomes` argument (see "XAU/USD technical forecast" above) so every forecast the dashboard
 renders, past or present, shows its own real outcome markers, not just the latest one. Either way
 `dashboard.py` calls `render_diagram_svg()` itself, from that row's `levels`, rather than ever reading

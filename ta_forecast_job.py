@@ -621,26 +621,23 @@ def render_diagram_svg(
     is right now (dot).
 
     `scenario_outcomes`, if given, is Broker B's actual trade record for this forecast row's four
-    scenarios (dashboard.py builds it from `broker_b_trades`, keyed by scenario name: `{"wins": int,
-    "loss": bool}`) -- drawn as a small marker on the left edge, beside whichever level each scenario
-    trades: `sell_resistance`/`buy_support` beside their zone's own row, `bull_breakout`/
-    `bear_breakdown` beside the breakout stop-line they share a trigger price with (a breakout's
-    trigger is literally a fade's stop -- see `build_scenarios()`). A scenario with any closed loss
-    (`broker_b.py` retires a rule for the rest of that forecast row after its first stop-out, so there's
-    at most one) shows a red ✗; one with only wins shows a green ✓ plus the win count (1-3, `broker_b`'s
-    `MAX_TRADES_PER_LEVEL`); a scenario never yet triggered, or still on its first open trade with no
-    closed result yet, shows nothing.
+    scenarios (dashboard.py builds it from `broker_b_trades`, keyed by scenario name:
+    `{"results": [bool, ...]}`, one bool per closed trade in order, True = win) -- drawn as one mark per
+    trade, a green ✓ per win and a red ✗ per loss, so a level that won twice then lost reads ✓✓✗.
+    `sell_resistance`/`buy_support` marks follow their zone's label on the right; `bull_breakout`/
+    `bear_breakdown` marks sit on the right end of the breakout stop line they share a trigger price with
+    (a breakout's trigger is literally a fade's stop -- see `build_scenarios()`). A scenario never yet
+    triggered, or still on its first open trade with no closed result yet, shows nothing.
 
     When a zone/price/live-price row's label gets pushed off its true position by the
     `DIAGRAM_MIN_LABEL_GAP` anti-collision nudge (common in a crowded cluster, e.g. price/live-price/a
     zone all landing within a few dollars of each other), a thin dashed leader line, colored to match
     the row it belongs to (not a single generic gray, so it reads correctly even with several
     differently-colored rows packed together), is drawn from the row's true proportional y-position to
-    wherever its label actually ended up -- so a reader can tell which bar/line a displaced label (or,
-    for a zone with an outcome marker, the marker) really belongs to instead of guessing from vertical
-    proximity alone. A zone's outcome marker gets its own leader on the left (axis side), colored to the
-    marker's own win/loss color, under the same condition; a breakout/breakdown marker never needs one,
-    since it's anchored directly to its stop line's true position, never nudged."""
+    wherever its label actually ended up (the dashed line meets the label's left edge, the dot marks the
+    true position on the band's right edge) -- so a reader can tell which bar/line a displaced label
+    (marks included, since they trail the label) really belongs to instead of guessing from vertical
+    proximity alone."""
     zones = [(z, True) for z in resistances] + [(z, False) for z in supports]
     stops = {sc["name"]: sc for sc in scenarios}
     stop_lines = [
@@ -670,36 +667,34 @@ def render_diagram_svg(
 
     band_center_x = DIAGRAM_BAND_X + DIAGRAM_BAND_WIDTH / 2
 
-    def outcome_marker(scenario_name: str) -> tuple[str, str]:
-        """(marker text, color) for a scenario's Broker B record, or ("", "") if there's nothing to
-        show yet -- see this function's docstring for the win/loss/blank rules."""
-        outcome = (scenario_outcomes or {}).get(scenario_name)
-        if not outcome:
-            return "", ""
-        if outcome.get("loss"):
-            return "✗", DIAGRAM_COLOR_RESISTANCE
-        wins = outcome.get("wins", 0)
-        if wins > 0:
-            return f"✓{wins}", DIAGRAM_COLOR_SUPPORT
-        return "", ""
+    def outcome_marks(scenario_name: str) -> list[tuple[str, str]]:
+        """One (glyph, color) per closed Broker B trade on this scenario this forecast row, in trade
+        order -- green ✓ for a win, red ✗ for a loss -- so a level that won twice then lost shows
+        ✓✓✗. Empty if there's nothing to show yet."""
+        results = (scenario_outcomes or {}).get(scenario_name, {}).get("results", [])
+        return [
+            ("✓", DIAGRAM_COLOR_SUPPORT) if won else ("✗", DIAGRAM_COLOR_RESISTANCE) for won in results
+        ]
 
-    def leader(true_y: float, label_y: float, color: str, side: str) -> str:
-        """Dashed connector from a row's true y-position to its (nudged) label, plus a small dot
-        marking the true position precisely -- see this function's docstring. `color` matches the row's
-        own color (band/price/live/marker) so the connector visually ties back to the right row even
-        when several differently-colored rows are packed close together, rather than reading as one
-        generic gray line among several. `side` is "right" (label side, the common case) or "left"
-        (axis side, used only for a zone's outcome marker)."""
-        if side == "right":
-            anchor_x, x1, x2 = DIAGRAM_BAND_X + DIAGRAM_BAND_WIDTH, None, DIAGRAM_LABEL_X - 4
-            x1 = anchor_x + 2
-        else:
-            anchor_x, x1, x2 = DIAGRAM_AXIS_X - 4, 16, None
-            x2 = anchor_x - 2
+    def marks_tspans(marks: list[tuple[str, str]], gap: int = 5) -> str:
+        """The marks as colored bold tspans; `gap` is the dx before the first one (space after a label)."""
+        parts = []
+        for i, (glyph, color) in enumerate(marks):
+            dx = f' dx="{gap}"' if i == 0 and gap else ""
+            parts.append(f'<tspan font-weight="700" fill="{color}"{dx}>{glyph}</tspan>')
+        return "".join(parts)
+
+    def leader(true_y: float, label_y: float, color: str) -> str:
+        """Dashed connector from a row's true y-position at the band's right edge to its (nudged)
+        label, plus a small dot marking the true position precisely -- see this function's docstring.
+        `color` matches the row's own color so the connector visually ties back to the right row even
+        when several differently-colored rows are packed close together."""
+        anchor_x = DIAGRAM_BAND_X + DIAGRAM_BAND_WIDTH
         return (
             f'<circle cx="{anchor_x:.1f}" cy="{true_y:.1f}" r="1.6" fill="{color}"/>'
-            f'<line x1="{x1:.1f}" x2="{x2:.1f}" y1="{true_y:.1f}" y2="{label_y - 3:.1f}" '
-            f'stroke="{color}" stroke-width="0.75" stroke-opacity="0.6" stroke-dasharray="1.5 1.5"/>'
+            f'<line x1="{anchor_x + 2:.1f}" x2="{DIAGRAM_LABEL_X - 4}" y1="{true_y:.1f}" '
+            f'y2="{label_y - 3:.1f}" stroke="{color}" stroke-width="0.75" stroke-opacity="0.6" '
+            f'stroke-dasharray="1.5 1.5"/>'
         )
 
     # Every labelled row (each zone, plus price, plus the optional live-price dot) goes through one
@@ -707,11 +702,11 @@ def render_diagram_svg(
     # price/live-price/the nearest zone all within a few dollars) gets one consistent
     # DIAGRAM_MIN_LABEL_GAP anti-collision nudge instead of three near-duplicate implementations of it.
     class _Row:
-        __slots__ = ("true_y", "sort_price", "color", "render_label", "marker")
+        __slots__ = ("true_y", "sort_price", "color", "render_label")
 
-        def __init__(self, true_y, sort_price, color, render_label, marker=None):
+        def __init__(self, true_y, sort_price, color, render_label):
             self.true_y, self.sort_price, self.color = true_y, sort_price, color
-            self.render_label, self.marker = render_label, marker
+            self.render_label = render_label
 
     def zone_row(zone: dict, is_resistance: bool) -> _Row:
         color = DIAGRAM_COLOR_RESISTANCE if is_resistance else DIAGRAM_COLOR_SUPPORT
@@ -720,14 +715,6 @@ def render_diagram_svg(
         if zone.get("nearby"):
             tooltip += "; nearby " + "; ".join(f"{_fmt_zone(n)}: {', '.join(n['labels'])}" for n in zone["nearby"])
 
-        def render_label(label_y: float) -> str:
-            return (
-                f'<text x="{DIAGRAM_LABEL_X}" y="{label_y:.1f}" font-size="9.5" fill="{DIAGRAM_COLOR_INK}">'
-                f'<tspan font-family="IBM Plex Mono, ui-monospace, monospace" font-weight="600" '
-                f'fill="{color}">{_fmt_zone(zone)}</tspan>'
-                f'<title>{escape(tooltip)}</title></text>'
-            )
-
         # Only the nearest zone each side actually has a scenario traded against it
         # (build_scenarios() only fades resistances[0]/supports[0]) -- the rest are informational only.
         scenario_name = (
@@ -735,8 +722,17 @@ def render_diagram_svg(
             else "buy_support" if not is_resistance and supports and zone is supports[0]
             else None
         )
-        marker = outcome_marker(scenario_name) if scenario_name else None
-        return _Row(true_y, zone["low"], color, render_label, marker if marker and marker[0] else None)
+        marks = marks_tspans(outcome_marks(scenario_name)) if scenario_name else ""
+
+        def render_label(label_y: float) -> str:
+            return (
+                f'<text x="{DIAGRAM_LABEL_X}" y="{label_y:.1f}" font-size="9.5" fill="{DIAGRAM_COLOR_INK}">'
+                f'<tspan font-family="IBM Plex Mono, ui-monospace, monospace" font-weight="600" '
+                f'fill="{color}">{_fmt_zone(zone)}</tspan>{marks}'
+                f'<title>{escape(tooltip)}</title></text>'
+            )
+
+        return _Row(true_y, zone["low"], color, render_label)
 
     def price_row() -> _Row:
         y = y_of(price)
@@ -770,7 +766,7 @@ def render_diagram_svg(
 
     # Price/live-price get a marker on the band itself (line/dot); zones get their band drawn already
     # by the caller's loop below -- both need this same true_y -> label_y nudge pass either way.
-    bands, labels, leaders_svg, markers = [], [], [], []
+    bands, labels, leaders_svg = [], [], []
     prev_label_y = None
     for row in all_rows:
         natural_label_y = row.true_y + 3.3
@@ -778,17 +774,9 @@ def render_diagram_svg(
         if prev_label_y is not None and label_y - prev_label_y < DIAGRAM_MIN_LABEL_GAP:
             label_y = prev_label_y + DIAGRAM_MIN_LABEL_GAP
         prev_label_y = label_y
-        nudged = label_y != natural_label_y
-        if nudged:
-            leaders_svg.append(leader(row.true_y, label_y, row.color, "right"))
+        if label_y != natural_label_y:
+            leaders_svg.append(leader(row.true_y, label_y, row.color))
         labels.append(row.render_label(label_y))
-        if row.marker:
-            mk, mk_color = row.marker
-            markers.append(
-                f'<text x="4" y="{label_y:.1f}" font-size="10" font-weight="700" fill="{mk_color}">{mk}</text>'
-            )
-            if nudged:
-                leaders_svg.append(leader(row.true_y, label_y, mk_color, "left"))
 
     # Bands/lines/dots themselves are drawn at their true (never nudged) position -- only labels and
     # markers move.
@@ -823,9 +811,10 @@ def render_diagram_svg(
         f'text-anchor="end">{tk:,.0f}</text>'
         for tk in ticks
     )
-    # Each stop line is also the trigger for the mirrored breakout scenario (bull_breakout shares
+    # Each stop line doubles as the trigger for the mirrored breakout scenario (bull_breakout shares
     # sell_resistance's stop, bear_breakdown shares buy_support's stop -- see build_scenarios()), so
-    # that's where its outcome marker goes; there's no separate zone band for a breakout to attach to.
+    # that scenario's outcome marks sit right on the line, at its right end -- no label row, no nudge,
+    # nothing to connect.
     stop_entries = [
         (s, breakout_name)
         for s, breakout_name in (
@@ -843,11 +832,11 @@ def render_diagram_svg(
             f'<text x="{DIAGRAM_BAND_X + 2}" y="{y - 2:.1f}" font-size="7.5" fill="{DIAGRAM_COLOR_MUTED}">'
             f'{s:,.0f}</text>'
         )
-        mk, mk_color = outcome_marker(breakout_name)
-        if mk:
-            markers.append(
-                f'<text x="4" y="{y + 3.3:.1f}" font-size="10" font-weight="700" '
-                f'fill="{mk_color}">{mk}</text>'
+        stop_marks = marks_tspans(outcome_marks(breakout_name), gap=0)
+        if stop_marks:
+            stop_svg_parts.append(
+                f'<text x="{DIAGRAM_BAND_X + DIAGRAM_BAND_WIDTH - 3}" y="{y - 2.5:.1f}" font-size="10" '
+                f'text-anchor="end">{stop_marks}</text>'
             )
     stop_svg = "".join(stop_svg_parts)
 
@@ -893,7 +882,7 @@ def render_diagram_svg(
         f'<line x1="{DIAGRAM_AXIS_X}" x2="{DIAGRAM_AXIS_X}" y1="{DIAGRAM_TOP}" '
         f'y2="{DIAGRAM_TOP + DIAGRAM_PLOT_HEIGHT}" stroke="{DIAGRAM_COLOR_RULE}"/>'
         f'{axis_ticks}{"".join(bands)}{"".join(leaders)}{stop_svg}{candle_svg}'
-        f'{"".join(labels)}{"".join(markers)}'
+        f'{"".join(labels)}'
         f'<g font-size="9" fill="{DIAGRAM_COLOR_MUTED}">'
         f'<rect x="4" y="{height - 32}" width="10" height="10" fill="{DIAGRAM_COLOR_RESISTANCE}" fill-opacity="0.5"/>'
         f'<text x="18" y="{height - 23}">Resistance</text>'
