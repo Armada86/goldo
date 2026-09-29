@@ -92,10 +92,10 @@ for analysis here — query that column, not the Telegram message, when you need
 numbers behind a trade.
 
 **Exit**: close the 1 oz position the first time its unrealized P/L reaches **+$10** (take profit) or
-**-$10** (stop loss). Checked every poll (every 5 minutes), but not against a single live spot-price
+**-$15** (stop loss; widened from -$10 on 29 Sep 2026, Broker A and B only). Checked every poll (every 5 minutes), but not against a single live spot-price
 sample — a poll-to-poll gap can hide a spike that touched the target and reversed before the next
 check. Instead, each poll fetches real 1-minute OHLC candles covering the time since the trade opened
-and scans their high/low for the first bar that actually touched +$10 or -$10, closing at that real
+and scans their high/low for the first bar that actually touched +$10 or -$15, closing at that real
 level and timestamp; only if the candle fetch fails does it fall back to comparing the live spot price
 directly, the original behavior. Since size is 1 oz, P/L in dollars is just `spot_now - entry_price`
 (no multiplier). Implemented as `broker.EXIT_THRESHOLD` (10.0), `broker._pnl()`, and
@@ -112,7 +112,7 @@ trailing 10-minute window, at least 5 of the 7 fire together in this direction:
 
 (US10Y excluded here too, same as `Consensus5of7-buy` above.)
 
-**Exit**: same as above — close at unrealized P/L of **+$10** or **-$10**, computed as
+**Exit**: same as above — close at unrealized P/L of **+$10** or **-$15**, computed as
 `entry_price - spot_now` for a Sell.
 
 ### Broker A: entry filters (added 26 Sep 2026)
@@ -121,7 +121,7 @@ A signal that passes the TA bias gate above still has to clear two further check
 added after analyzing a live loss (`Consensus5of7-sell` sold $4,264.94 at 14:06:57 UTC on 25 Sep, the
 exact poll gold dropped $12.04 in five minutes and RSI(14) alerted "entered oversold territory" in the
 same cycle — all 7 of 7 indicators flagged off that single spike, DXY only barely cleared its own
-10-min threshold and had stalled within minutes; price mean-reverted straight through the $10 stop by
+10-min threshold and had stalled within minutes; price mean-reverted straight through the old $10 stop by
 14:47):
 
 1. **RSI exhaustion** (`broker._rsi_confirms()`) — a Sell is skipped if gold's RSI(14) is already
@@ -213,9 +213,9 @@ or without a clean touch of the near edge, the fade is invalidated and no trade 
 up to **3 times per (forecast row, rule), re-arming only after a win** — see "Broker B: position
 sizing & concurrency" below.
 
-**Exit**: identical mechanism to Broker A — **+$10**/**-$10** unrealized P/L, real 1-minute candle
+**Exit**: identical mechanism to Broker A — **+$10**/**-$15** unrealized P/L, real 1-minute candle
 scan for the crossing (`broker._find_exit()`, imported directly, not reimplemented). This is
-independent of the forecast's own target ladder/stop distance — Broker B always uses the flat $10,
+independent of the forecast's own target ladder/stop distance — Broker B always uses the flat $10 take-profit / $15 stop-loss,
 regardless of what the forecast's PLAN section says its stop/targets are. Same exit for all four rules
 below; not repeated per rule.
 
@@ -252,7 +252,7 @@ Added 25 Sep 2026 after analyzing a live double loss: `TA-Zone-sell` sold $4,283
 through the zone to $4,295.53, stopping that short out; the immediate `TA-Breakout-buy` then also
 stopped out on the round-trip back down. All of it happened in the 9–11pm ET window, the thinnest
 liquidity stretch of the 24-hour gold session. Three filters, evaluated on every *fresh* entry (not on
-exits, which are never gated — an open Broker B trade is always managed to its $10 exit, any hour):
+exits, which are never gated — an open Broker B trade is always managed to its $10/$15 exit, any hour):
 
 1. **Trading-hours window.** No new entry outside **7:00am–5:00pm America/New_York, weekdays**
    (`ENTRY_WINDOW_START_ET`/`ENTRY_WINDOW_END_ET` in `broker_b.py`). Both
@@ -327,7 +327,7 @@ instead of `(ok, reason)`, and `_notify_timing_block()` builds separate dedup/me
   four; adding rules never relaxes it.
 - **Re-arms after a win, retires after a stop-out.** A rule can fire up to `MAX_TRADES_PER_LEVEL` (3)
   times off the *current* forecast row, but only re-arms after its previous trade there hit the +$10
-  take-profit: the **first stop-out** (−$10) at a level retires that rule for the rest of that forecast
+  take-profit: the **first stop-out** (−$15) at a level retires that rule for the rest of that forecast
   (`storage.trade_b_level_history()`, keyed on the forecast's `id` + the rule name, returns the
   trade count and whether any was a loss). Rationale: a win means the level held and may hold again; a
   loss means it broke — and a fade stopped out above resistance would otherwise re-enter immediately,
@@ -336,7 +336,7 @@ instead of `(ok, reason)`, and `_notify_timing_block()` builds separate dedup/me
   Replaced a stricter "once per (forecast row, rule)" rule on 24 Sep 2026, when the Midday 4283 sell
   level was touched at 12:17, 12:43 and (within $1) 14:40 ET and every one of those three fades would
   have hit its +$10 take-profit, but only the first could trade. An already-open trade isn't
-  affected when a newer forecast lands; it keeps running to its own $10 exit, and only a *new* entry
+  affected when a newer forecast lands; it keeps running to its own $10/$15 exit, and only a *new* entry
   after that will use the refreshed levels.
 - **Every entry requires a genuine approach from the correct side, not just "still touching."** Fixed
   25 Sep 2026 for re-arms, extended 29 Sep 2026 to first triggers and all four rules: a level only counts a touch once price has actually been seen back on the *away* side
