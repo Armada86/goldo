@@ -102,6 +102,9 @@ def init_db() -> None:
             )
             """
         )
+        # touch_ts: when the blocked touch actually happened (30 Sep 2026) -- see
+        # get_last_blocked_touch_ts_b(). Added after the table already existed, hence the ALTER.
+        cur.execute("ALTER TABLE broker_b_blocked ADD COLUMN IF NOT EXISTS touch_ts TIMESTAMPTZ")
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS broker_a_blocked (
@@ -865,20 +868,47 @@ def get_last_close_ts_b() -> datetime | None:
         return cur.fetchone()[0]
 
 
-def record_broker_b_blocked_if_new(ta_forecast_id: int, rule_name: str, trigger_price: float, reasons: str) -> bool:
+def record_broker_b_blocked_if_new(
+    ta_forecast_id: int, rule_name: str, trigger_price: float, reasons: str, touch_ts: datetime | None = None
+) -> bool:
     """Records one Broker B blocked-entry notice and returns True if it's newly recorded (i.e. the
     caller should send a Telegram message), False if this exact (forecast, rule, reasons) combination
     was already recorded -- the dedup that stops a level sitting past its trigger for hours (outside
     trading hours, or DXY/RSI still against it) from sending the same notice every 5-minute poll. See
-    broker_b.py's _notify_timing_block()/_notify_gate_block()."""
+    broker_b.py's _notify_timing_block()/_notify_gate_block().
+
+    `touch_ts`, when given, is when the blocked touch happened; it's stored (kept at the latest value
+    even when the notice itself is a duplicate) so get_last_blocked_touch_ts_b() can stop a later poll
+    from filling that same touch once the block clears."""
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO broker_b_blocked (ta_forecast_id, rule_name, trigger_price, reasons) "
-            "VALUES (%s, %s, %s, %s) ON CONFLICT (ta_forecast_id, rule_name, reasons) DO NOTHING "
+            "INSERT INTO broker_b_blocked (ta_forecast_id, rule_name, trigger_price, reasons, touch_ts) "
+            "VALUES (%s, %s, %s, %s, %s) ON CONFLICT (ta_forecast_id, rule_name, reasons) DO NOTHING "
             "RETURNING id",
-            (ta_forecast_id, rule_name, trigger_price, reasons),
+            (ta_forecast_id, rule_name, trigger_price, reasons, touch_ts),
         )
-        return cur.fetchone() is not None
+        inserted = cur.fetchone() is not None
+        if not inserted and touch_ts is not None:
+            cur.execute(
+                "UPDATE broker_b_blocked SET touch_ts = GREATEST(touch_ts, %s) "
+                "WHERE ta_forecast_id = %s AND rule_name = %s AND reasons = %s",
+                (touch_ts, ta_forecast_id, rule_name, reasons),
+            )
+        return inserted
+
+
+def get_last_blocked_touch_ts_b(ta_forecast_id: int) -> dict[str, datetime]:
+    """{rule_name: latest blocked touch time} for this forecast row -- Broker B ignores any candle at or
+    before it for that rule, so a touch that a filter (DXY/RSI/trading hours) blocked is never filled
+    later, at a stale price and time, just because the filter cleared a few polls afterward. Rules
+    with no recorded blocked touch are absent."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT rule_name, MAX(touch_ts) FROM broker_b_blocked "
+            "WHERE ta_forecast_id = %s AND touch_ts IS NOT NULL GROUP BY rule_name",
+            (ta_forecast_id,),
+        )
+        return {rule: ts for rule, ts in cur.fetchall()}
 
 
 def get_broker_b_blocked() -> list[dict]:

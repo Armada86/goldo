@@ -133,6 +133,7 @@ from storage import (
     get_open_trade_b,
     get_recent_readings,
     insert_trade_b,
+    get_last_blocked_touch_ts_b,
     record_broker_b_blocked_if_new,
     trade_b_level_history,
 )
@@ -314,7 +315,12 @@ def _blocked_message(rule_name: str, price: float, message_reasons: str) -> str:
 
 
 def _notify_blocked(
-    forecast: dict, rule_name: str, trigger_price: float, dedup_reasons: str, message_reasons: str | None = None
+    forecast: dict,
+    rule_name: str,
+    trigger_price: float,
+    dedup_reasons: str,
+    message_reasons: str | None = None,
+    touch_ts: datetime | None = None,
 ) -> None:
     """Sends the blocked-entry Telegram notice, unless this exact (forecast, rule, dedup_reasons) was
     already notified (see module docstring). Shared by both the real candle-scan touch path (DXY/RSI
@@ -326,8 +332,12 @@ def _notify_blocked(
     row and every poll re-sends. `message_reasons` (defaulting to `dedup_reasons` when the reason text
     is already poll-invariant, e.g. RSI/DXY's numbers are fixed to the touch that triggered them) is
     what the Telegram text actually shows, which may safely include such detail since only the first
-    qualifying poll's copy is ever sent."""
-    if record_broker_b_blocked_if_new(forecast["id"], rule_name, trigger_price, dedup_reasons):
+    qualifying poll's copy is ever sent.
+
+    `touch_ts` is when the blocked touch happened (the candle's time, or "now" for the point check);
+    it's recorded even on a duplicate notice so the scan can skip that touch on later polls -- a
+    blocked touch is a missed signal, never filled retroactively once the filter clears."""
+    if record_broker_b_blocked_if_new(forecast["id"], rule_name, trigger_price, dedup_reasons, touch_ts):
         send_telegram_message(_blocked_message(rule_name, trigger_price, message_reasons or dedup_reasons))
 
 
@@ -351,7 +361,7 @@ def _notify_timing_block(candidates: list, gold_price: float, forecast: dict, no
         rising = scenario_name in RISING_APPROACH_SCENARIOS
         reached = gold_price >= trigger_price if rising else gold_price <= trigger_price
         if reached:
-            _notify_blocked(forecast, rule_name, trigger_price, dedup_reasons, message_reasons)
+            _notify_blocked(forecast, rule_name, trigger_price, dedup_reasons, message_reasons, touch_ts=now)
 
 
 def _open_message(
@@ -511,9 +521,22 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
         floor_ts = last_close_ts
     bars_by_side = {side: bars[bars["datetime"] > floor_ts] for side, bars in bars_by_side.items()}
 
+    # A touch a filter already blocked (DXY/RSI notice, or a timing block) is a missed signal, not a
+    # pending one: skip every candle at or before that rule's latest blocked touch, so it can't be
+    # filled a few polls later -- at the stale trigger price and time -- just because the filter
+    # cleared. Observed live 29 Sep 2026: TA-Breakout-buy's 16:40 touch was blocked at 16:46 (RSI
+    # 70.9), then opened at 16:51 stamped 16:40. The level then needs a fresh approach and touch.
+    try:
+        blocked_floor = get_last_blocked_touch_ts_b(forecast["id"])
+    except Exception:
+        blocked_floor = {}
+
     touches = []
     for scenario_name, trade_type, rule_name, scenario in candidates:
-        touch = _scan_zone_entry(scenario_name, scenario, bars_by_side[_entry_side(trade_type)])
+        rule_bars = bars_by_side[_entry_side(trade_type)]
+        if rule_name in blocked_floor:
+            rule_bars = rule_bars[rule_bars["datetime"] > blocked_floor[rule_name]]
+        touch = _scan_zone_entry(scenario_name, scenario, rule_bars)
         if touch is not None:
             trigger_price, trigger_ts = touch
             touches.append((trigger_ts, trigger_price, trade_type, rule_name, scenario_name))
@@ -547,7 +570,7 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
             break
         dedup_reasons = "; ".join(r for r in (dxy_category, rsi_category) if r)
         message_reasons = "; ".join(r for r in (dxy_detail, rsi_detail) if r)
-        _notify_blocked(forecast, rule_name, trigger_price, dedup_reasons, message_reasons)
+        _notify_blocked(forecast, rule_name, trigger_price, dedup_reasons, message_reasons, touch_ts=trigger_ts)
     if selected is None:
         return
     trigger_ts, trigger_price, trade_type, rule_name, scenario_name = selected
