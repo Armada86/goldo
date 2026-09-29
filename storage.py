@@ -118,6 +118,9 @@ def init_db() -> None:
             )
             """
         )
+        # signal_ts: the newest alert behind the blocked signal (30 Sep 2026) -- see
+        # get_last_blocked_signal_ts_a(). Added after the table already existed, hence the ALTER.
+        cur.execute("ALTER TABLE broker_a_blocked ADD COLUMN IF NOT EXISTS signal_ts TIMESTAMPTZ")
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS threshold_history (
@@ -933,24 +936,48 @@ def get_broker_b_blocked() -> list[dict]:
     ]
 
 
-def record_broker_a_blocked_if_new(rule_name: str, price: float, reasons: str, since_ts: datetime) -> bool:
+def record_broker_a_blocked_if_new(
+    rule_name: str, price: float, reasons: str, since_ts: datetime, signal_ts: datetime | None = None
+) -> bool:
     """Records one Broker A blocked-entry notice and returns True if it's newly recorded (i.e. the
     caller should send a Telegram message), False if this exact (rule_name, reasons) combination was
     already recorded since `since_ts` -- the dedup that stops the same ongoing block (RSI still
     exhausted, DXY still unconfirmed) from sending a new notice every 5-minute poll while it persists.
-    `since_ts` is broker.py's own entry watermark (get_last_trade_open_ts(), or the epoch if no trade
-    has ever opened) -- there's no forecast row to scope by here the way broker_b_blocked has, so the
-    watermark plays that role instead: it advances the moment a new trade actually opens, which lets
-    the same (rule_name, reasons) pair notify again on a genuinely later, separate occurrence. See
-    broker.py's _notify_blocked()."""
+    `since_ts` is broker.py's own entry floor (the last trade's open time or the last blocked signal,
+    whichever is later, or the epoch if neither exists) -- there's no forecast row to scope by here the
+    way broker_b_blocked has, so that floor plays the role instead: it advances the moment a trade
+    opens or a signal is blocked, which lets the same (rule_name, reasons) pair notify again on a
+    genuinely later, separate occurrence. See broker.py's _notify_blocked().
+
+    `signal_ts`, when given, is the newest alert behind the blocked signal; it's stored (kept at the
+    latest value even when the notice itself is a duplicate) so get_last_blocked_signal_ts_a() can stop
+    a later poll from acting on the same alerts once the block clears."""
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO broker_a_blocked (rule_name, price, reasons, since_ts) "
-            "VALUES (%s, %s, %s, %s) ON CONFLICT (rule_name, reasons, since_ts) DO NOTHING "
+            "INSERT INTO broker_a_blocked (rule_name, price, reasons, since_ts, signal_ts) "
+            "VALUES (%s, %s, %s, %s, %s) ON CONFLICT (rule_name, reasons, since_ts) DO NOTHING "
             "RETURNING id",
-            (rule_name, price, reasons, since_ts),
+            (rule_name, price, reasons, since_ts, signal_ts),
         )
-        return cur.fetchone() is not None
+        inserted = cur.fetchone() is not None
+        if not inserted and signal_ts is not None:
+            cur.execute(
+                "UPDATE broker_a_blocked SET signal_ts = GREATEST(signal_ts, %s) "
+                "WHERE rule_name = %s AND reasons = %s AND since_ts = %s",
+                (signal_ts, rule_name, reasons, since_ts),
+            )
+        return inserted
+
+
+def get_last_blocked_signal_ts_a() -> datetime | None:
+    """Newest alert timestamp behind any Broker A signal that a filter (trading hours, TA bias, RSI,
+    DXY) blocked, or None if none was ever recorded. broker.py treats every alert at or before it as
+    consumed, so a blocked signal is a missed signal -- never opened a poll or two later, once the
+    block clears, off the same still-fresh alerts."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT MAX(signal_ts) FROM broker_a_blocked")
+        row = cur.fetchone()
+    return row[0] if row else None
 
 
 def get_broker_a_blocked() -> list[dict]:

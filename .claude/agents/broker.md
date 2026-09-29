@@ -47,6 +47,11 @@ entry logic produced it.
 
 ### TA bias gate (Broker A only)
 
+**Blocked signals are never opened later (30 Sep 2026):** when the trading-hours window, TA bias gate, RSI or DXY
+check blocks a Broker A signal, that signal's alerts are consumed (`broker_a_blocked.signal_ts`); the next poll
+ignores alerts at or before it, so the entry can't open a few polls later off the same still-fresh alerts once the
+block clears. A fresh 5-of-7 consensus is required (same rule as Broker B's blocked touches).
+
 **Update 30 Sep 2026:** a bias-gate rejection is no longer silent -- it sends the same deduplicated 🔵⛔
 Telegram notice as the RSI/DXY blocks (e.g. `latest TA forecast bias is bearish (score -3/6), against the Buy`).
 Broker A also now has the same **trading-hours window as Broker B** (7:00am-5:00pm ET, weekdays,
