@@ -47,6 +47,12 @@ entry logic produced it.
 
 ### TA bias gate (Broker A only)
 
+**Update 30 Sep 2026:** a bias-gate rejection is no longer silent -- it sends the same deduplicated 🔵⛔
+Telegram notice as the RSI/DXY blocks (e.g. `latest TA forecast bias is bearish (score -3/6), against the Buy`).
+Broker A also now has the same **trading-hours window as Broker B** (7:00am-5:00pm ET, weekdays,
+`broker._within_entry_window()` -- Broker B imports it): a signal outside it is not opened and sends a
+`outside trading hours` notice. Neither gates exits.
+
 Before Broker A opens a trade in either direction, it checks the latest `ta_forecasts` row's overall
 bias score (`levels.bias_score` — see `ta_forecast_job.py`'s `_bias()`: positive means the forecast
 reads bullish, negative bearish, 0 neutral). A **Sell** only opens when the score is **<= 0** (not
@@ -166,8 +172,8 @@ can notify again on a later, genuinely separate occasion once the watermark adva
   to close first. The 5-of-7 threshold means it's *possible*, if the alert stream is genuinely
   conflicting, for both the buy pattern and the sell pattern to independently reach 5 in the same
   window — `broker.py` treats that as an incoherent signal and opens no trade either way (see
-  `_match_entry_rule()`'s tie-break). A signal skipped this way (an already-open trade, a buy/sell tie,
-  or the TA bias gate above) isn't logged anywhere beyond the GitHub Actions run log for that poll —
+  `_match_entry_rule()`'s tie-break). A signal skipped this way (an already-open trade or a buy/sell tie)
+  isn't logged anywhere beyond the GitHub Actions run log for that poll —
   revisit this default if the user ever wants concurrent trades or a record of skipped signals. A
   signal blocked by the RSI/DXY entry filters (above) is the one exception: those *do* get a
   deduplicated Telegram notice and a Postgres record (`broker_a_blocked`).
