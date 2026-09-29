@@ -151,14 +151,14 @@ def load_broker_b_outcomes(forecast_id: int) -> dict[str, dict]:
     per-level outcome markers (see `render_diagram_svg()`'s `scenario_outcomes` docstring). Keyed by
     *scenario* name (`sell_resistance`/`buy_support`/`bull_breakout`/`bear_breakdown`), translated from
     `broker_b_trades.rule_name` via `broker_b.ZONE_SCENARIOS`, the same mapping `broker_b.py` itself
-    uses -- so this can never drift from which rule actually trades which scenario. `wins` counts closed
-    trades with `pnl > 0`; `loss` is True if any closed trade has `pnl <= 0` (at most one ever, since
-    `broker_b.py` retires a rule for the rest of this forecast row after its first stop-out). An open
-    trade with no closed result yet counts toward neither."""
+    uses -- so this can never drift from which rule actually trades which scenario. `results` is one
+    bool per closed trade in open order (True = win, `pnl > 0`; False = loss, `pnl < 0`), so the diagram
+    shows every result -- a level that won twice then lost reads ✓✓✗. An open trade with no closed
+    result yet is left out."""
     rule_to_scenario = {rule_name: name for name, (_, rule_name) in broker_b.ZONE_SCENARIOS.items()}
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "SELECT rule_name, pnl, status FROM broker_b_trades WHERE ta_forecast_id = %s",
+            "SELECT rule_name, pnl, status FROM broker_b_trades WHERE ta_forecast_id = %s ORDER BY open_ts",
             (forecast_id,),
         )
         rows = cur.fetchall()
@@ -167,11 +167,8 @@ def load_broker_b_outcomes(forecast_id: int) -> dict[str, dict]:
         scenario_name = rule_to_scenario.get(rule_name)
         if scenario_name is None or status != "Closed" or pnl is None:
             continue
-        o = outcomes.setdefault(scenario_name, {"wins": 0, "loss": False})
-        if pnl > 0:
-            o["wins"] += 1
-        elif pnl < 0:
-            o["loss"] = True
+        if pnl != 0:
+            outcomes.setdefault(scenario_name, {"results": []})["results"].append(pnl > 0)
     return outcomes
 
 
