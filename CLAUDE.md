@@ -341,6 +341,13 @@ within the same poll's candle window, whichever was reached earliest chronologic
 its entry filters**; a touch that fails one is skipped in favor of the next-earliest touch, not treated
 as blocking the whole poll.
 
+**A blocked touch is never filled later (fixed 30 Sep 2026)**: when a filter (DXY, RSI, trading hours) blocks a
+touch, that touch's time is stored (`broker_b_blocked.touch_ts`, `storage.get_last_blocked_touch_ts_b()`) and
+the entry scan skips every candle at or before it for that rule, so the level needs a fresh approach and
+touch. Before this, the 20-minute candle lookback re-found the same touch on the next poll and opened it once
+the filter cleared, at the stale trigger price and time -- observed live 29 Sep 2026: `TA-Breakout-buy`'s 16:40
+ET touch was blocked at 16:46 (RSI 70.9), then opened at 16:51 stamped 16:40.
+
 **Three entry filters (added 25 Sep 2026, gate fresh entries only — never exits)**, after a live double
 loss (`TA-Zone-sell` sold $4,283.21 resistance at 9:01pm ET while DXY was already sliding — a real
 tailwind, not a fakeout — so price ran through the zone to $4,295.53, stopping that short out, and the

@@ -289,6 +289,11 @@ is tried instead of the whole poll giving up.
 
 ### Broker B: blocked-entry Telegram notice
 
+**Blocked touches are never filled later (30 Sep 2026):** a touch that a DXY/RSI/trading-hours filter blocked is
+recorded (`broker_b_blocked.touch_ts`) and every candle at or before it is skipped for that rule afterward, so it
+can't open a few polls later, at the old trigger price and time, once the filter clears. The level needs a fresh
+approach and touch. (Before this, `TA-Breakout-buy` blocked at 16:46 ET by RSI 70.9 opened at 16:51 stamped 16:40.)
+
 Also (29 Sep 2026): when a trade closes, `broker_b._notify_crossed_during_trade()` sends the same kind of
 ⛔ notice for any *other* still-armed level of the latest forecast that price crossed while that trade
 held the single position slot ("crossed while <rule> trade #N was open (closed @ $X); not filled
