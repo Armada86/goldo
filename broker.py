@@ -56,13 +56,13 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from config import (
-    GOLD_SPOT_SYMBOL,
     INTRAHOUR_SWING_ALERT_THRESHOLD,
     RSI_OVERBOUGHT_THRESHOLD,
     RSI_OVERSOLD_THRESHOLD,
     RSI_PERIOD,
 )
-from data_fetcher import compute_rsi, fetch_candles, fetch_gold_candles
+from data_fetcher import compute_rsi, fetch_gold_candles
+from price_bars import fetch_gold_bars
 from notifier import send_telegram_message
 from storage import (
     close_trade_row,
@@ -326,7 +326,9 @@ def _find_exit(trade: dict, fallback_price: float, fallback_ts: datetime) -> tup
     if the candle fetch fails or turns up no crossing, so a Twelve Data hiccup never blocks a
     trade from closing at all."""
     try:
-        candles = fetch_candles(GOLD_SPOT_SYMBOL, interval="1min", outputsize=EXIT_CANDLE_LOOKBACK_MINUTES)
+        # A Buy closes (sells) on the bid, a Sell closes (buys back) on the ask -- see price_bars.py.
+        exit_side = "bid" if trade["trade_type"] == "Buy" else "ask"
+        candles = fetch_gold_bars(EXIT_CANDLE_LOOKBACK_MINUTES, exit_side)
         # Strictly after open_ts, not >=: the entry candle's own high/low can span a level the
         # entry price sits nowhere near reaching yet (e.g. Broker B fills mid-candle at the near
         # edge of a level, but that same candle's low already touched the take-profit *before* the

@@ -226,6 +226,18 @@ notification (`check_market_hours_alert()`) is called directly in `poll_job.py` 
 normally fires it — is skipped entirely here. `main.py`'s own local continuous `BlockingScheduler` loop
 is untouched by this (calls `init_db()` once at startup, not per-poll, so it was never the cost driver).
 
+**Candle-scan price source (`price_bars.py`, changed 30 Sep 2026)**: Broker A's exit scan and Broker B's
+entry/exit scans no longer use Twelve Data's 1-minute candles. They read 1-minute bid/ask bars from the
+FOREX.com demo account (`ForexClient.get_bars()`, `/market/{id}/barhistory`, read-only) because Twelve Data
+disagreed with the platform the user actually trades on -- 29 Sep 2026: an 11:47 ET bid high of $4,161.71
+(Twelve Data: $4,158.30) crossed a $4,160 take-profit, and a 12:21 ET ask low of exactly $4,150.00 (Twelve
+Data: $4,150.44) touched a $4,150.00 support level, and neither was visible to the bot. Prices are
+side-correct: a Buy enters on the **ask** and exits on the **bid**, a Sell enters on the bid and exits on the
+ask (`broker._find_exit()`, `broker_b._entry_side()`). Any FOREX.com failure (credentials unset, login or
+request error) falls back to Twelve Data candles, the old behavior, with a log warning. The live spot price
+in the poll, alerts, RSI, dashboard and everything else still come from Twelve Data -- only these scans moved.
+The Forex broker (`forex_broker.py`) is untouched.
+
 **Broker A automated paper-trading (`broker.py`)**: `check_broker_trades()`, called from
 `main.poll_once()` right after this cycle's alerts are saved, is a fully automated imaginary
 buy/sell engine layered on top of the alert mechanisms above — see `.claude/agents/broker.md`'s

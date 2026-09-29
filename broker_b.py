@@ -111,13 +111,13 @@ from zoneinfo import ZoneInfo
 
 from broker import _find_exit, _format_ts, _result_marker
 from config import (
-    GOLD_SPOT_SYMBOL,
     INTRAHOUR_SWING_ALERT_THRESHOLD,
     RSI_OVERBOUGHT_THRESHOLD,
     RSI_OVERSOLD_THRESHOLD,
     RSI_PERIOD,
 )
-from data_fetcher import compute_rsi, fetch_candles, fetch_gold_candles
+from data_fetcher import compute_rsi, fetch_gold_candles
+from price_bars import fetch_gold_bars
 from notifier import send_telegram_message
 from storage import (
     close_trade_row_b,
@@ -180,6 +180,11 @@ ZONE_SCENARIOS = {
 # breakout mirror share one trigger level, approached from the same direction), and likewise for
 # buy_support/bear_breakdown -- see ta_forecast_job.py's build_scenarios().
 RISING_APPROACH_SCENARIOS = {"sell_resistance", "bull_breakout"}
+
+
+def _entry_side(trade_type: str) -> str:
+    """Which side of the spread a level touch is judged on: a Buy fills on the ask, a Sell on the bid."""
+    return "ask" if trade_type == "Buy" else "bid"
 
 
 def _entry_price_and_invalidation(scenario_name: str, scenario: dict) -> tuple[float, float | None]:
@@ -397,12 +402,16 @@ def _notify_crossed_during_trade(trade: dict, exit_price: float, exit_ts: dateti
         if not armed:
             return
         minutes = int((exit_ts - trade["open_ts"]).total_seconds() // 60) + 3
-        candles = fetch_candles(GOLD_SPOT_SYMBOL, interval="1min", outputsize=min(max(minutes, 5), 500))
-        candles = candles[(candles["datetime"] >= trade["open_ts"]) & (candles["datetime"] <= exit_ts)]
-        if candles.empty:
-            return
+        bars_by_side = {}
         for scenario_name, rule_name, scenario in armed:
             trigger_price, _invalidation = _entry_price_and_invalidation(scenario_name, scenario)
+            side = _entry_side(ZONE_SCENARIOS[scenario_name][0])
+            if side not in bars_by_side:
+                bars = fetch_gold_bars(min(max(minutes, 5), 500), side)
+                bars_by_side[side] = bars[(bars["datetime"] >= trade["open_ts"]) & (bars["datetime"] <= exit_ts)]
+            candles = bars_by_side[side]
+            if candles.empty:
+                continue
             if scenario_name in RISING_APPROACH_SCENARIOS:
                 crossed = candles["high"].max() >= trigger_price
             else:
@@ -478,10 +487,16 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
         _notify_timing_block(candidates, gold_price, forecast, now)
         return
 
-    try:
-        candles = fetch_candles(GOLD_SPOT_SYMBOL, interval="1min", outputsize=ENTRY_CANDLE_LOOKBACK_MINUTES)
-    except Exception:
-        return
+    # Entry scans use the price a resting order would fill on: the ask for a Buy, the bid for a Sell
+    # (fetched at most once per side per poll) -- see price_bars.py.
+    bars_by_side = {}
+    for _name, _type, _rule, _scenario in candidates:
+        side = _entry_side(_type)
+        if side not in bars_by_side:
+            try:
+                bars_by_side[side] = fetch_gold_bars(ENTRY_CANDLE_LOOKBACK_MINUTES, side)
+            except Exception:
+                return
     # Only touches after the last Broker B trade closed can open a new one -- otherwise a re-armed
     # level would re-fire on the very touch that opened its previous trade (still inside the 20-min
     # lookback), and any level could open a back-dated trade from a touch made while flat was false.
@@ -497,11 +512,11 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
     last_close_ts = get_last_close_ts_b()
     if last_close_ts is not None and last_close_ts > floor_ts:
         floor_ts = last_close_ts
-    candles = candles[candles["datetime"] > floor_ts]
+    bars_by_side = {side: bars[bars["datetime"] > floor_ts] for side, bars in bars_by_side.items()}
 
     touches = []
     for scenario_name, trade_type, rule_name, scenario in candidates:
-        touch = _scan_zone_entry(scenario_name, scenario, candles)
+        touch = _scan_zone_entry(scenario_name, scenario, bars_by_side[_entry_side(trade_type)])
         if touch is not None:
             trigger_price, trigger_ts = touch
             touches.append((trigger_ts, trigger_price, trade_type, rule_name, scenario_name))
