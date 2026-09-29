@@ -372,6 +372,51 @@ def _close_message(trade: dict, exit_price: float, exit_ts: datetime, pnl: float
     )
 
 
+def _notify_crossed_during_trade(trade: dict, exit_price: float, exit_ts: datetime) -> None:
+    """Best-effort notice, sent right after a trade closes, for any *other* still-armed level of the
+    latest forecast that price crossed while `trade` held Broker B's single position slot. Such a
+    level is deliberately never filled retroactively (its trigger price is already stale, and a fresh
+    entry needs a new approach from the correct side -- see _scan_zone_entry()), so this only makes the
+    skip visible. Deduplicated per (forecast, rule, this trade) via _notify_blocked(); one extra 1-min
+    candle fetch, only on the poll a trade closes. Never raises -- a failure here must not affect the
+    close that already happened."""
+    try:
+        forecast = get_latest_ta_forecast()
+        if forecast is None or not forecast.get("levels"):
+            return
+        scenarios = {s["name"]: s for s in forecast["levels"].get("scenarios", [])}
+        armed = []
+        for scenario_name, (_trade_type, rule_name) in ZONE_SCENARIOS.items():
+            scenario = scenarios.get(scenario_name)
+            if scenario is None or rule_name == trade["rule_name"]:
+                continue
+            history = trade_b_level_history(forecast["id"], rule_name)
+            if history["stopped_out"] or history["count"] >= MAX_TRADES_PER_LEVEL:
+                continue
+            armed.append((scenario_name, rule_name, scenario))
+        if not armed:
+            return
+        minutes = int((exit_ts - trade["open_ts"]).total_seconds() // 60) + 3
+        candles = fetch_candles(GOLD_SPOT_SYMBOL, interval="1min", outputsize=min(max(minutes, 5), 500))
+        candles = candles[(candles["datetime"] >= trade["open_ts"]) & (candles["datetime"] <= exit_ts)]
+        if candles.empty:
+            return
+        for scenario_name, rule_name, scenario in armed:
+            trigger_price, _invalidation = _entry_price_and_invalidation(scenario_name, scenario)
+            if scenario_name in RISING_APPROACH_SCENARIOS:
+                crossed = candles["high"].max() >= trigger_price
+            else:
+                crossed = candles["low"].min() <= trigger_price
+            if crossed:
+                reason = (
+                    f"crossed while {trade['rule_name']} trade #{trade['id']} was open "
+                    f"(closed @ ${exit_price:.2f}); not filled retroactively"
+                )
+                _notify_blocked(forecast, rule_name, trigger_price, reason)
+    except Exception:
+        return
+
+
 def check_broker_b_trades(prices: dict[str, float]) -> None:
     """Runs once per poll, independent of Broker A. Closes the open trade (if any) at the $10
     take-profit/stop-loss (identical mechanism to Broker A -- see broker._find_exit()), then looks
@@ -398,6 +443,7 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
             exit_price, exit_ts, pnl = exit_result
             close_trade_row_b(open_trade["id"], exit_price, exit_ts, pnl)
             send_telegram_message(_close_message(open_trade, exit_price, exit_ts, pnl))
+            _notify_crossed_during_trade(open_trade, exit_price, exit_ts)
             open_trade = None
 
     if open_trade is not None:

@@ -277,6 +277,12 @@ is tried instead of the whole poll giving up.
 
 ### Broker B: blocked-entry Telegram notice
 
+Also (29 Sep 2026): when a trade closes, `broker_b._notify_crossed_during_trade()` sends the same kind of
+⛔ notice for any *other* still-armed level of the latest forecast that price crossed while that trade
+held the single position slot ("crossed while <rule> trade #N was open (closed @ $X); not filled
+retroactively"). It never opens a trade -- the level's price is stale and a fresh entry needs a new
+approach from the correct side. Deduplicated per (forecast, rule, trade) in `broker_b_blocked`.
+
 Added 25 Sep 2026, same request: whenever a level is actually reached but one of the three filters
 above stops the trade, one Telegram message names the level and the reason(s), e.g. `🟦⛔ BROKER B:
 TA-Zone-sell level $4283.21 reached but blocked -- DXY fell -0.0900 in 15 min (fresh tailwind,
