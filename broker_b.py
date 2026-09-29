@@ -60,7 +60,7 @@ so price ran through the zone to $4,295.53 before the immediate TA-Breakout-buy 
 the round-trip back down, all inside the 9-11pm ET window, the market's thinnest liquidity stretch):
 
 1. **Trading-hours window** (`_within_entry_window()`): no *new* entries outside
-   `ENTRY_WINDOW_START_ET`-`ENTRY_WINDOW_END_ET` (8:00am-4:00pm ET, the NY cash close, weekdays only).
+   `ENTRY_WINDOW_START_ET`-`ENTRY_WINDOW_END_ET` (7:00am-5:00pm ET, weekdays only).
    Both incident trades opened at 9pm ET -- outside this window alone would have blocked both. Exits
    are never gated by this -- an open Broker B trade still gets managed to its $10 exit at any hour,
    the same way Broker A's exits and forex_broker.py's close-check both run around the clock; only a
@@ -134,8 +134,8 @@ DISPLAY_TZ = ZoneInfo("America/New_York")
 
 # No *new* Broker B entry outside this window (weekdays only) -- see module docstring's "Trading-hours
 # window" entry. Existing open trades are exempt; only fresh entries wait for it.
-ENTRY_WINDOW_START_ET = time(8, 0)
-ENTRY_WINDOW_END_ET = time(16, 0)  # the NY cash close
+ENTRY_WINDOW_START_ET = time(7, 0)
+ENTRY_WINDOW_END_ET = time(17, 0)
 
 # How far back the DXY confirmation check looks for a net move against the trade -- see module
 # docstring's "DXY confirmation" entry. Matches the fastest calibrated companion-swing window
@@ -427,7 +427,7 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
         return
 
     if not _within_entry_window(now):
-        # Outside 8am-4pm ET weekdays -- no candle fetch (see module docstring for the API-budget
+        # Outside 7am-5pm ET weekdays -- no candle fetch (see module docstring for the API-budget
         # reasoning), just a cheap point-price check purely to notify if a level looks reached.
         _notify_timing_block(candidates, gold_price, forecast, now)
         return
