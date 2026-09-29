@@ -248,7 +248,7 @@ indicators (any window) land alerts in the `alerts` table within a trailing 10 m
 direction — GLD/IAU/GLDM/GDX/GDXJ/RING up, DXY down (sell on the exact opposite, and it's 5-of-7, not
 all 7); US10Y is deliberately excluded from this indicator set (still alerted/frequency-tested like
 the others, just never consulted for a Broker entry — was included when this rule was
-`Consensus6of8`); close at $10 unrealized profit or $15 unrealized loss (stop-loss widened from $10 on 29 Sep 2026, Broker A and B only; `broker.STOP_LOSS_THRESHOLD`), using a real 1-minute candle scan
+`Consensus6of8`); close at $10 unrealized profit or $10 unrealized loss (`broker.STOP_LOSS_THRESHOLD`; briefly widened to $15 on 29-30 Sep 2026, back to $10), using a real 1-minute candle scan
 (not a single point-in-time price) so a spike that briefly touched $10 and reversed before the next
 poll still closes at the true level (`broker._find_exit()`). Every entry is also gated by
 `broker._bias_allows()`/`_latest_bias_score()` — the latest `ta_forecasts` row's overall bias score
@@ -374,7 +374,7 @@ so the live numbers (clock time, DXY delta, RSI value) only ever land in the Tel
 the dedup key. Fixed 25 Sep 2026 — the original version put the live number straight into the dedup
 key, so the same ongoing block re-sent every ~5-minute poll instead of once.
 
-Same $10 take-profit / $15 stop-loss as Broker A (`broker._find_exit()`, imported directly
+Same $10 take-profit / $10 stop-loss as Broker A (`broker._find_exit()`, imported directly
 rather than reimplemented, so the two engines' exit math can't drift apart), same 1 oz size. Entirely
 separate Postgres `broker_b_trades` table (`trades`' columns plus `ta_forecast_id`, so a trade can be
 traced back to the exact forecast row/scenario that produced it) and separate open-trade tracking —
@@ -396,7 +396,7 @@ traceability against the real orders) — entirely separate from `broker.py`'s `
 engines' open positions and watermarks never interact.
 
 **Exits are on the platform, not in `forex_broker.py`**: right after an entry fills, the broker attaches a
-take-profit and a stop-loss at fill ± `EXIT_THRESHOLD` ($10 -- the Forex broker keeps its symmetric $10; only Broker A/B moved to a $15 stop) via `ForexClient.attach_take_profit_and_stop_loss()`
+take-profit and a stop-loss at fill ± `EXIT_THRESHOLD` ($10) via `ForexClient.attach_take_profit_and_stop_loss()`
 (`/order/updatetradeorder` with `IfDone [{Stop, Limit}]`, confirmed live on position 1032567283: both
 orders appear on the forex.com platform, linked one-cancels-the-other, good-till-cancelled), so forex.com
 closes the position the moment either level trades. Each later run just reconciles: position gone from
@@ -481,7 +481,7 @@ runtimes that can't hold a normal TCP pool open), `rule_name` set to `Telegram-b
 row exists yet to attribute the trade to, it replies explaining why instead of opening one. If no
 manual **close** command ever arrives, a Telegram-opened trade is still picked up and auto-closed the
 normal way by the existing Python poll (`check_broker_trades()`/`check_broker_b_trades()`, already
-scanning for the $10 take-profit / $15 stop-loss every 5 minutes) — the two paths don't conflict, they just
+scanning for the $10 take-profit / $10 stop-loss every 5 minutes) — the two paths don't conflict, they just
 both watch the same `status = 'Open'` row. A **close** command is an unconditional override: it closes
 at whatever the current spot price is, regardless of unrealized P/L, unlike the automatic $10 target —
 the whole point of a manual close is to not wait for that target.

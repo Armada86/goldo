@@ -19,7 +19,7 @@ real crossing entirely: if gold spikes past the $10 target and reverses before t
 point-in-time price at that next poll may be back under the target, and the trade would wrongly stay
 open with the missed profit unrecorded. _scan_exit_crossing() fixes this by fetching real 1-minute
 OHLC candles (fetch_candles(), Twelve Data) covering the window since the trade opened, and scanning
-each bar's high/low for the first point that actually crossed the $10 take-profit or $15 stop-loss level
+each bar's high/low for the first point that actually crossed the $10 take-profit or $10 stop-loss level
 -- catching a spike-and-reverse the next poll's point sample alone would have missed, and closing at
 the true crossing price/time rather than whatever the spot price happens to be at poll time. This
 still only *detects* the crossing at the next poll (up to ~5 minutes after the real event) -- it fixes
@@ -79,7 +79,7 @@ from storage import (
 # .claude/agents/broker.md.
 ENTRY_WINDOW_MINUTES = 10
 EXIT_THRESHOLD = 10.0  # take-profit, $ per troy ounce (also what forex_broker.py uses for both its TP and SL)
-STOP_LOSS_THRESHOLD = 15.0  # stop-loss, $ per troy ounce -- widened from $10 on 29 Sep 2026; Broker A and B only
+STOP_LOSS_THRESHOLD = 10.0  # stop-loss, $ per troy ounce -- was widened to $15 on 29 Sep 2026, back to $10 on 30 Sep 2026; Broker A and B only
 
 # How many minutes of 1-min candles the exit check pulls each poll -- comfortably more than one
 # 5-min poll interval, so a slightly late-firing poll still has full coverage back to the last
@@ -315,7 +315,7 @@ def _pnl(trade: dict, current_price: float) -> float:
 
 def _exit_levels(trade: dict) -> tuple[float, float]:
     """(take_profit_price, stop_loss_price) for this trade -- EXIT_THRESHOLD ($10) in profit and
-    STOP_LOSS_THRESHOLD ($15) against, on opposite sides, mirrored for Buy vs Sell."""
+    STOP_LOSS_THRESHOLD ($10) against, on opposite sides, mirrored for Buy vs Sell."""
     entry = trade["entry_price"]
     if trade["trade_type"] == "Buy":
         return entry + EXIT_THRESHOLD, entry - STOP_LOSS_THRESHOLD
@@ -407,7 +407,7 @@ def _notify_blocked(rule_name: str, price: float, dedup_reasons: str, message_re
 
 def check_broker_trades(prices: dict[str, float]) -> None:
     """Runs once per poll, after this cycle's alerts are saved. Closes the open trade (if any) the
-    moment its unrealized P/L reaches the $10 take-profit or $15 stop-loss, then looks for a fresh
+    moment its unrealized P/L reaches the $10 take-profit or $10 stop-loss, then looks for a fresh
     Consensus5of7-buy/-sell entry signal -- at least MIN_FLAGGING_COUNT (5) of the seven
     intrahour-swing indicators, in the required directions, landing in the alerts table within the
     trailing ENTRY_WINDOW_MINUTES (10) minutes -- gated by the trading-hours

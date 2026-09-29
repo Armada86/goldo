@@ -62,7 +62,7 @@ the round-trip back down, all inside the 9-11pm ET window, the market's thinnest
 1. **Trading-hours window** (`_within_entry_window()`): no *new* entries outside
    `ENTRY_WINDOW_START_ET`-`ENTRY_WINDOW_END_ET` (7:00am-5:00pm ET, weekdays only).
    Both incident trades opened at 9pm ET -- outside this window alone would have blocked both. Exits
-   are never gated by this -- an open Broker B trade still gets managed to its $10 take-profit / $15 stop-loss exit at any hour,
+   are never gated by this -- an open Broker B trade still gets managed to its $10 take-profit / $10 stop-loss exit at any hour,
    the same way Broker A's exits and forex_broker.py's close-check both run around the clock; only a
    *fresh* entry waits for the window.
 2. **DXY confirmation** (`_dxy_confirms()`): a Buy is skipped if DXY has risen by at least its own
@@ -425,7 +425,7 @@ def _notify_crossed_during_trade(trade: dict, exit_price: float, exit_ts: dateti
 
 def check_broker_b_trades(prices: dict[str, float]) -> None:
     """Runs once per poll, independent of Broker A. Closes the open trade (if any) at the $10
-    take-profit / $15 stop-loss (identical mechanism to Broker A -- see broker._find_exit()), then looks
+    take-profit / $10 stop-loss (identical mechanism to Broker A -- see broker._find_exit()), then looks
     for a fresh entry on any of the four TA forecast levels (TA-Zone-sell/-buy,
     TA-Breakout-sell/-buy) -- no bias gate, price actually reaching a level is the entire signal --
     up to MAX_TRADES_PER_LEVEL times per (forecast, level) pair, re-arming only
