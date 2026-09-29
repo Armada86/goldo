@@ -36,6 +36,13 @@ LAPTOP_BREAKPOINT_PX = 700
 st.markdown(
     f"""
     <style>
+        /* Weekend days in the date picker's calendar popup: grayed out and unclickable. Streamlit's
+           st.date_input has no per-day disable option, so this targets the popup's day cells by their
+           aria-label ("Saturday, September 26, 2026"); the server-side snap to the previous weekday
+           below still covers typed/keyboard input. */
+        div[role="button"][aria-label^="Saturday"], div[role="button"][aria-label^="Sunday"] {{
+            opacity: 0.35; pointer-events: none; cursor: not-allowed;
+        }}
     .block-container {{ padding-top: 1.5rem; padding-bottom: 1rem; }}
     .goldo-table {{ width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 9px; }}
     .goldo-table th, .goldo-table td {{
@@ -242,8 +249,24 @@ except Exception as e:
 
 if min_forecast_date is not None:
     today_et = now_local.date()
+
+    def prev_weekday(d):
+        while d.weekday() >= 5:  # Sat/Sun -> the Friday before
+            d -= timedelta(days=1)
+        return d
+
+    def next_weekday(d):
+        while d.weekday() >= 5:  # Sat/Sun -> the Monday after
+            d += timedelta(days=1)
+        return d
+
+    # Forecasts only run on weekdays, so weekends aren't selectable: the newest selectable date is the
+    # latest weekday on or before today (on a Saturday/Sunday that's Friday), and a weekend value
+    # (typed in, or via keyboard past the CSS-grayed calendar cells) snaps back to the Friday before it.
+    latest_date = prev_weekday(today_et)
     if FORECAST_DATE_KEY not in st.session_state:
-        st.session_state[FORECAST_DATE_KEY] = today_et
+        st.session_state[FORECAST_DATE_KEY] = latest_date
+    st.session_state[FORECAST_DATE_KEY] = prev_weekday(st.session_state[FORECAST_DATE_KEY])
 
     # Each button's own disabled= is computed once per script run, before its click (if any) updates
     # session_state further down -- without the st.rerun() below, the *same* rerun that processes a
@@ -255,16 +278,20 @@ if min_forecast_date is not None:
     with nav_prev:
         if st.button("◀", key="forecast_date_prev",
                      disabled=st.session_state[FORECAST_DATE_KEY] <= min_forecast_date):
-            st.session_state[FORECAST_DATE_KEY] -= timedelta(days=1)
+            st.session_state[FORECAST_DATE_KEY] = prev_weekday(
+                st.session_state[FORECAST_DATE_KEY] - timedelta(days=1)
+            )
             st.rerun()
     with nav_next:
         if st.button("▶", key="forecast_date_next",
-                     disabled=st.session_state[FORECAST_DATE_KEY] >= today_et):
-            st.session_state[FORECAST_DATE_KEY] += timedelta(days=1)
+                     disabled=st.session_state[FORECAST_DATE_KEY] >= latest_date):
+            st.session_state[FORECAST_DATE_KEY] = next_weekday(
+                st.session_state[FORECAST_DATE_KEY] + timedelta(days=1)
+            )
             st.rerun()
     with nav_date:
         st.date_input(
-            "Forecast date", min_value=min_forecast_date, max_value=today_et,
+            "Forecast date", min_value=min_forecast_date, max_value=latest_date,
             key=FORECAST_DATE_KEY, label_visibility="collapsed",
         )
     selected_date = st.session_state[FORECAST_DATE_KEY]
