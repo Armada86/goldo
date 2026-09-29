@@ -51,8 +51,8 @@ DIAGRAM_PLOT_HEIGHT = 340
 DIAGRAM_TOP = 26
 DIAGRAM_AXIS_X = 46
 DIAGRAM_BAND_X = 52
-DIAGRAM_BAND_WIDTH = 80
-DIAGRAM_LABEL_X = 140
+DIAGRAM_BAND_WIDTH = 190
+DIAGRAM_LABEL_X = 250
 DIAGRAM_MIN_LABEL_GAP = 13   # px between stacked zone-label rows, so close zones never overlap
 DIAGRAM_LEGEND_HEIGHT = 50
 DIAGRAM_CANDLE_BODY_WIDTH = 14        # the optional day-candle sits inside the band column, not a
@@ -578,14 +578,6 @@ def render(snap: dict, bias: tuple, resistances, supports, scenarios, review_lin
 # Diagram
 
 
-def _short_zone_label(zone: dict) -> str:
-    """First couple of source labels plus a '+N' count of anything else (other sources on this zone,
-    or levels folded into it as 'nearby') -- the full list is still in the <title> tooltip."""
-    shown = ", ".join(zone["labels"][:2])
-    extra = len(zone["labels"]) - 2 + len(zone.get("nearby", []))
-    return f"{shown} +{extra}" if extra > 0 else shown
-
-
 def render_diagram_svg(
     price: float,
     resistances: list[dict],
@@ -602,7 +594,8 @@ def render_diagram_svg(
     the price line) sit at their true proportional price position; only the label rows are nudged
     apart (never more than DIAGRAM_MIN_LABEL_GAP) to stay legible when two rows land close together --
     price is laid out in that same pass, as just another row, since it commonly sits within a few
-    dollars of the nearest zone. `title` tags carry each zone's full label list (and any 'nearby'
+    dollars of the nearest zone. Zone labels show only the price range (no source names -- removed
+    29 Sep 2026 at the user's request). `title` tags still carry each zone's full label list (and any 'nearby'
     levels folded into it) as a hover tooltip -- inert on mobile, but free.
 
     `price` is always drawn the same way regardless of `candle`/`live_price`: a thin hairline plus a
@@ -731,7 +724,7 @@ def render_diagram_svg(
             return (
                 f'<text x="{DIAGRAM_LABEL_X}" y="{label_y:.1f}" font-size="9.5" fill="{DIAGRAM_COLOR_INK}">'
                 f'<tspan font-family="IBM Plex Mono, ui-monospace, monospace" font-weight="600" '
-                f'fill="{color}">{_fmt_zone(zone)}</tspan> {escape(_short_zone_label(zone))}'
+                f'fill="{color}">{_fmt_zone(zone)}</tspan>'
                 f'<title>{escape(tooltip)}</title></text>'
             )
 
