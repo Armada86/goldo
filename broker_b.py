@@ -106,10 +106,17 @@ notice, not one every 5-minute poll; a *different* reasons string (DXY blocks it
 still gets its own notice, since that's genuinely new information.
 """
 
-from datetime import datetime, time, timezone
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from broker import _find_exit, _format_ts, _result_marker
+from broker import (
+    ENTRY_WINDOW_END_ET,
+    ENTRY_WINDOW_START_ET,
+    _find_exit,
+    _format_ts,
+    _result_marker,
+    _within_entry_window,
+)
 from config import (
     INTRAHOUR_SWING_ALERT_THRESHOLD,
     RSI_OVERBOUGHT_THRESHOLD,
@@ -134,8 +141,6 @@ DISPLAY_TZ = ZoneInfo("America/New_York")
 
 # No *new* Broker B entry outside this window (weekdays only) -- see module docstring's "Trading-hours
 # window" entry. Existing open trades are exempt; only fresh entries wait for it.
-ENTRY_WINDOW_START_ET = time(7, 0)
-ENTRY_WINDOW_END_ET = time(17, 0)
 
 # How far back the DXY confirmation check looks for a net move against the trade -- see module
 # docstring's "DXY confirmation" entry. Matches the fastest calibrated companion-swing window
@@ -234,14 +239,6 @@ def _scan_zone_entry(
         if invalidated:
             return None
     return None
-
-
-def _within_entry_window(now_utc: datetime) -> bool:
-    """True on a weekday between ENTRY_WINDOW_START_ET and ENTRY_WINDOW_END_ET -- see module
-    docstring's "Trading-hours window" entry. Only gates fresh entries; an already-open trade's exit
-    is checked unconditionally by check_broker_b_trades() regardless of this."""
-    local = now_utc.astimezone(DISPLAY_TZ)
-    return local.weekday() < 5 and ENTRY_WINDOW_START_ET <= local.time() < ENTRY_WINDOW_END_ET
 
 
 def _dxy_confirms(trade_type: str, readings: list) -> tuple[bool, str | None, str | None]:

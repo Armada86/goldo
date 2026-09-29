@@ -274,8 +274,8 @@ dedicated fade signal. Both fail open on missing/insufficient data, same convent
 `_bias_allows()`. A block from either sends a deduplicated Telegram notice (🔵⛔,
 `broker._notify_blocked()`, `storage.record_broker_a_blocked_if_new()`, `broker_a_blocked` table, keyed
 on `(rule_name, reasons, since_ts)` where `since_ts` is Broker A's own entry watermark since there's no
-forecast row to scope by here) — unlike a bias-gate skip or an already-open-trade skip, which stay
-unlogged beyond the GitHub Actions run log. Trade state lives in a Postgres `trades` table (mirrors
+forecast row to scope by here) — since 30 Sep 2026 the TA bias gate and a new **trading-hours window** (7am-5pm ET weekdays, `broker._within_entry_window()`,
+shared with Broker B) also send this notice; an already-open-trade skip still stays unlogged beyond the GitHub Actions run log. Trade state lives in a Postgres `trades` table (mirrors
 `readings`/`alerts` — required since `poll_job.py` is a stateless one-shot run each cloud poll, so
 in-memory state can't survive between polls); only one trade open at a time, and a fresh entry only
 considers alerts newer than the last trade's open time so a stale alert can't retrigger. Every

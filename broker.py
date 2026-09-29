@@ -52,7 +52,7 @@ by the way Broker B does; the watermark advancing when a trade actually opens is
 notice fire again on a later, separate occasion instead of never again.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, time, timezone
 from zoneinfo import ZoneInfo
 
 from config import (
@@ -109,6 +109,18 @@ BLOCKED_MARKER = "⛔ "  # no-entry sign -- a signal was reached but a filter st
 # broker_b.py (imported alongside _find_exit()/_result_marker()) so both engines format it the same way.
 DISPLAY_TZ = ZoneInfo("America/New_York")
 
+# Trading-hours window for fresh entries -- shared by Broker A (here) and Broker B (broker_b.py imports these,
+# so the two engines can't drift): 7:00am-5:00pm America/New_York, weekdays only. Gates entries only, never
+# exits. Matches market_hours.is_overnight_polling_pause() (the cloud poll doesn't even run outside it).
+ENTRY_WINDOW_START_ET = time(7, 0)
+ENTRY_WINDOW_END_ET = time(17, 0)
+
+
+def _within_entry_window(now_utc: datetime) -> bool:
+    """True on a weekday between ENTRY_WINDOW_START_ET and ENTRY_WINDOW_END_ET (America/New_York)."""
+    local = now_utc.astimezone(DISPLAY_TZ)
+    return local.weekday() < 5 and ENTRY_WINDOW_START_ET <= local.time() < ENTRY_WINDOW_END_ET
+
 
 def _result_marker(pnl: float, profit: str = PROFIT_MARKER, loss: str = LOSS_MARKER) -> str:
     return profit if pnl >= 0 else loss
@@ -152,6 +164,17 @@ def _bias_allows(trade_type: str, bias_score: float) -> bool:
     if trade_type == "Sell":
         return bias_score <= 0
     return bias_score >= 0
+
+
+def _bias_block_reason(trade_type: str, bias_score: float) -> tuple[str, str]:
+    """(category, detail) for a signal _bias_allows() rejected. `category` is a fixed string with no live
+    number (the blocked-entry dedup key, see _notify_blocked()); `detail` carries the actual score, for
+    the Telegram text only."""
+    leaning = "bearish" if bias_score < 0 else "bullish"
+    return (
+        f"TA forecast bias is {leaning}, against the {trade_type}",
+        f"latest TA forecast bias is {leaning} (score {bias_score:+g}/6), against the {trade_type}",
+    )
 
 
 def _rsi_confirms(trade_type: str, rsi_value: float | None) -> tuple[bool, str | None, str | None]:
@@ -387,9 +410,11 @@ def check_broker_trades(prices: dict[str, float]) -> None:
     moment its unrealized P/L reaches the $10 take-profit or $15 stop-loss, then looks for a fresh
     Consensus5of7-buy/-sell entry signal -- at least MIN_FLAGGING_COUNT (5) of the seven
     intrahour-swing indicators, in the required directions, landing in the alerts table within the
-    trailing ENTRY_WINDOW_MINUTES (10) minutes -- gated by _bias_allows(): a signal against the
-    latest TA forecast's overall bias (e.g. a Buy while the forecast reads bearish) is skipped, not
-    opened. A signal that passes the bias gate still needs RSI not already exhausted
+    trailing ENTRY_WINDOW_MINUTES (10) minutes -- gated by the trading-hours
+    window (_within_entry_window(), 7am-5pm ET weekdays, same as Broker B) and by _bias_allows(): a
+    signal against the latest TA forecast's overall bias (e.g. a Buy while the forecast reads bearish)
+    is not opened. Either of those blocks sends a deduplicated Telegram notice, like the two below. A
+    signal that passes them still needs RSI not already exhausted
     (_rsi_confirms()) and DXY's own 15-min move to genuinely confirm it (_dxy_confirms()) -- see
     module docstring's entry-filter entry; a signal either of these blocks sends a deduplicated
     Telegram notice instead of opening (_notify_blocked()). See .claude/agents/broker.md for the
@@ -416,7 +441,23 @@ def check_broker_trades(prices: dict[str, float]) -> None:
             alerts = [(ts, message) for ts, message in alerts if ts > watermark]
 
         trade_type, rule_name = _match_entry_rule(alerts)
-        if trade_type is not None and _bias_allows(trade_type, _latest_bias_score()):
+        since_ts = watermark if watermark is not None else datetime(1970, 1, 1, tzinfo=timezone.utc)
+        if trade_type is not None and not _within_entry_window(now):
+            local = now.astimezone(DISPLAY_TZ)
+            _notify_blocked(
+                rule_name, gold_price, "outside trading hours",
+                f"outside trading hours (now {local:%H:%M} ET; window is "
+                f"{ENTRY_WINDOW_START_ET:%H:%M}-{ENTRY_WINDOW_END_ET:%H:%M} ET, weekdays)",
+                since_ts,
+            )
+            trade_type = None
+        if trade_type is not None:
+            bias_score = _latest_bias_score()
+            if not _bias_allows(trade_type, bias_score):
+                bias_category, bias_detail = _bias_block_reason(trade_type, bias_score)
+                _notify_blocked(rule_name, gold_price, bias_category, bias_detail, since_ts)
+                trade_type = None
+        if trade_type is not None:
             try:
                 rsi_value = compute_rsi(fetch_gold_candles()["close"], period=RSI_PERIOD).dropna().iloc[-1]
             except Exception:
@@ -437,5 +478,4 @@ def check_broker_trades(prices: dict[str, float]) -> None:
             else:
                 dedup_reasons = "; ".join(r for r in (rsi_category, dxy_category) if r)
                 message_reasons = "; ".join(r for r in (rsi_detail, dxy_detail) if r)
-                since_ts = watermark if watermark is not None else datetime(1970, 1, 1, tzinfo=timezone.utc)
                 _notify_blocked(rule_name, gold_price, dedup_reasons, message_reasons, since_ts)
