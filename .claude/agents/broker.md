@@ -91,6 +91,12 @@ e.g. "GLD, GDX, GDXJ, RING, DXY") — no prices, swing sizes, or thresholds, to 
 for analysis here — query that column, not the Telegram message, when you need the actual swing/threshold
 numbers behind a trade.
 
+**Candle price source (30 Sep 2026)**: both brokers' entry/exit candle scans read 1-minute **bid/ask bars from
+the FOREX.com demo account** (`price_bars.fetch_gold_bars()`), falling back to Twelve Data if that fails, not
+Twelve Data directly -- Twelve Data missed real touches the user's platform showed (a $4,160 take-profit and a
+$4,150.00 support level on 29 Sep 2026). A Buy enters on the ask and exits on the bid; a Sell enters on the bid
+and exits on the ask. Where this spec below says "1-minute candles", read that.
+
 **Exit**: close the 1 oz position the first time its unrealized P/L reaches **+$10** (take profit) or
 **-$15** (stop loss; widened from -$10 on 29 Sep 2026, Broker A and B only). Checked every poll (every 5 minutes), but not against a single live spot-price
 sample — a poll-to-poll gap can hide a spike that touched the target and reversed before the next

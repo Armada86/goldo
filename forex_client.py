@@ -199,6 +199,37 @@ class ForexClient:
             raise ForexClientError(f"No price ticks returned for market {market_id}")
         return float(ticks[-1]["Price"])
 
+    @with_retries()
+    def get_bars(self, count: int, price_type: str, market_name: str | None = None):
+        """The most recent `count` one-minute OHLC bars for `market_name` (default MARKET_NAME) as a
+        DataFrame (`datetime` UTC, `open`/`high`/`low`/`close`, ascending), priced on `price_type`
+        "BID", "ASK" or "MID" via /market/{id}/barhistory (read-only; confirmed live 30 Sep 2026: up to
+        at least 4000 bars, ~2.8 days, per call). The last bar is the minute still in progress."""
+        import pandas as pd
+
+        market_id = self._market_id_for(market_name or MARKET_NAME)
+        response = requests.get(
+            f"{BASE_URL}/market/{market_id}/barhistory",
+            headers=self._headers(),
+            params={"interval": "MINUTE", "span": 1, "PriceBars": int(count), "priceType": price_type},
+            timeout=15,
+        )
+        response.raise_for_status()
+        bars = response.json().get("PriceBars") or []
+        if not bars:
+            raise ForexClientError(f"No {price_type} bars returned for market {market_id}")
+        df = pd.DataFrame(
+            {
+                "datetime": [_parse_ms_date(b["BarDate"]) for b in bars],
+                "open": [float(b["Open"]) for b in bars],
+                "high": [float(b["High"]) for b in bars],
+                "low": [float(b["Low"]) for b in bars],
+                "close": [float(b["Close"]) for b in bars],
+            }
+        )
+        df["datetime"] = pd.to_datetime(df["datetime"], utc=True)
+        return df.sort_values("datetime").reset_index(drop=True)
+
     def _assert_tradable_market(self) -> None:
         """Refuses to go any further unless forex.com's own lookup of TRADABLE_MARKET_NAME resolves to
         exactly TRADABLE_MARKET_ID. Guards against the name ever matching a different market (as
