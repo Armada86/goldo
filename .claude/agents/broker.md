@@ -83,7 +83,8 @@ US10Y) before this change.
 
 Implemented in `broker.py` as: pull alerts from the trailing `ENTRY_WINDOW_MINUTES` (10) minutes, count
 how many of the 7 (`GOLD_DIRECTION_NAMES` + `INVERSE_DIRECTION_NAMES`) have an alert in the direction
-this rule requires, and fire if that count is `>= MIN_FLAGGING_COUNT` (5) — see `_match_entry_rule()`.
+this rule requires, and fire if that count is `>= MIN_FLAGGING_COUNT` (5) — see `_match_entry_rule()`. Fresh entries are also limited to 7:00am-5:00pm America/New_York weekdays
+(`_within_entry_window()`, shared with Broker B); exits are never gated.
 
 The Telegram open message's "Trigger:" line names only the indicators that flagged (`_triggering_names()`,
 e.g. "GLD, GDX, GDXJ, RING, DXY") — no prices, swing sizes, or thresholds, to keep the message short. The
@@ -254,8 +255,8 @@ stopped out on the round-trip back down. All of it happened in the 9–11pm ET w
 liquidity stretch of the 24-hour gold session. Three filters, evaluated on every *fresh* entry (not on
 exits, which are never gated — an open Broker B trade is always managed to its $10 exit, any hour):
 
-1. **Trading-hours window.** No new entry outside **8:00am–4:00pm America/New_York, weekdays**
-   (`ENTRY_WINDOW_START_ET`/`ENTRY_WINDOW_END_ET` in `broker_b.py`; 4:00pm is the NY cash close). Both
+1. **Trading-hours window.** No new entry outside **7:00am–5:00pm America/New_York, weekdays** (applies to both Broker A and Broker B)
+   (`ENTRY_WINDOW_START_ET`/`ENTRY_WINDOW_END_ET` in `broker.py`, imported by `broker_b.py`). Both
    incident trades fired at 9pm ET — this alone would have blocked both.
 2. **DXY confirmation.** A Buy is skipped if DXY has *risen* by at least its own calibrated 15-minute
    companion-swing threshold (`config.INTRAHOUR_SWING_ALERT_THRESHOLD["dxy"][15]`, the same number
@@ -299,7 +300,7 @@ keyed on `(ta_forecast_id, rule_name, reasons)`) — a level sitting past its tr
 idling outside trading hours, or DXY/RSI staying against it) sends one notice total, not one every
 5-minute poll; a genuinely different reasons string for the same forecast row and rule (blocked by DXY,
 then later by RSI) still gets its own notice. The `reasons` column stores a **dedup category** string —
-e.g. `"outside trading hours (window is 08:00-16:00 ET, weekdays)"`, `"DXY rose against the Buy (fresh
+e.g. `"outside trading hours (window is 07:00-17:00 ET, weekdays)"`, `"DXY rose against the Buy (fresh
 headwind)"`, `"RSI(14) already overbought (threshold >= 70)"` — deliberately without any number that
 changes from poll to poll (a live clock reading, a live DXY delta, a live RSI value), which would
 otherwise defeat the `UNIQUE` constraint and re-send every poll; that live detail (the actual clock

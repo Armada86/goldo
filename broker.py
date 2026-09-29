@@ -52,7 +52,7 @@ by the way Broker B does; the watermark advancing when a trade actually opens is
 notice fire again on a later, separate occasion instead of never again.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, time, timezone
 from zoneinfo import ZoneInfo
 
 from config import (
@@ -107,6 +107,18 @@ BLOCKED_MARKER = "⛔ "  # no-entry sign -- a signal was reached but a filter st
 # explicitly rather than leaving the reader to assume "now" is when it happened. Shared with
 # broker_b.py (imported alongside _find_exit()/_result_marker()) so both engines format it the same way.
 DISPLAY_TZ = ZoneInfo("America/New_York")
+
+# No *new* entry (Broker A or Broker B) outside this window, weekdays only. Existing open trades are
+# exempt; only fresh entries wait for it. Matches the poll cron's own 7am-5pm ET weekday schedule.
+ENTRY_WINDOW_START_ET = time(7, 0)
+ENTRY_WINDOW_END_ET = time(17, 0)
+
+
+def _within_entry_window(now_utc: datetime) -> bool:
+    """True on a weekday between ENTRY_WINDOW_START_ET and ENTRY_WINDOW_END_ET. Shared by Broker A
+    and Broker B; only gates fresh entries, never exits."""
+    local = now_utc.astimezone(DISPLAY_TZ)
+    return local.weekday() < 5 and ENTRY_WINDOW_START_ET <= local.time() < ENTRY_WINDOW_END_ET
 
 
 def _result_marker(pnl: float, profit: str = PROFIT_MARKER, loss: str = LOSS_MARKER) -> str:
@@ -406,7 +418,7 @@ def check_broker_trades(prices: dict[str, float]) -> None:
             send_telegram_message(_close_message(open_trade, exit_price, exit_ts, pnl))
             open_trade = None
 
-    if open_trade is None:
+    if open_trade is None and _within_entry_window(now):
         watermark = get_last_trade_open_ts()
         alerts = get_recent_alerts(minutes=ENTRY_WINDOW_MINUTES)
         if watermark is not None:

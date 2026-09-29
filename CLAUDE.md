@@ -213,7 +213,7 @@ which is correct — a real weekend gap is exactly the kind of move worth alerti
 **Overnight Neon compute pause (`market_hours.is_overnight_polling_pause()`)**: added after Neon
 compute-hour usage hit 80% of the monthly allowance on the Free plan (whose 5-minute suspend-to-zero
 timeout can't be lowered — only a paid plan allows shorter — so a poll every 5 minutes never actually
-lets compute idle out between polls). True from 5:00 PM to 8:00 AM Eastern, every day — unlike
+lets compute idle out between polls). True from 5:00 PM to 7:00 AM Eastern, every day — unlike
 `is_market_closed()` above, this is a **deliberate cost-saving pause, not a real market-closed fact**:
 gold spot actually trades nearly 24/5, and this window covers real Asian/London session activity, so
 some signal genuinely is lost overnight. `poll_job.py` (the cloud one-shot job `poll.yml` actually runs)
@@ -335,8 +335,8 @@ loss (`TA-Zone-sell` sold $4,283.21 resistance at 9:01pm ET while DXY was alread
 tailwind, not a fakeout — so price ran through the zone to $4,295.53, stopping that short out, and the
 immediate `TA-Breakout-buy` then also stopped out on the round-trip back down, all inside the 9-11pm ET
 window, the day's thinnest-liquidity stretch): (1) **trading hours** — no new entry outside
-`broker_b.ENTRY_WINDOW_START_ET`-`ENTRY_WINDOW_END_ET` (8am-4pm America/New_York, weekdays; 4pm is the
-NY cash close) — both incident trades fired at 9pm ET, so this alone would have blocked both; (2)
+`broker.ENTRY_WINDOW_START_ET`-`ENTRY_WINDOW_END_ET` (7am-5pm America/New_York, weekdays; shared by
+Broker A and Broker B, matching the poll cron's own window, and gating Broker A's entries too since 29 Sep 2026) — both incident trades fired at 9pm ET, so this alone would have blocked both; (2)
 **DXY confirmation** (`broker_b._dxy_confirms()`) — a Buy is skipped if DXY has risen, a Sell skipped
 if DXY has fallen, by at least its own calibrated 15-min companion-swing threshold
 (`config.INTRAHOUR_SWING_ALERT_THRESHOLD["dxy"][15]`) over the trailing 15 minutes — this is the check
