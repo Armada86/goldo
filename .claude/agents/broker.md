@@ -297,6 +297,14 @@ unfiltered behavior, not toward refusing to trade. When more than one level is t
 poll, the earliest touch is tried first; if it fails a gate, the next-earliest touch (a different rule)
 is tried instead of the whole poll giving up.
 
+### Broker B: stale and backlogged touches (30 Sep 2026)
+
+A blocked touch now consumes *every* bar that poll saw, not just its own. A level chopping around its trigger touches
+nearly every minute, and consuming only the first left a backlog that later polls filled one per poll (live case:
+`TA-Breakout-buy` blocked 8:36-9:01 ET by RSI/ADX, then opened at 9:04 stamped 8:44). A touch older than
+`ENTRY_MAX_TOUCH_AGE_MINUTES` (7) when noticed is also never filled: it sends a one-time ⛔ notice ("touched N min ago ...
+not filled retroactively") and is consumed the same way. Only a fresh touch can open a trade.
+
 ### Broker B: blocked-entry Telegram notice
 
 **Blocked touches are never filled later (30 Sep 2026):** a touch that a DXY/RSI/trading-hours filter blocked is
