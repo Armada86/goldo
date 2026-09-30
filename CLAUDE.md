@@ -294,6 +294,15 @@ markdown/doc log of trades — the `trades` table (`id`, `rule_name`, `trade_typ
 `open_ts`, `triggering_alerts`, `exit_price`, `close_ts`, `pnl`, `status`) is the only record, so a
 trade never requires a repo commit; `poll.yml` doesn't need write access to the repo for this reason.
 
+**ADX entry filters (added 1 Oct 2026, both brokers)**: ADX(14) on gold's 15-min candles (one candle fetch shared
+with RSI, `data_fetcher.fetch_gold_rsi_adx()`; `config.ADX_TRENDING_THRESHOLD` 25, `ADX_CHOP_THRESHOLD` 20 --
+textbook cutoffs, to be calibrated from the `adx14` in `entry_context`). Broker A: `_adx_confirms()` blocks a
+Consensus5of7 entry when ADX < 20. Broker B: `_adx_confirms()` blocks the fade rules (`TA-Zone-*`) when ADX >= 25
+and the breakout rules (`TA-Breakout-*`) when ADX < 20. Both brokers' `_rsi_confirms()` now waive their RSI
+exhaustion block when ADX >= 25. Each block goes through the existing deduplicated blocked-entry Telegram notice
+(Broker A `_notify_blocked()`, Broker B `_notify_blocked()`), with a fixed dedup category and the live ADX only in
+the message text; unknown ADX fails open (RSI block stays on). Blocked touches/signals are consumed as before.
+
 **Entry context on every trade (`entry_context.py`, added 30 Sep 2026)**: each Broker A / Broker B trade now stores a
 JSONB snapshot of the conditions at entry (`trades.entry_context` / `broker_b_trades.entry_context`, added by
 `init_db()`): ET hour/minute/weekday, RSI(14), DXY's net 15-min change and its threshold, the latest forecast's

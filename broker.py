@@ -28,6 +28,14 @@ If the candle fetch fails or the API confirms no crossing occurred, this falls b
 point-price check unchanged, so a transient Twelve Data hiccup never leaves the Broker unable to close
 a trade at all.
 
+**ADX filters (1 Oct 2026, both engines)** -- ADX(14) on the same 15-min gold candles as RSI
+(`data_fetcher.fetch_gold_rsi_adx()`, one candle fetch for both), thresholds in `config.py`
+(`ADX_TRENDING_THRESHOLD` 25, `ADX_CHOP_THRESHOLD` 20; textbook values, to be calibrated from the `adx14`
+logged in `entry_context`). Broker A: `_adx_confirms()` blocks a Consensus5of7 entry when ADX < 20 (no trend
+for a momentum consensus to ride), and `_rsi_confirms()` waives its RSI block when ADX >= 25 (in a strong
+trend an extreme RSI is continuation, not exhaustion). Unknown ADX fails open for the ADX gate and keeps
+the RSI block on. Blocks use the normal deduplicated Telegram notice.
+
 **Two entry filters, added 26 Sep 2026 after analyzing a live loss** (Consensus5of7-sell sold $4,264.94
 at 14:06:57 UTC on 25 Sep, the exact poll gold dropped $12.04 in five minutes and RSI(14) alerted
 "entered oversold territory" -- all 7 of 7 indicators flagged off that single spike, DXY only barely
@@ -56,12 +64,15 @@ from datetime import datetime, time, timezone
 from zoneinfo import ZoneInfo
 
 from config import (
+    ADX_CHOP_THRESHOLD,
+    ADX_PERIOD,
+    ADX_TRENDING_THRESHOLD,
     INTRAHOUR_SWING_ALERT_THRESHOLD,
     RSI_OVERBOUGHT_THRESHOLD,
     RSI_OVERSOLD_THRESHOLD,
     RSI_PERIOD,
 )
-from data_fetcher import compute_rsi, fetch_gold_candles
+from data_fetcher import fetch_gold_rsi_adx
 from entry_context import build_entry_context
 from price_bars import fetch_gold_bars
 from notifier import send_telegram_message
@@ -142,7 +153,23 @@ INVERSE_DIRECTION_NAMES = ["dxy"]
 MIN_FLAGGING_COUNT = 5
 
 
-def _rsi_confirms(trade_type: str, rsi_value: float | None) -> tuple[bool, str | None, str | None]:
+def _adx_confirms(adx_value: float | None) -> tuple[bool, str | None, str | None]:
+    """(ok, category, detail) -- Consensus5of7 is a momentum signal, so it needs an actual trend to
+    ride: blocked when gold's ADX(14) is below ADX_CHOP_THRESHOLD (a 5-of-7 flag in a directionless
+    market is more likely noise). `category` has no live number (dedup key); `detail` carries the
+    reading, for the Telegram text only. None (couldn't compute) fails open."""
+    if adx_value is None or adx_value >= ADX_CHOP_THRESHOLD:
+        return True, None, None
+    return (
+        False,
+        f"ADX({ADX_PERIOD}) shows no trend (threshold < {ADX_CHOP_THRESHOLD})",
+        f"ADX({ADX_PERIOD}) shows no trend: {adx_value:.1f} (< {ADX_CHOP_THRESHOLD})",
+    )
+
+
+def _rsi_confirms(
+    trade_type: str, rsi_value: float | None, adx_value: float | None = None
+) -> tuple[bool, str | None, str | None]:
     """(ok, category, detail) -- ok unless gold's RSI(14) is already past the threshold this trade
     would be chasing further: a Sell wants RSI not already oversold (<= RSI_OVERSOLD_THRESHOLD), a Buy
     wants RSI not already overbought (>= RSI_OVERBOUGHT_THRESHOLD). See module docstring's "RSI
@@ -150,8 +177,12 @@ def _rsi_confirms(trade_type: str, rsi_value: float | None) -> tuple[bool, str |
     breakout rules. `category` is a fixed string with no live number (safe as the blocked-entry dedup
     key -- see _notify_blocked()); `detail` carries the actual reading, for the Telegram text only.
     `rsi_value` is the caller's single RSI(14) computation for this poll -- None if it couldn't be
-    computed, which fails this open (ok=True)."""
+    computed, which fails this open (ok=True). In a strong trend (ADX >= ADX_TRENDING_THRESHOLD) RSI
+    can stay stretched for a long time and an extreme reading is continuation, not exhaustion, so the
+    block is waived; an unknown ADX keeps the RSI block on."""
     if rsi_value is None:
+        return True, None, None
+    if adx_value is not None and adx_value >= ADX_TRENDING_THRESHOLD:
         return True, None, None
     if trade_type == "Sell":
         if rsi_value <= RSI_OVERSOLD_THRESHOLD:
@@ -436,19 +467,17 @@ def check_broker_trades(prices: dict[str, float]) -> None:
             )
             trade_type = None
         if trade_type is not None:
-            try:
-                rsi_value = compute_rsi(fetch_gold_candles()["close"], period=RSI_PERIOD).dropna().iloc[-1]
-            except Exception:
-                rsi_value = None
+            rsi_value, adx_value = fetch_gold_rsi_adx(RSI_PERIOD, ADX_PERIOD)
             try:
                 dxy_readings = get_recent_readings("dxy", DXY_CONFIRM_WINDOW_MINUTES)
             except Exception:
                 dxy_readings = None
 
-            rsi_ok, rsi_category, rsi_detail = _rsi_confirms(trade_type, rsi_value)
+            rsi_ok, rsi_category, rsi_detail = _rsi_confirms(trade_type, rsi_value, adx_value)
             dxy_ok, dxy_category, dxy_detail = _dxy_confirms(trade_type, dxy_readings)
+            adx_ok, adx_category, adx_detail = _adx_confirms(adx_value)
 
-            if rsi_ok and dxy_ok:
+            if rsi_ok and dxy_ok and adx_ok:
                 triggering_text = _triggering_text(alerts, trade_type)
                 flagging = _triggering_names(alerts, trade_type)
                 context = build_entry_context(
@@ -461,6 +490,6 @@ def check_broker_trades(prices: dict[str, float]) -> None:
                 triggering_names = _triggering_names(alerts, trade_type)
                 send_telegram_message(_open_message(trade_type, rule_name, gold_price, triggering_names, now))
             else:
-                dedup_reasons = "; ".join(r for r in (rsi_category, dxy_category) if r)
-                message_reasons = "; ".join(r for r in (rsi_detail, dxy_detail) if r)
+                dedup_reasons = "; ".join(r for r in (rsi_category, dxy_category, adx_category) if r)
+                message_reasons = "; ".join(r for r in (rsi_detail, dxy_detail, adx_detail) if r)
                 _notify_blocked(rule_name, gold_price, dedup_reasons, message_reasons, since_ts, signal_ts)

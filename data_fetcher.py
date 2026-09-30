@@ -179,3 +179,22 @@ def compute_adx(df: pd.DataFrame, period: int = 14) -> pd.Series:
     minus_di = 100 * minus_dm.ewm(alpha=alpha, min_periods=period, adjust=False).mean() / atr
     dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di)
     return dx.ewm(alpha=alpha, min_periods=period, adjust=False).mean()
+
+
+def fetch_gold_rsi_adx(rsi_period: int = 14, adx_period: int = 14) -> tuple[float | None, float | None]:
+    """(RSI, ADX) of gold spot's latest 15-min candle from one candle fetch, so a broker gating on both
+    pays for a single Twelve Data call. Each is None if it couldn't be computed (fetch failure, too few
+    candles) -- callers fail open on None."""
+    try:
+        candles = fetch_gold_candles()
+    except Exception:
+        return None, None
+    try:
+        rsi = float(compute_rsi(candles["close"], period=rsi_period).dropna().iloc[-1])
+    except Exception:
+        rsi = None
+    try:
+        adx = float(compute_adx(candles, period=adx_period).dropna().iloc[-1])
+    except Exception:
+        adx = None
+    return rsi, adx

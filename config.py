@@ -158,3 +158,10 @@ SMA_LONG = 50
 RSI_PERIOD = 14
 RSI_OVERBOUGHT_THRESHOLD = 70
 RSI_OVERSOLD_THRESHOLD = 30
+
+# ADX(14) on gold spot's 15-min candles (same series as RSI). Gates Broker A/B entries -- see
+# broker._adx_confirms() / broker_b._adx_confirms(). Textbook cutoffs, not yet calibrated on our own
+# trades (entry_context logs adx14 on every trade so they can be).
+ADX_PERIOD = 14
+ADX_TRENDING_THRESHOLD = 25  # at/above: a real trend -- fades are blocked, RSI exhaustion blocks are waived
+ADX_CHOP_THRESHOLD = 20  # below: no trend -- breakouts and Broker A's momentum consensus are blocked
