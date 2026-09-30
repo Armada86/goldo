@@ -170,6 +170,12 @@ ENTRY_CANDLE_LOOKBACK_MINUTES = 20
 # price still above the level).
 MAX_TRADES_PER_LEVEL = 3
 
+# A touch is only filled if the poll noticing it is at most this old (poll interval + slack for a slow
+# run) -- a touch older than that was missed or blocked on an earlier poll, and filling it now means a
+# stale price at a stale timestamp. Observed live 30 Sep 2026: TA-Breakout-buy filled at 9:04 ET a
+# touch stamped 8:44 (see the blocked-touch consumption note in check_broker_b_trades()).
+ENTRY_MAX_TOUCH_AGE_MINUTES = 7
+
 # Prefix for every Broker B open/close Telegram message -- a deep-blue square, the same blue family
 # as Broker A's circle (broker.TRADE_ALERT_PREFIX) but a different shape so the two are easy to tell
 # apart in the chat at a glance. (There's no darker-blue circle emoji.) Broker B uses squares only:
@@ -600,6 +606,26 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
     touches.sort(key=lambda t: t[0])
     selected = None
     for trigger_ts, trigger_price, trade_type, rule_name, scenario_name in touches:
+        # A touch that is blocked (filter) or too old is consumed *together with every newer bar this
+        # poll already saw*, not just itself: a level chopping around its trigger produces a touch
+        # nearly every minute, and consuming only the first one left a backlog that later polls worked
+        # through one per poll -- the first poll where the filters cleared then filled a touch ~20
+        # minutes old (observed live 30 Sep 2026: stamped 8:44, filled 9:04). The level needs a fresh
+        # touch after this poll's newest bar to trade again.
+        seen_bars = bars_by_side[_entry_side(trade_type)]
+        consumed_through = seen_bars["datetime"].max().to_pydatetime() if len(seen_bars) else trigger_ts
+        age_minutes = (now - trigger_ts).total_seconds() / 60
+        if age_minutes > ENTRY_MAX_TOUCH_AGE_MINUTES:
+            _notify_blocked(
+                forecast,
+                rule_name,
+                trigger_price,
+                f"touch older than {ENTRY_MAX_TOUCH_AGE_MINUTES} min when noticed (never filled retroactively)",
+                f"touched {age_minutes:.0f} min ago (over {ENTRY_MAX_TOUCH_AGE_MINUTES}); "
+                f"not filled retroactively",
+                touch_ts=consumed_through,
+            )
+            continue
         dxy_ok, dxy_category, dxy_detail = _dxy_confirms(trade_type, dxy_readings)
         rsi_ok, rsi_category, rsi_detail = _rsi_confirms(scenario_name, rsi_value, adx_value)
         adx_ok, adx_category, adx_detail = _adx_confirms(scenario_name, adx_value)
@@ -608,7 +634,9 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
             break
         dedup_reasons = "; ".join(r for r in (dxy_category, rsi_category, adx_category) if r)
         message_reasons = "; ".join(r for r in (dxy_detail, rsi_detail, adx_detail) if r)
-        _notify_blocked(forecast, rule_name, trigger_price, dedup_reasons, message_reasons, touch_ts=trigger_ts)
+        _notify_blocked(
+            forecast, rule_name, trigger_price, dedup_reasons, message_reasons, touch_ts=consumed_through
+        )
     if selected is None:
         return
     trigger_ts, trigger_price, trade_type, rule_name, scenario_name = selected

@@ -361,6 +361,15 @@ touch. Before this, the 20-minute candle lookback re-found the same touch on the
 the filter cleared, at the stale trigger price and time -- observed live 29 Sep 2026: `TA-Breakout-buy`'s 16:40
 ET touch was blocked at 16:46 (RSI 70.9), then opened at 16:51 stamped 16:40.
 
+**Blocked touches are consumed in full, and stale touches are never filled (fixed 30 Sep 2026, second pass)**: the fix above
+consumed only the *first* touch a blocked poll found. A level chopping around its trigger touches nearly every minute, so
+that left a backlog that later polls worked through one per poll, and the first poll where the filters cleared filled a
+touch ~20 minutes old -- observed live: `TA-Breakout-buy` (level $4,212.03) blocked at 8:36-9:01 ET by RSI/ADX, then opened
+at 9:04 stamped 8:44. Now (1) any block or too-old touch consumes every bar that poll already saw
+(`consumed_through` in `check_broker_b_trades()`, stored as `broker_b_blocked.touch_ts`), so only a genuinely new touch can
+trade; and (2) a touch older than `broker_b.ENTRY_MAX_TOUCH_AGE_MINUTES` (7) when noticed is never filled -- it sends a
+one-time ⛔ notice ("touched N min ago ... not filled retroactively") and is consumed the same way.
+
 **Three entry filters (added 25 Sep 2026, gate fresh entries only — never exits)**, after a live double
 loss (`TA-Zone-sell` sold $4,283.21 resistance at 9:01pm ET while DXY was already sliding — a real
 tailwind, not a fakeout — so price ran through the zone to $4,295.53, stopping that short out, and the
