@@ -141,6 +141,8 @@ same cycle — all 7 of 7 indicators flagged off that single spike, DXY only bar
 10-min threshold and had stalled within minutes; price mean-reverted straight through the old $10 stop by
 14:47):
 
+0. **ADX (added 1 Oct 2026):** `broker._adx_confirms()` blocks an entry when ADX(14) < 20 (`config.ADX_CHOP_THRESHOLD`);
+   `_rsi_confirms()` below is waived when ADX >= 25 (`ADX_TRENDING_THRESHOLD`). Blocks send a deduplicated Telegram notice.
 1. **RSI exhaustion** (`broker._rsi_confirms()`) — a Sell is skipped if gold's RSI(14) is already
    `<= RSI_OVERSOLD_THRESHOLD` (30), a Buy skipped if already `>= RSI_OVERBOUGHT_THRESHOLD` (70). Same
    computation `rules.check_rsi_alerts()`/`broker_b._rsi_confirms()` already use — don't chase a move
@@ -279,6 +281,9 @@ exits, which are never gated — an open Broker B trade is always managed to its
    `check_intrahour_swing_alerts` uses — not a new arbitrary threshold) over the trailing 15 minutes; a
    Sell is skipped if DXY has *fallen* by that much. Gold and DXY move inversely, so this is exactly
    the check that would have stopped the incident's short: DXY was already easing before it fired.
+4. **ADX regime switch, all four rules (added 1 Oct 2026):** `broker_b._adx_confirms()` skips the fade rules
+   (`TA-Zone-*`) when ADX(14) >= 25 and the breakout rules (`TA-Breakout-*`) when ADX < 20; the RSI gate in
+   item 3 is waived when ADX >= 25. Blocks send the normal deduplicated Telegram notice.
 3. **RSI exhaustion, breakout rules only.** `TA-Breakout-buy` is skipped if gold's RSI(14) (same
    computation as `rules.check_rsi_alerts()`) is already at or above `RSI_OVERBOUGHT_THRESHOLD` (70) —
    don't chase a rally that's already stretched. `TA-Breakout-sell` is skipped, mirrored, if RSI is

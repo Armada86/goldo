@@ -72,14 +72,21 @@ the round-trip back down, all inside the 9-11pm ET window, the market's thinnest
    Gold and DXY move inversely, so this blocks a fade into a real, live macro headwind/tailwind --
    exactly what let the incident's short get run over (DXY was already easing before that Sell fired).
 3. **RSI exhaustion, breakout rules only** (`_rsi_confirms()`): `TA-Breakout-buy` is skipped if gold's
-   RSI(14) (`data_fetcher.fetch_gold_candles()`/`compute_rsi()`, `config.RSI_PERIOD`, the same 15-min-candle
+   RSI(14) (`data_fetcher.fetch_gold_rsi_adx()`, `config.RSI_PERIOD`, the same 15-min-candle
    computation `rules.check_rsi_alerts()` uses) is already >= `RSI_OVERBOUGHT_THRESHOLD` (70) --
    don't chase a rally that's already stretched. `TA-Breakout-sell` is skipped, mirrored, if RSI is
    already <= `RSI_OVERSOLD_THRESHOLD` (30). Left off the two fade rules (`TA-Zone-sell`/`TA-Zone-buy`):
    an extended RSI at the level being faded is not obviously wrong for a fade the way it is for a
    breakout being chased.
 
-All three fail open (no block) on a DB/API hiccup or missing data, the same convention as Broker A's
+4. **ADX regime switch, all four rules** (`_adx_confirms()`, 1 Oct 2026): ADX(14) on the same 15-min
+   candles as RSI (`data_fetcher.fetch_gold_rsi_adx()`; `config.ADX_TRENDING_THRESHOLD` 25 /
+   `ADX_CHOP_THRESHOLD` 20). The two fade rules are skipped when ADX >= 25 (fading a level in a real
+   trend gets run over); the two breakout rules are skipped when ADX < 20 (no trend to follow through).
+   Also, the RSI exhaustion gate above is waived when ADX >= 25 (extreme RSI in a strong trend is
+   continuation). Blocks send the normal deduplicated Telegram notice.
+
+All filters fail open (no block) on a DB/API hiccup or missing data, the same convention as Broker A's
 filters -- a data problem should degrade Broker B toward its old
 unfiltered behavior, never toward refusing to trade at all. Applied per-candidate touch, earliest
 first: if the earliest touch fails a gate, the next-earliest touch (a different rule) is tried instead
@@ -118,12 +125,15 @@ from broker import (
     _within_entry_window,
 )
 from config import (
+    ADX_CHOP_THRESHOLD,
+    ADX_PERIOD,
+    ADX_TRENDING_THRESHOLD,
     INTRAHOUR_SWING_ALERT_THRESHOLD,
     RSI_OVERBOUGHT_THRESHOLD,
     RSI_OVERSOLD_THRESHOLD,
     RSI_PERIOD,
 )
-from data_fetcher import compute_rsi, fetch_gold_candles
+from data_fetcher import fetch_gold_rsi_adx
 from entry_context import build_entry_context, level_distances
 from price_bars import fetch_gold_bars
 from notifier import send_telegram_message
@@ -281,14 +291,44 @@ def _dxy_confirms(trade_type: str, readings: list) -> tuple[bool, str | None, st
     return True, None, None
 
 
-def _rsi_confirms(scenario_name: str, rsi_value: float | None) -> tuple[bool, str | None, str | None]:
+def _adx_confirms(scenario_name: str, adx_value: float | None) -> tuple[bool, str | None, str | None]:
+    """(ok, category, detail) -- ADX(14) as a regime switch: the two fade rules bet on a level holding,
+    so they're blocked in a real trend (ADX >= ADX_TRENDING_THRESHOLD); the two breakout rules bet on
+    a level breaking with follow-through, so they're blocked when there's no trend (ADX <
+    ADX_CHOP_THRESHOLD). `category` has no live number (dedup key, see _dxy_confirms()); `detail`
+    carries the reading for the Telegram text only. None (couldn't compute) fails open."""
+    if adx_value is None:
+        return True, None, None
+    if scenario_name in ("bull_breakout", "bear_breakdown"):
+        if adx_value >= ADX_CHOP_THRESHOLD:
+            return True, None, None
+        return (
+            False,
+            f"ADX({ADX_PERIOD}) shows no trend for a breakout (threshold < {ADX_CHOP_THRESHOLD})",
+            f"ADX({ADX_PERIOD}) shows no trend for a breakout: {adx_value:.1f} (< {ADX_CHOP_THRESHOLD})",
+        )
+    if adx_value < ADX_TRENDING_THRESHOLD:
+        return True, None, None
+    return (
+        False,
+        f"ADX({ADX_PERIOD}) shows a strong trend against a fade (threshold >= {ADX_TRENDING_THRESHOLD})",
+        f"ADX({ADX_PERIOD}) shows a strong trend against a fade: {adx_value:.1f} (>= {ADX_TRENDING_THRESHOLD})",
+    )
+
+
+def _rsi_confirms(
+    scenario_name: str, rsi_value: float | None, adx_value: float | None = None
+) -> tuple[bool, str | None, str | None]:
     """(ok, category, detail) -- ok unless a breakout scenario would chase gold's RSI(14) already
     past the overbought/oversold threshold, see module docstring's "RSI exhaustion" entry; both set
     only when ok is False. `category` has no live number (dedup key, see _dxy_confirms()'s docstring
     for why); `detail` carries the actual reading, for the Telegram text only. Only gates the two
     breakout rules; the two fade rules always pass. `rsi_value` is the caller's single shared RSI(14)
     computation (see check_broker_b_trades) -- None if it couldn't be computed this poll, which fails
-    this open (ok=True)."""
+    this open (ok=True). The block is waived in a strong trend (ADX >= ADX_TRENDING_THRESHOLD), where
+    an extreme RSI is continuation rather than exhaustion; an unknown ADX keeps it on."""
+    if adx_value is not None and adx_value >= ADX_TRENDING_THRESHOLD:
+        return True, None, None
     if scenario_name == "bull_breakout":
         threshold, over = RSI_OVERBOUGHT_THRESHOLD, True
     elif scenario_name == "bear_breakdown":
@@ -551,12 +591,8 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
         dxy_readings = get_recent_readings("dxy", DXY_CONFIRM_WINDOW_MINUTES)
     except Exception:
         dxy_readings = None
-    rsi_value = None
-    if any(t[4] in ("bull_breakout", "bear_breakdown") for t in touches):
-        try:
-            rsi_value = compute_rsi(fetch_gold_candles()["close"], period=RSI_PERIOD).dropna().iloc[-1]
-        except Exception:
-            rsi_value = None
+    # One candle fetch supplies both RSI (breakout rules) and ADX (all four rules).
+    rsi_value, adx_value = fetch_gold_rsi_adx(RSI_PERIOD, ADX_PERIOD)
 
     # Earliest touch first; a touch that fails a confirmation gate gets a blocked-entry notice and is
     # skipped in favor of the next-earliest one (a different rule) rather than giving up the whole
@@ -565,12 +601,13 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
     selected = None
     for trigger_ts, trigger_price, trade_type, rule_name, scenario_name in touches:
         dxy_ok, dxy_category, dxy_detail = _dxy_confirms(trade_type, dxy_readings)
-        rsi_ok, rsi_category, rsi_detail = _rsi_confirms(scenario_name, rsi_value)
-        if dxy_ok and rsi_ok:
+        rsi_ok, rsi_category, rsi_detail = _rsi_confirms(scenario_name, rsi_value, adx_value)
+        adx_ok, adx_category, adx_detail = _adx_confirms(scenario_name, adx_value)
+        if dxy_ok and rsi_ok and adx_ok:
             selected = (trigger_ts, trigger_price, trade_type, rule_name, scenario_name)
             break
-        dedup_reasons = "; ".join(r for r in (dxy_category, rsi_category) if r)
-        message_reasons = "; ".join(r for r in (dxy_detail, rsi_detail) if r)
+        dedup_reasons = "; ".join(r for r in (dxy_category, rsi_category, adx_category) if r)
+        message_reasons = "; ".join(r for r in (dxy_detail, rsi_detail, adx_detail) if r)
         _notify_blocked(forecast, rule_name, trigger_price, dedup_reasons, message_reasons, touch_ts=trigger_ts)
     if selected is None:
         return
