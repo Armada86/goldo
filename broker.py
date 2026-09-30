@@ -7,8 +7,8 @@ The two must be kept in sync by hand when the rules change (same convention as `
 See broker_b.py for Broker B -- a completely independent second engine (own table, own Telegram
 identity) trading the TA forecast's four price levels instead of this module's alert-consensus signal,
 sharing this module's exit logic (_pnl/_exit_levels/_scan_exit_crossing/_find_exit) but deliberately
-NOT the TA-forecast bias gate below (_bias_allows()) -- that gate is Broker A-only; Broker B trades
-whichever level price reaches regardless of the forecast's overall directional read.
+NOT any TA-forecast bias gate -- neither engine applies one (Broker A's was removed 30 Sep 2026); Broker B
+trades whichever level price reaches regardless of the forecast's overall directional read.
 
 Every trade lives only in the `trades` table in Postgres (see storage.py) -- there is deliberately no
 markdown/doc mirror to keep in sync, so a trade never requires a repo commit.
@@ -43,7 +43,7 @@ its own calibrated 15-min companion-swing threshold (`config.INTRAHOUR_SWING_ALE
 in the trade's favor, regardless of which window(s) actually flagged. Unlike broker_b's same-named
 function (which only blocks a *clear opposing* move), this one requires genuine *confirmation* -- a
 stricter bar, since DXY here is just one of seven alert sources rather than the dedicated signal Broker
-B fades. Both fail open (no block) on missing/insufficient data, same convention as `_bias_allows()`.
+B fades. Both fail open (no block) on missing/insufficient data, same fail-open convention as the rest of this module's filters.
 A blocked signal sends a deduplicated Telegram notice (`_notify_blocked()`,
 `storage.record_broker_a_blocked_if_new()`) rather than failing silently, same idea as Broker B's own
 blocked-entry notice -- deduplicated by `(rule_name, reasons, since_ts)` where `since_ts` is this
@@ -68,7 +68,6 @@ from storage import (
     close_trade_row,
     get_last_blocked_signal_ts_a,
     get_last_trade_open_ts,
-    get_latest_ta_forecast,
     get_open_trade,
     get_recent_alerts,
     get_recent_readings,
@@ -142,42 +141,6 @@ INVERSE_DIRECTION_NAMES = ["dxy"]
 MIN_FLAGGING_COUNT = 5
 
 
-def _latest_bias_score() -> float:
-    """Latest ta_forecasts row's overall directional bias score (positive = bullish-leaning,
-    negative = bearish-leaning, 0/no forecast yet = neutral). Broker A-only gate (see
-    _bias_allows() below) -- Broker B (broker_b.py) does not apply it. Fails open (0, i.e. no
-    restriction) on a DB hiccup or before the first forecast run ever completes, so a problem
-    reading ta_forecasts never blocks Broker A from trading entirely."""
-    try:
-        forecast = get_latest_ta_forecast()
-    except Exception:
-        return 0.0
-    if forecast is None or not forecast.get("levels"):
-        return 0.0
-    return forecast["levels"].get("bias_score", 0.0)
-
-
-def _bias_allows(trade_type: str, bias_score: float) -> bool:
-    """Broker A's TA bias gate: a Sell only opens when the latest forecast's bias isn't bullish
-    (score <= 0), a Buy only when it isn't bearish (score >= 0) -- score 0 (Neutral) allows either.
-    Broker A-only -- Broker B deliberately does not call this. See .claude/agents/broker.md's "TA
-    bias gate" section."""
-    if trade_type == "Sell":
-        return bias_score <= 0
-    return bias_score >= 0
-
-
-def _bias_block_reason(trade_type: str, bias_score: float) -> tuple[str, str]:
-    """(category, detail) for a signal _bias_allows() rejected. `category` is a fixed string with no live
-    number (the blocked-entry dedup key, see _notify_blocked()); `detail` carries the actual score, for
-    the Telegram text only."""
-    leaning = "bearish" if bias_score < 0 else "bullish"
-    return (
-        f"TA forecast bias is {leaning}, against the {trade_type}",
-        f"latest TA forecast bias is {leaning} (score {bias_score:+g}/6), against the {trade_type}",
-    )
-
-
 def _rsi_confirms(trade_type: str, rsi_value: float | None) -> tuple[bool, str | None, str | None]:
     """(ok, category, detail) -- ok unless gold's RSI(14) is already past the threshold this trade
     would be chasing further: a Sell wants RSI not already oversold (<= RSI_OVERSOLD_THRESHOLD), a Buy
@@ -215,7 +178,7 @@ def _dxy_confirms(trade_type: str, readings: list) -> tuple[bool, str | None, st
     flag on any of their own windows, so DXY might not have flagged at all, or only on a thin 5-min
     blip. `category`/`detail` follow _rsi_confirms()'s convention. `readings` is the caller's single
     get_recent_readings("dxy", DXY_CONFIRM_WINDOW_MINUTES) fetch. Fails open (ok=True) on
-    missing/insufficient data, same convention as _latest_bias_score()."""
+    missing/insufficient data, same fail-open convention as the other filters."""
     if not readings or len(readings) < 2:
         return True, None, None
     try:
@@ -421,10 +384,9 @@ def check_broker_trades(prices: dict[str, float]) -> None:
     Consensus5of7-buy/-sell entry signal -- at least MIN_FLAGGING_COUNT (5) of the seven
     intrahour-swing indicators, in the required directions, landing in the alerts table within the
     trailing ENTRY_WINDOW_MINUTES (10) minutes -- gated by the trading-hours
-    window (_within_entry_window(), 7am-5pm ET weekdays, same as Broker B) and by _bias_allows(): a
-    signal against the latest TA forecast's overall bias (e.g. a Buy while the forecast reads bearish)
-    is not opened. Either of those blocks sends a deduplicated Telegram notice, like the two below. A
-    signal that passes them still needs RSI not already exhausted
+    window (_within_entry_window(), 7am-5pm ET weekdays, same as Broker B), which sends a deduplicated
+    Telegram notice when it blocks (there is no TA-bias gate anymore -- removed 30 Sep 2026). A
+    signal inside the window still needs RSI not already exhausted
     (_rsi_confirms()) and DXY's own 15-min move to genuinely confirm it (_dxy_confirms()) -- see
     module docstring's entry-filter entry; a signal either of these blocks sends a deduplicated
     Telegram notice instead of opening (_notify_blocked()). See .claude/agents/broker.md for the
@@ -472,12 +434,6 @@ def check_broker_trades(prices: dict[str, float]) -> None:
                 signal_ts,
             )
             trade_type = None
-        if trade_type is not None:
-            bias_score = _latest_bias_score()
-            if not _bias_allows(trade_type, bias_score):
-                bias_category, bias_detail = _bias_block_reason(trade_type, bias_score)
-                _notify_blocked(rule_name, gold_price, bias_category, bias_detail, since_ts, signal_ts)
-                trade_type = None
         if trade_type is not None:
             try:
                 rsi_value = compute_rsi(fetch_gold_candles()["close"], period=RSI_PERIOD).dropna().iloc[-1]

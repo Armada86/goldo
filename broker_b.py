@@ -7,7 +7,7 @@ Entirely separate from Broker A: its own `broker_b_trades` table, its own open-t
 Telegram identity (blue square vs. Broker A's blue circle). They share one thing, deliberately, so the
 two can't drift apart the way forex_broker.py already shares Broker A's exit logic: the exit mechanics
 (broker._pnl()/_exit_levels()/_scan_exit_crossing()/_find_exit(), imported directly). Unlike Broker A,
-Broker B does **not** apply the TA-forecast bias gate (broker._bias_allows()) -- it trades whichever of
+Broker B does **not** apply a TA-forecast bias gate (Broker A's, `broker._bias_allows()`, was removed 30 Sep 2026) -- it trades whichever of
 the forecast's four levels price actually reaches, buy or sell, regardless of the forecast's overall
 directional read. That gate is Broker A-only.
 
@@ -79,8 +79,8 @@ the round-trip back down, all inside the 9-11pm ET window, the market's thinnest
    an extended RSI at the level being faded is not obviously wrong for a fade the way it is for a
    breakout being chased.
 
-All three fail open (no block) on a DB/API hiccup or missing data, same convention as Broker A's own
-`_bias_allows()`/`_latest_bias_score()` -- a data problem should degrade Broker B toward its old
+All three fail open (no block) on a DB/API hiccup or missing data, the same convention as Broker A's
+filters -- a data problem should degrade Broker B toward its old
 unfiltered behavior, never toward refusing to trade at all. Applied per-candidate touch, earliest
 first: if the earliest touch fails a gate, the next-earliest touch (a different rule) is tried instead
 of giving up the whole poll.
@@ -251,7 +251,7 @@ def _dxy_confirms(trade_type: str, readings: list) -> tuple[bool, str | None, st
     the Telegram text only. `readings` is the caller's single shared get_recent_readings("dxy",
     DXY_CONFIRM_WINDOW_MINUTES) fetch (a poll may check several touches; fetching once and passing it
     in avoids repeating that DB read per touch). Fails open (ok=True) on missing/insufficient data,
-    same convention as broker._latest_bias_score()."""
+    the same fail-open convention as the other filters."""
     if not readings or len(readings) < 2:
         return True, None, None
     try:
