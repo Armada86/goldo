@@ -152,3 +152,30 @@ def compute_rsi(close: pd.Series, period: int = 14) -> pd.Series:
     avg_loss = loss.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
     rs = avg_gain / avg_loss
     return 100 - (100 / (1 + rs))
+
+
+def _true_range(df: pd.DataFrame) -> pd.Series:
+    prev_close = df["close"].shift(1)
+    return pd.concat(
+        [df["high"] - df["low"], (df["high"] - prev_close).abs(), (df["low"] - prev_close).abs()],
+        axis=1,
+    ).max(axis=1)
+
+
+def compute_atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
+    """Wilder's Average True Range, in price units (dollars for gold). `df` needs high/low/close."""
+    return _true_range(df).ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+
+
+def compute_adx(df: pd.DataFrame, period: int = 14) -> pd.Series:
+    """Wilder's ADX (trend strength, 0-100, direction-blind). `df` needs high/low/close."""
+    up = df["high"].diff()
+    down = -df["low"].diff()
+    plus_dm = up.where((up > down) & (up > 0), 0.0)
+    minus_dm = down.where((down > up) & (down > 0), 0.0)
+    alpha = 1 / period
+    atr = _true_range(df).ewm(alpha=alpha, min_periods=period, adjust=False).mean()
+    plus_di = 100 * plus_dm.ewm(alpha=alpha, min_periods=period, adjust=False).mean() / atr
+    minus_di = 100 * minus_dm.ewm(alpha=alpha, min_periods=period, adjust=False).mean() / atr
+    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di)
+    return dx.ewm(alpha=alpha, min_periods=period, adjust=False).mean()

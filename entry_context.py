@@ -8,7 +8,9 @@ no longer be reachable. So each trade now carries an `entry_context` JSONB (`tra
 changes, or delays a trade, and every piece is best-effort -- a failure to fetch one field just leaves it
 out (or null), never raises into the trading path.
 
-Fields (all optional): hour_et, weekday, rsi14, dxy_change_15m, dxy_threshold_15m, bias_score, bias,
+Fields (all optional): hour_et, weekday, rsi14, adx14, atr14 (ADX/ATR on the same 15-min candles as RSI,
+logged first so their thresholds can be judged against real trade outcomes before anything gates on them),
+dxy_change_15m, dxy_threshold_15m, bias_score, bias,
 forecast_id, session, spread (ask - bid close), range_15m_bid / range_15m_ask (last 15 one-minute bars),
 plus whatever the calling broker adds via `extra` (Broker A: the flagging indicators; Broker B: scenario,
 trigger price, minutes between the touch and the poll that acted on it, distance to the next resistance /
@@ -68,6 +70,15 @@ def build_entry_context(
             ctx["rsi14"] = _num(rsi_value, 2)
     except Exception as e:
         log.info("entry_context: RSI unavailable (%s)", e)
+
+    try:
+        from data_fetcher import compute_adx, compute_atr, fetch_gold_candles
+
+        candles = fetch_gold_candles()  # 15-min, same series RSI uses
+        ctx["adx14"] = _num(compute_adx(candles, period=RSI_PERIOD).dropna().iloc[-1], 2)
+        ctx["atr14"] = _num(compute_atr(candles, period=RSI_PERIOD).dropna().iloc[-1], 2)
+    except Exception as e:
+        log.info("entry_context: ADX/ATR unavailable (%s)", e)
 
     try:
         if dxy_readings is _UNSET:
