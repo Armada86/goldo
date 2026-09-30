@@ -76,6 +76,7 @@ from data_fetcher import fetch_gold_rsi_adx
 from entry_context import build_entry_context
 from price_bars import fetch_gold_bars
 from notifier import send_telegram_message
+from trading_control import trading_pause_reason
 from storage import (
     close_trade_row,
     get_last_blocked_signal_ts_a,
@@ -429,6 +430,15 @@ def check_broker_trades(prices: dict[str, float]) -> None:
 
     now = datetime.now(timezone.utc)
     open_trade = get_open_trade()
+
+    # Telegram "stop trading" / scheduled pause (trading_control.py): close anything open at market
+    # and open nothing.
+    if trading_pause_reason(now) is not None:
+        if open_trade is not None:
+            pnl = _pnl(open_trade, gold_price)
+            close_trade_row(open_trade["id"], gold_price, now, pnl)
+            send_telegram_message(_close_message(open_trade, gold_price, now, pnl))
+        return
 
     if open_trade is not None:
         exit_result = _find_exit(open_trade, gold_price, now)

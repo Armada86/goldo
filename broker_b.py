@@ -122,8 +122,10 @@ from broker import (
     _find_exit,
     _format_ts,
     _result_marker,
+    _pnl,
     _within_entry_window,
 )
+from trading_control import trading_pause_reason
 from config import (
     ADX_CHOP_THRESHOLD,
     ADX_PERIOD,
@@ -499,6 +501,15 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
 
     now = datetime.now(timezone.utc)
     open_trade = get_open_trade_b()
+
+    # Telegram "stop trading" / scheduled pause (trading_control.py): close anything open at market
+    # and open nothing.
+    if trading_pause_reason(now) is not None:
+        if open_trade is not None:
+            pnl = _pnl(open_trade, gold_price)
+            close_trade_row_b(open_trade["id"], gold_price, now, pnl)
+            send_telegram_message(_close_message(open_trade, gold_price, now, pnl))
+        return
 
     if open_trade is not None:
         exit_result = _find_exit(open_trade, gold_price, now)

@@ -125,6 +125,26 @@ def init_db() -> None:
         # signal_ts: the newest alert behind the blocked signal (30 Sep 2026) -- see
         # get_last_blocked_signal_ts_a(). Added after the table already existed, hence the ALTER.
         cur.execute("ALTER TABLE broker_a_blocked ADD COLUMN IF NOT EXISTS signal_ts TIMESTAMPTZ")
+        # Manual trading control from Telegram (see trading_control.py). The Worker creates these too.
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS trading_override (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                mode TEXT NOT NULL,
+                set_ts TIMESTAMPTZ NOT NULL
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS trading_pauses (
+                id SERIAL PRIMARY KEY,
+                start_ts TIMESTAMPTZ NOT NULL,
+                end_ts TIMESTAMPTZ NOT NULL,
+                created_ts TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        )
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS threshold_history (
@@ -990,6 +1010,31 @@ def get_last_blocked_signal_ts_a() -> datetime | None:
         cur.execute("SELECT MAX(signal_ts) FROM broker_a_blocked")
         row = cur.fetchone()
     return row[0] if row else None
+
+
+def get_trading_override() -> tuple[str | None, datetime | None]:
+    """(mode, set_ts) of the Telegram "stop trading"/"start trading" override, or (None, None). Returns
+    (None, None) if the table doesn't exist yet (the Worker creates it on first command)."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('trading_override')")
+        if cur.fetchone()[0] is None:
+            return None, None
+        cur.execute("SELECT mode, set_ts FROM trading_override WHERE id = 1")
+        row = cur.fetchone()
+    return (row[0], row[1]) if row else (None, None)
+
+
+def get_active_trading_pauses(now: datetime) -> list[tuple[datetime, datetime]]:
+    """(start_ts, end_ts) of every scheduled Telegram pause covering `now`."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('trading_pauses')")
+        if cur.fetchone()[0] is None:
+            return []
+        cur.execute(
+            "SELECT start_ts, end_ts FROM trading_pauses WHERE start_ts <= %s AND end_ts > %s",
+            (now, now),
+        )
+        return [(r[0], r[1]) for r in cur.fetchall()]
 
 
 def get_broker_a_blocked() -> list[dict]:
