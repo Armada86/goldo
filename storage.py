@@ -105,6 +105,10 @@ def init_db() -> None:
         # touch_ts: when the blocked touch actually happened (30 Sep 2026) -- see
         # get_last_blocked_touch_ts_b(). Added after the table already existed, hence the ALTER.
         cur.execute("ALTER TABLE broker_b_blocked ADD COLUMN IF NOT EXISTS touch_ts TIMESTAMPTZ")
+        # entry_context: descriptive snapshot of the conditions at entry (30 Sep 2026) -- see
+        # entry_context.py. Nullable; older rows and Telegram-opened trades simply have none.
+        cur.execute("ALTER TABLE trades ADD COLUMN IF NOT EXISTS entry_context JSONB")
+        cur.execute("ALTER TABLE broker_b_trades ADD COLUMN IF NOT EXISTS entry_context JSONB")
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS broker_a_blocked (
@@ -334,13 +338,19 @@ def get_all_trades() -> list[dict]:
 
 
 def insert_trade(
-    rule_name: str, trade_type: str, entry_price: float, open_ts: datetime, triggering_alerts: str
+    rule_name: str,
+    trade_type: str,
+    entry_price: float,
+    open_ts: datetime,
+    triggering_alerts: str,
+    entry_context: dict | None = None,
 ) -> None:
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO trades (rule_name, trade_type, entry_price, open_ts, triggering_alerts, status) "
-            "VALUES (%s, %s, %s, %s, %s, 'Open')",
-            (rule_name, trade_type, entry_price, open_ts, triggering_alerts),
+            "INSERT INTO trades (rule_name, trade_type, entry_price, open_ts, triggering_alerts, status, "
+            "entry_context) VALUES (%s, %s, %s, %s, %s, 'Open', %s)",
+            (rule_name, trade_type, entry_price, open_ts, triggering_alerts,
+             Json(entry_context) if entry_context else None),
         )
 
 
@@ -828,13 +838,15 @@ def insert_trade_b(
     open_ts: datetime,
     triggering_alerts: str,
     ta_forecast_id: int,
+    entry_context: dict | None = None,
 ) -> None:
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
             "INSERT INTO broker_b_trades "
-            "(rule_name, trade_type, entry_price, open_ts, triggering_alerts, ta_forecast_id, status) "
-            "VALUES (%s, %s, %s, %s, %s, %s, 'Open')",
-            (rule_name, trade_type, entry_price, open_ts, triggering_alerts, ta_forecast_id),
+            "(rule_name, trade_type, entry_price, open_ts, triggering_alerts, ta_forecast_id, status, "
+            "entry_context) VALUES (%s, %s, %s, %s, %s, %s, 'Open', %s)",
+            (rule_name, trade_type, entry_price, open_ts, triggering_alerts, ta_forecast_id,
+             Json(entry_context) if entry_context else None),
         )
 
 

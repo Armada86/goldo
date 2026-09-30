@@ -250,12 +250,8 @@ all 7); US10Y is deliberately excluded from this indicator set (still alerted/fr
 the others, just never consulted for a Broker entry — was included when this rule was
 `Consensus6of8`); close at $10 unrealized profit or $10 unrealized loss (`broker.STOP_LOSS_THRESHOLD`; briefly widened to $15 on 29-30 Sep 2026, back to $10), using a real 1-minute candle scan
 (not a single point-in-time price) so a spike that briefly touched $10 and reversed before the next
-poll still closes at the true level (`broker._find_exit()`). Every entry is also gated by
-`broker._bias_allows()`/`_latest_bias_score()` — the latest `ta_forecasts` row's overall bias score
-(see "XAU/USD technical forecast" below): a Buy is skipped if that forecast reads bearish (score < 0),
-a Sell skipped if it reads bullish (score > 0); Neutral (0) or no forecast yet allows either direction.
-This gate is Broker A-only — `broker_b.py` (below) deliberately does **not** import or apply it, so the
-two engines' bias handling has diverged on purpose (see Broker B's entry below). **Two further entry
+poll still closes at the true level (`broker._find_exit()`). **There is no TA-bias gate on either engine** -- Broker A's (skip a Buy while the latest forecast reads bearish, a
+Sell while bullish) was removed 30 Sep 2026 at the user's request; Broker B never had one. **Two further entry
 filters, added 26 Sep 2026** after analyzing a live loss (`Consensus5of7-sell` sold $4,264.94 at
 14:06:57 UTC on 25 Sep, the exact poll gold dropped $12.04 in five minutes and RSI(14) alerted "entered
 oversold territory" in the same cycle — all 7 of 7 indicators flagged off that single spike, DXY only
@@ -270,11 +266,10 @@ indicators to flag on any of their own windows — DXY might not have flagged at
 blip (as happened in the loss trade: barely cleared its 10-min threshold, then stalled). This is
 **stricter** than `broker_b._dxy_confirms()`, which only blocks a clear *opposing* move — Broker A
 requires genuine confirmation, since DXY here is just one of seven alert sources rather than Broker B's
-dedicated fade signal. Both fail open on missing/insufficient data, same convention as
-`_bias_allows()`. A block from either sends a deduplicated Telegram notice (🔵⛔,
+dedicated fade signal. Both fail open on missing/insufficient data. A block from either sends a deduplicated Telegram notice (🔵⛔,
 `broker._notify_blocked()`, `storage.record_broker_a_blocked_if_new()`, `broker_a_blocked` table, keyed
 on `(rule_name, reasons, since_ts)` where `since_ts` is Broker A's own entry watermark since there's no
-forecast row to scope by here) — since 30 Sep 2026 the TA bias gate and a new **trading-hours window** (7am-5pm ET weekdays, `broker._within_entry_window()`,
+forecast row to scope by here) — since 30 Sep 2026 a new **trading-hours window** (7am-5pm ET weekdays, `broker._within_entry_window()`,
 shared with Broker B) also send this notice; an already-open-trade skip still stays unlogged beyond the GitHub Actions run log. **A blocked signal is never opened later (30 Sep 2026)**: a signal that any of these filters blocks has its alerts consumed (`broker_a_blocked.signal_ts` = the newest alert behind it, `storage.get_last_blocked_signal_ts_a()`; alerts at or before the later of that and the last trade's open time are ignored), so once the block clears a poll or two later it isn't opened off the same still-fresh alerts -- a fresh 5-of-7 consensus is needed. The blocked-notice dedup floor (`since_ts`) advances with it, so the next blocked signal notifies again. Trade state lives in a Postgres `trades` table (mirrors
 `readings`/`alerts` — required since `poll_job.py` is a stateless one-shot run each cloud poll, so
 in-memory state can't survive between polls); only one trade open at a time, and a fresh entry only
@@ -299,6 +294,17 @@ markdown/doc log of trades — the `trades` table (`id`, `rule_name`, `trade_typ
 `open_ts`, `triggering_alerts`, `exit_price`, `close_ts`, `pnl`, `status`) is the only record, so a
 trade never requires a repo commit; `poll.yml` doesn't need write access to the repo for this reason.
 
+**Entry context on every trade (`entry_context.py`, added 30 Sep 2026)**: each Broker A / Broker B trade now stores a
+JSONB snapshot of the conditions at entry (`trades.entry_context` / `broker_b_trades.entry_context`, added by
+`init_db()`): ET hour/minute/weekday, RSI(14), DXY's net 15-min change and its threshold, the latest forecast's
+bias score/label/session/id, the bid-ask spread and the last 15 one-minute bars' bid/ask range, plus per-broker
+extras (Broker A: the flagging indicators and the signal price; Broker B: the scenario, trigger price, spot at the
+poll, minutes between the touch and the poll that acted on it, and the distance to the next resistance/support
+zone). It is descriptive only -- nothing gates, changes or delays a trade -- and every field is best-effort (a
+failed fetch leaves it out, never raises). Purpose: judge which rules and conditions actually work without
+re-deriving them afterward, e.g. `SELECT rule_name, (entry_context->>'rsi14')::float, pnl FROM broker_b_trades`.
+Trades from before this, and Telegram-opened ones, have a NULL context.
+
 **Broker B automated paper-trading (`broker_b.py`)**: `check_broker_b_trades()`, also called from
 `main.poll_once()` (right after Broker A, wrapped in its own `try/except` so a problem here can't
 break the rest of the poll) — a second, fully independent imaginary buy/sell engine, this one trading
@@ -321,11 +327,9 @@ before that forecast even existed. Observed live: the Midday forecast (ts 16:00:
 `TA-Zone-buy` opened citing that forecast with an `open_ts` stamped before it was generated. The two fade rules are
 invalidated (no trade) if price already broke the zone's far side (the scenario's `stop`)
 before/without a clean touch; the two breakout rules have no such invalidation, since crossing the
-trigger is the entire signal. **Deliberately does not apply `broker._bias_allows()`** — unlike Broker
-A, Broker B trades whichever of the four levels price actually reaches, buy or sell, regardless of
+trigger is the entire signal. **Deliberately applies no TA-bias gate** — Broker B trades whichever of the four levels price actually reaches, buy or sell, regardless of
 what the forecast's overall bias score says (this bias check and the breakout scenarios were both
-added/removed at the user's explicit request; see `.claude/agents/broker.md`'s "TA bias gate (Broker A
-only)" section). Fires **up to `MAX_TRADES_PER_LEVEL` (3) times per (forecast row, rule), re-arming only after a
+added/removed at the user's explicit request; see `.claude/agents/broker.md`'s "Broker A entry gating" section). Fires **up to `MAX_TRADES_PER_LEVEL` (3) times per (forecast row, rule), re-arming only after a
 win**: `storage.trade_b_level_history()` returns that level's trade count and whether any was stopped
 out, and the first stop-out retires the rule for that forecast row (the level broke; a fade stopped out
 above resistance would otherwise re-enter at once), until the next `ta_forecast_job.py` run supplies
@@ -362,7 +366,7 @@ that would have stopped the incident's short, since DXY was already easing befor
 exhaustion, breakout rules only** (`broker_b._rsi_confirms()`) — `TA-Breakout-buy` is skipped if gold's
 RSI(14) (same computation as `rules.check_rsi_alerts()`) is already >= `RSI_OVERBOUGHT_THRESHOLD` (70),
 `TA-Breakout-sell` skipped if already <= `RSI_OVERSOLD_THRESHOLD` (30); the two fade rules aren't RSI-gated.
-All three fail open (no block) on missing data, same convention as Broker A's `_bias_allows()`.
+All three fail open (no block) on missing data, same fail-open convention as Broker A's filters.
 
 **Blocked-entry Telegram notice** (also sent, via `_notify_crossed_during_trade()`, for another still-armed level crossed while a trade held the slot -- never filled retroactively, notice only): whenever a level is reached but one of the three filters above
 stops the trade, one message names the level and reason(s), e.g. `🟦⛔ BROKER B: TA-Zone-sell level
@@ -910,7 +914,7 @@ mechanisms above, its actual trading logic is NOT this subagent; it's the fully 
 (Broker A) and `broker_b.py` (Broker B) (see the "Broker A"/"Broker B automated paper-trading" entries
 above), which run every poll with no human/session involved. The subagent itself is **read-only**
 (`Read`, `Grep`, `Glob`, `Bash` — no `Edit`/`Write`, same as `technical-analyst`): it explains rules
-(including Broker A's TA bias gate, which Broker B deliberately does not apply), explains why a
+explains why a
 specific trade in the Postgres `trades` or
 `broker_b_trades` table fired, and analyzes performance by rule/engine, querying those tables plus
 `alerts`/`ta_forecasts` directly (there is no markdown trade log to read instead). Its own "Rules"

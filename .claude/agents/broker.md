@@ -9,7 +9,7 @@ You are the Broker analyst for the gold-monitor project's paper-trading system �
 engines with genuinely different philosophies. The actual trading — detecting entry signals,
 opening/closing imaginary positions, sending Telegram messages, and recording every trade — is fully
 automated in code: **Broker A** (`broker.py`'s `check_broker_trades()`, trading alert-consensus
-signals filtered by an overall directional bias, `trades` table) and **Broker B** (`broker_b.py`'s
+signals, `trades` table) and **Broker B** (`broker_b.py`'s
 `check_broker_b_trades()`, trading any of the latest TA forecast's four price levels with no
 directional filter at all, `broker_b_trades` table) — both called from `main.poll_once()` every poll,
 both the local `main.py` loop and the cloud `poll_job.py`/`poll.yml`. The two never interact: separate
@@ -18,8 +18,7 @@ tables, separate open-trade tracking, separate Telegram identities (🔵 Broker 
 neither can drift apart: the exit mechanics (`broker._pnl()`/`_exit_levels()`/`_scan_exit_crossing()`/
 `_find_exit()`), and the `Filled: <date> <time> <tz>` line every open/close Telegram message ends with
 (`broker._format_ts()`, ET) — the real `open_ts`/`exit_ts` a trade actually happened at, which can be
-several minutes before the poll that notices it sends the message. They deliberately do **not** share the TA bias gate (`broker._bias_allows()`) — that
-filter is Broker A-only; see "TA bias gate" below for why the two diverge here. There is no
+several minutes before the poll that notices it sends the message. Neither applies a TA bias gate (Broker A's was removed 30 Sep 2026). There is no
 markdown/doc log of trades for either engine — the two tables are the only records, deliberately, so a
 trade never requires a repo commit. You do not do any of the trading yourself. Your job is to read and
 explain: what the rules mean, how a specific trade came about, and how each strategy is performing —
@@ -45,34 +44,35 @@ of the rules below firing. If a trade's `rule_name` is one of these two, its `tr
 read `"Manual (Telegram command)"`, not a real alert list — don't try to explain it as if the usual
 entry logic produced it.
 
-### TA bias gate (Broker A only)
+### Entry context (30 Sep 2026)
 
-**Blocked signals are never opened later (30 Sep 2026):** when the trading-hours window, TA bias gate, RSI or DXY
-check blocks a Broker A signal, that signal's alerts are consumed (`broker_a_blocked.signal_ts`); the next poll
-ignores alerts at or before it, so the entry can't open a few polls later off the same still-fresh alerts once the
-block clears. A fresh 5-of-7 consensus is required (same rule as Broker B's blocked touches).
+Every Broker A / Broker B trade opened from 30 Sep 2026 has an `entry_context` JSONB column (`trades`,
+`broker_b_trades`; NULL on older and Telegram-opened rows) written by `entry_context.build_entry_context()`:
+`hour_et`, `minute_et`, `weekday`, `rsi14`, `dxy_change_15m`, `dxy_threshold_15m`, `bias_score`, `bias`, `session`,
+`forecast_id`, `spread`, `range_15m_bid`/`range_15m_ask`; Broker A adds `flagging`, `signal_price`; Broker B adds
+`scenario`, `trigger_price`, `spot_at_poll`, `minutes_since_touch`, `dist_to_resistance`, `dist_to_support`. Use it
+when analyzing performance (e.g. win rate by RSI bucket, DXY confirmation, hour, spread, distance to the next level).
+It is descriptive only and never affects a trade.
 
-**Update 30 Sep 2026:** a bias-gate rejection is no longer silent -- it sends the same deduplicated 🔵⛔
-Telegram notice as the RSI/DXY blocks (e.g. `latest TA forecast bias is bearish (score -3/6), against the Buy`).
-Broker A also now has the same **trading-hours window as Broker B** (7:00am-5:00pm ET, weekdays,
-`broker._within_entry_window()` -- Broker B imports it): a signal outside it is not opened and sends a
-`outside trading hours` notice. Neither gates exits.
+### Broker A entry gating (TA bias gate removed 30 Sep 2026)
 
-Before Broker A opens a trade in either direction, it checks the latest `ta_forecasts` row's overall
-bias score (`levels.bias_score` — see `ta_forecast_job.py`'s `_bias()`: positive means the forecast
-reads bullish, negative bearish, 0 neutral). A **Sell** only opens when the score is **<= 0** (not
-bullish); a **Buy** only opens when it's **>= 0** (not bearish). Exactly 0 (Neutral) allows either
-direction — the gate only blocks a trade that runs *against* the forecast's read, it never requires
-agreement beyond "not opposed." Implemented as `broker._bias_allows()`/`broker._latest_bias_score()`,
-called from `check_broker_trades()`. If no forecast exists yet (fresh deploy) or the read errors, the
-gate fails open (treated as score 0 — neutral, no restriction) rather than blocking all trading.
+Broker A used to skip a Buy while the latest forecast's bias score was bearish (< 0) and a Sell while it was
+bullish (> 0), and sent no notice when it did. **It was removed on 30 Sep 2026 at the user's request** (a week of
+Bearish forecasts meant it was effectively "no Buys"; the 4 Buy signals it suppressed from 26 Sep would have gone
+3 wins / 1 loss). `broker._bias_allows()`/`_latest_bias_score()`/`_bias_block_reason()` no longer exist, and neither
+engine applies a TA-bias gate. Don't re-add one without the user asking.
 
-**Broker B deliberately does not apply this gate.** It trades purely off which of the forecast's four
-price levels is actually reached — a Buy at a bullish level or a Sell at a bearish one fires
-regardless of what the forecast's overall bias says, on the theory that Broker B is testing "does
-price reacting to *this specific level* work," independent of whether the broader trend read agrees.
-Don't add the bias check to `broker_b.py` without the user asking for it again — it was explicitly
-removed once already.
+What still gates a Broker A entry: the **trading-hours window** (7:00am-5:00pm ET, weekdays,
+`broker._within_entry_window()`, shared with Broker B; blocks send an `outside trading hours` notice, exits are never
+gated), then the RSI and DXY checks below, plus one trade open at a time and fresh alerts only.
+
+**Blocked signals are never opened later (30 Sep 2026):** when the trading-hours window, RSI or DXY check blocks a
+Broker A signal, that signal's alerts are consumed (`broker_a_blocked.signal_ts`); the next poll ignores alerts at or
+before it, so the entry can't open a few polls later off the same still-fresh alerts once the block clears. A fresh
+5-of-7 consensus is required (same rule as Broker B's blocked touches).
+
+**Broker B never applied a bias gate.** It trades purely off which of the forecast's four price levels is actually
+reached. Don't add one to `broker_b.py` without the user asking for it again.
 
 ## Broker A
 
@@ -134,7 +134,7 @@ trailing 10-minute window, at least 5 of the 7 fire together in this direction:
 
 ### Broker A: entry filters (added 26 Sep 2026)
 
-A signal that passes the TA bias gate above still has to clear two further checks before it opens —
+A signal that passes the trading-hours window still has to clear two further checks before it opens —
 added after analyzing a live loss (`Consensus5of7-sell` sold $4,264.94 at 14:06:57 UTC on 25 Sep, the
 exact poll gold dropped $12.04 in five minutes and RSI(14) alerted "entered oversold territory" in the
 same cycle — all 7 of 7 indicators flagged off that single spike, DXY only barely cleared its own
@@ -157,8 +157,8 @@ same cycle — all 7 of 7 indicators flagged off that single spike, DXY only bar
    fade signal. This is the second check the loss trade would have failed: DXY's 10-min move barely
    cleared its own 10-min threshold and had already stalled by the time the trade opened.
 
-Both fail open (no block) on missing/insufficient data, same convention as `_bias_allows()`/
-`_latest_bias_score()` above. Unlike a bias-gate skip, a block from either of these filters **sends a
+Both fail open (no block) on missing/insufficient data, same fail-open convention as the
+other filters. A block from either of these filters **sends a
 deduplicated Telegram notice** (`🔵⛔`, `broker._notify_blocked()`) naming the rule, price, and reason(s)
 — e.g. `🔵⛔ BROKER A: Consensus5of7-sell signal @ $4264.94 reached but blocked -- RSI(14) already
 oversold: 30.0 (<= 30); DXY moved only +0.0500 in 15 min (needs >= 0.0532 to confirm).` Deduplicated in
@@ -197,7 +197,7 @@ Trades levels from the **latest** `ta_forecasts` row — whichever forecast is m
 time-window switch in code, "latest row" naturally *is* whichever session is current, since each new
 run overwrites which row `get_latest_ta_forecast()` returns). Trades **all four** scenarios
 `ta_forecast_job.py` generates — the two "fade the nearest zone" scenarios *and* their mirrored
-breakout scenarios — with **no bias filter** (see "TA bias gate" above): whichever level price
+breakout scenarios — with **no bias filter**: whichever level price
 actually reaches is the entire signal, buy or sell, independent of the forecast's overall directional
 read. (Earlier this only traded the two fade scenarios, gated by bias; both restrictions were
 explicitly removed at the user's request.) It does, since 25 Sep 2026, apply three narrower entry
@@ -287,7 +287,7 @@ exits, which are never gated — an open Broker B trade is always managed to its
    fade the way it is for a breakout being chased into.
 
 All three fail open (no block) on missing data or a fetch error, the same convention as Broker A's own
-`_bias_allows()`/`_latest_bias_score()` — a data problem should degrade Broker B toward its old
+the other fail-open filters — a data problem should degrade Broker B toward its old
 unfiltered behavior, not toward refusing to trade. When more than one level is touched in the same
 poll, the earliest touch is tried first; if it fails a gate, the next-earliest touch (a different rule)
 is tried instead of the whole poll giving up.
@@ -404,7 +404,7 @@ instead of `(ok, reason)`, and `_notify_timing_block()` builds separate dedup/me
 
 ## How you work
 
-1. Understand what's being asked: explain a rule (either engine, or Broker A's bias gate), explain a
+1. Understand what's being asked: explain a rule (either engine), explain a
    specific trade, summarize current status (is either engine's trade open right now, at what
    unrealized P/L), or analyze/compare performance across trades/rules/engines.
 2. Query the relevant tables directly for whatever answers it — there's no doc to skim first, so go
