@@ -34,6 +34,16 @@
  *                                                          of unrealized P/L (unlike the automatic
  *                                                          $10 take-profit/stop-loss, a manual
  *                                                          close is an unconditional override)
+ *   "stop trading"                                     -> close BOTH brokers' open positions at spot and
+ *                                                          pause all trading until the program's own
+ *                                                          trading window next opens (7am ET weekdays)
+ *   "start trading"                                    -> resume trading for both brokers until the
+ *                                                          program's own window next closes (5pm ET)
+ *   "<date>. Stop trading from 7 till 10"              -> schedule a pause (times are America/New_York,
+ *                                                          e.g. "Thursday, 1st of October 2026. Stop
+ *                                                          trading from 7 till 10 o'clock"); no date =
+ *                                                          immediate stop, date without times = all day
+ *   (the Python poll enforces all three -- see trading_control.py -- this Worker only records them)
  * Anything else is silently ignored -- no reply -- so the chat doesn't become a bot that talks
  * back to every unrelated message.
  *
@@ -102,6 +112,155 @@ function parseCommand(text) {
   if (!directionMatch) return null;
   const tradeType = directionMatch[1][0].toUpperCase() + directionMatch[1].slice(1).toLowerCase();
   return { action: "open", tradeType, brokerLetter };
+}
+
+const MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+const WEEKDAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+const MONTH_PAT = "(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)";
+const DAY_FIRST_RE = new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?${MONTH_PAT}\\b(?:,?\\s+(\\d{4}))?`, "i");
+const MONTH_FIRST_RE = new RegExp(`\\b${MONTH_PAT}\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b(?:,?\\s+(\\d{4}))?`, "i");
+const ISO_DATE_RE = /\b(\d{4})-(\d{1,2})-(\d{1,2})\b/;
+const WEEKDAY_RE = new RegExp(`\\b(${WEEKDAYS.join("|")})\\b`, "i");
+const TIME_RANGE_RE = /(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:o'?clock\s*)?(?:-|\u2013|to|till|until|til)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i;
+
+function etParts(ms) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York", year: "numeric", month: "numeric", day: "numeric",
+    hour: "numeric", minute: "numeric", second: "numeric", hourCycle: "h23",
+  }).formatToParts(new Date(ms));
+  const get = (t) => Number(parts.find((p) => p.type === t).value);
+  return { year: get("year"), month: get("month"), day: get("day"), hour: get("hour"), minute: get("minute"), second: get("second") };
+}
+
+/** America/New_York wall-clock time -> the real instant (handles EST/EDT; day may overflow, e.g. day+1). */
+function etToUtc(year, month, day, hour, minute) {
+  const wall = Date.UTC(year, month - 1, day, hour, minute);
+  let instant = wall;
+  for (let i = 0; i < 2; i++) {
+    const p = etParts(instant);
+    const shown = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
+    instant += wall - shown; // nudge by however far the ET reading is from what we wanted
+  }
+  return new Date(instant);
+}
+
+function to24h(hour, meridiem) {
+  if (meridiem === "am") return hour === 12 ? 0 : hour;
+  if (meridiem === "pm") return hour === 12 ? 12 : hour + 12;
+  return hour;
+}
+
+/**
+ * Trading-control commands. Returns null (not a control command), or one of
+ * {action: "stop"} | {action: "start"} | {action: "pause", start: Date, end: Date} | {action: "error", message}.
+ * All clock times are America/New_York. Times without am/pm: 1-6 are read as pm (trading only runs
+ * 7am-5pm ET, so "from 2 till 5" can only mean the afternoon); 7-12 and up as written.
+ */
+function parseControlCommand(text, now = new Date()) {
+  if (/\bstart\s+trading\b/i.test(text)) return { action: "start" };
+  if (!/\bstop\s+trading\b/i.test(text)) return null;
+
+  let year, month, day, matched;
+  let m;
+  if ((m = ISO_DATE_RE.exec(text))) {
+    [year, month, day] = [Number(m[1]), Number(m[2]), Number(m[3])];
+    matched = m[0];
+  } else if ((m = DAY_FIRST_RE.exec(text))) {
+    day = Number(m[1]);
+    month = MONTHS.findIndex((n) => n.startsWith(m[2].toLowerCase().slice(0, 3))) + 1;
+    year = m[3] ? Number(m[3]) : undefined;
+    matched = m[0];
+  } else if ((m = MONTH_FIRST_RE.exec(text))) {
+    month = MONTHS.findIndex((n) => n.startsWith(m[1].toLowerCase().slice(0, 3))) + 1;
+    day = Number(m[2]);
+    year = m[3] ? Number(m[3]) : undefined;
+    matched = m[0];
+  }
+
+  const hasDateWord = WEEKDAY_RE.test(text) || new RegExp(`\\b${MONTH_PAT}\\b`, "i").test(text);
+  if (!matched) {
+    if (hasDateWord || /\d/.test(text)) {
+      return { action: "error", message: 'Could not read the date. Try e.g. "Thursday, 1st of October 2026. Stop trading from 7 till 10".' };
+    }
+    return { action: "stop" };
+  }
+  if (year === undefined) year = etParts(now.getTime()).year;
+  if (month < 1 || day < 1 || day > 31 || new Date(Date.UTC(year, month - 1, day)).getUTCDate() !== day) {
+    return { action: "error", message: `"${matched}" is not a valid date.` };
+  }
+  const wd = WEEKDAY_RE.exec(text);
+  if (wd && WEEKDAYS[new Date(Date.UTC(year, month - 1, day)).getUTCDay()] !== wd[1].toLowerCase()) {
+    const real = WEEKDAYS[new Date(Date.UTC(year, month - 1, day)).getUTCDay()];
+    return { action: "error", message: `${month}/${day}/${year} is a ${real}, not ${wd[1]}. Nothing scheduled.` };
+  }
+
+  const rest = text.replace(matched, " ");
+  const t = TIME_RANGE_RE.exec(rest);
+  let start, end;
+  if (!t) {
+    start = etToUtc(year, month, day, 0, 0);
+    end = etToUtc(year, month, day + 1, 0, 0);
+  } else {
+    let [h1, m1, ap1, h2, m2, ap2] = [Number(t[1]), Number(t[2] ?? 0), t[3]?.toLowerCase(), Number(t[4]), Number(t[5] ?? 0), t[6]?.toLowerCase()];
+    if (h1 > 24 || h2 > 24 || m1 > 59 || m2 > 59) {
+      return { action: "error", message: "Could not read the hours." };
+    }
+    if (!ap1 && !ap2) {
+      if (h1 >= 1 && h1 <= 6) h1 += 12;
+      if (h2 >= 1 && h2 <= 6) h2 += 12;
+    } else {
+      ap1 = ap1 ?? ap2;
+      ap2 = ap2 ?? ap1;
+      h1 = to24h(h1, ap1);
+      h2 = to24h(h2, ap2);
+    }
+    if (h2 * 60 + m2 <= h1 * 60 + m1) {
+      return { action: "error", message: "The end time must be after the start time." };
+    }
+    start = etToUtc(year, month, day, h1, m1);
+    end = etToUtc(year, month, day, h2, m2);
+  }
+  if (end <= now) return { action: "error", message: "That window is already in the past. Nothing scheduled." };
+  return { action: "pause", start, end };
+}
+
+async function ensureControlTables(sql) {
+  await sql`CREATE TABLE IF NOT EXISTS trading_override (id INTEGER PRIMARY KEY CHECK (id = 1), mode TEXT NOT NULL, set_ts TIMESTAMPTZ NOT NULL)`;
+  await sql`CREATE TABLE IF NOT EXISTS trading_pauses (id SERIAL PRIMARY KEY, start_ts TIMESTAMPTZ NOT NULL, end_ts TIMESTAMPTZ NOT NULL, created_ts TIMESTAMPTZ NOT NULL DEFAULT NOW())`;
+}
+
+async function setOverride(sql, mode) {
+  await sql`
+    INSERT INTO trading_override (id, mode, set_ts) VALUES (1, ${mode}, ${new Date().toISOString()})
+    ON CONFLICT (id) DO UPDATE SET mode = EXCLUDED.mode, set_ts = EXCLUDED.set_ts
+  `;
+}
+
+async function stopTrading(sql, apiKey) {
+  await ensureControlTables(sql);
+  await setOverride(sql, "stopped"); // first, so the poll stops opening things even if a close below fails
+  const lines = ["\u{1F6D1} Trading STOPPED for Broker A and Broker B."];
+  const openA = await sql`SELECT id FROM trades WHERE status = 'Open' LIMIT 1`;
+  const openB = await sql`SELECT id FROM broker_b_trades WHERE status = 'Open' LIMIT 1`;
+  if (openA.length > 0) lines.push(await closeBrokerA(sql, apiKey));
+  if (openB.length > 0) lines.push(await closeBrokerB(sql, apiKey));
+  lines.push('No new trades until the next automatic trading window opens (7am ET, weekdays) or you send "start trading".');
+  return lines.join("\n");
+}
+
+async function startTrading(sql) {
+  await ensureControlTables(sql);
+  await setOverride(sql, "started");
+  return '\u25B6\uFE0F Trading STARTED for Broker A and Broker B. It runs until the program\'s own trading window closes (5pm ET), or until you send "stop trading".';
+}
+
+async function schedulePause(sql, start, end) {
+  await ensureControlTables(sql);
+  await sql`INSERT INTO trading_pauses (start_ts, end_ts) VALUES (${start.toISOString()}, ${end.toISOString()})`;
+  return (
+    `\u23F8 Pause scheduled for Broker A and Broker B:\n${formatTs(start)} -> ${formatTs(end)}\n` +
+    "No new trades in that window; any open position is closed at the first poll (every 5 min) inside it."
+  );
 }
 
 async function fetchGoldPrice(apiKey) {
@@ -251,12 +410,24 @@ export default {
       return new Response("OK", { status: 200 }); // unauthorized chat -- silently ignore
     }
 
+    const sql = neon(env.DATABASE_URL);
+
+    const control = parseControlCommand(message.text);
+    if (control) {
+      let controlReply;
+      if (control.action === "stop") controlReply = await stopTrading(sql, env.TWELVE_DATA_API_KEY);
+      else if (control.action === "start") controlReply = await startTrading(sql);
+      else if (control.action === "pause") controlReply = await schedulePause(sql, control.start, control.end);
+      else controlReply = `${REJECT_MARKER}${control.message}`;
+      await sendTelegram(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, controlReply);
+      return new Response("OK", { status: 200 });
+    }
+
     const parsed = parseCommand(message.text);
     if (!parsed) {
       return new Response("OK", { status: 200 }); // not a recognized command -- no reply
     }
 
-    const sql = neon(env.DATABASE_URL);
     let reply;
     if (parsed.action === "open") {
       reply =
@@ -275,4 +446,4 @@ export default {
   },
 };
 
-export { parseCommand, formatTs, pnl }; // exported for the test file only
+export { parseCommand, parseControlCommand, etToUtc, formatTs, pnl }; // exported for the test file only

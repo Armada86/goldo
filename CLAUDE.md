@@ -515,6 +515,18 @@ both watch the same `status = 'Open'` row. A **close** command is an uncondition
 at whatever the current spot price is, regardless of unrealized P/L, unlike the automatic $10 target —
 the whole point of a manual close is to not wait for that target.
 
+**Trading on/off commands (`trading_control.py`, both brokers)**: three more messages the Worker understands,
+all stored in Postgres (`trading_override` single-row table, `trading_pauses` table -- the Worker creates them on
+first use, `init_db()` too) and enforced by the Python poll, not the Worker: `stop trading` closes both brokers'
+open positions at spot and pauses trading until the program's own window next opens (7am ET weekday);
+`start trading` resumes until the program's own window next closes (5pm ET) and also lifts any scheduled pause
+that began before it; `<date>. Stop trading from 7 till 10` (e.g. "Thursday, 1st of October 2026. Stop trading
+from 7 till 10 o'clock") schedules a pause in America/New_York time -- no times = the whole day, no date =
+immediate stop, weekday/date mismatch or unreadable date = an error reply and nothing scheduled, times 1-6
+without am/pm are read as pm. `check_broker_trades()`/`check_broker_b_trades()` call
+`trading_control.trading_pause_reason()` first: while paused they close any open trade at market (at the first
+poll inside a scheduled pause, so up to 5 minutes late) and open nothing. Fails open on a DB error.
+
 **Security**: every request's `X-Telegram-Bot-Api-Secret-Token` header is checked against a secret
 set when the webhook was registered (`setWebhook`'s own `secret_token` param) — a request that doesn't
 carry the right header is rejected outright (403), so the Worker can't be triggered by anyone who
