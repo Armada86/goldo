@@ -294,6 +294,17 @@ markdown/doc log of trades — the `trades` table (`id`, `rule_name`, `trade_typ
 `open_ts`, `triggering_alerts`, `exit_price`, `close_ts`, `pnl`, `status`) is the only record, so a
 trade never requires a repo commit; `poll.yml` doesn't need write access to the repo for this reason.
 
+**Entry context on every trade (`entry_context.py`, added 30 Sep 2026)**: each Broker A / Broker B trade now stores a
+JSONB snapshot of the conditions at entry (`trades.entry_context` / `broker_b_trades.entry_context`, added by
+`init_db()`): ET hour/minute/weekday, RSI(14), DXY's net 15-min change and its threshold, the latest forecast's
+bias score/label/session/id, the bid-ask spread and the last 15 one-minute bars' bid/ask range, plus per-broker
+extras (Broker A: the flagging indicators and the signal price; Broker B: the scenario, trigger price, spot at the
+poll, minutes between the touch and the poll that acted on it, and the distance to the next resistance/support
+zone). It is descriptive only -- nothing gates, changes or delays a trade -- and every field is best-effort (a
+failed fetch leaves it out, never raises). Purpose: judge which rules and conditions actually work without
+re-deriving them afterward, e.g. `SELECT rule_name, (entry_context->>'rsi14')::float, pnl FROM broker_b_trades`.
+Trades from before this, and Telegram-opened ones, have a NULL context.
+
 **Broker B automated paper-trading (`broker_b.py`)**: `check_broker_b_trades()`, also called from
 `main.poll_once()` (right after Broker A, wrapped in its own `try/except` so a problem here can't
 break the rest of the poll) — a second, fully independent imaginary buy/sell engine, this one trading

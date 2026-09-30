@@ -44,6 +44,16 @@ of the rules below firing. If a trade's `rule_name` is one of these two, its `tr
 read `"Manual (Telegram command)"`, not a real alert list — don't try to explain it as if the usual
 entry logic produced it.
 
+### Entry context (30 Sep 2026)
+
+Every Broker A / Broker B trade opened from 30 Sep 2026 has an `entry_context` JSONB column (`trades`,
+`broker_b_trades`; NULL on older and Telegram-opened rows) written by `entry_context.build_entry_context()`:
+`hour_et`, `minute_et`, `weekday`, `rsi14`, `dxy_change_15m`, `dxy_threshold_15m`, `bias_score`, `bias`, `session`,
+`forecast_id`, `spread`, `range_15m_bid`/`range_15m_ask`; Broker A adds `flagging`, `signal_price`; Broker B adds
+`scenario`, `trigger_price`, `spot_at_poll`, `minutes_since_touch`, `dist_to_resistance`, `dist_to_support`. Use it
+when analyzing performance (e.g. win rate by RSI bucket, DXY confirmation, hour, spread, distance to the next level).
+It is descriptive only and never affects a trade.
+
 ### Broker A entry gating (TA bias gate removed 30 Sep 2026)
 
 Broker A used to skip a Buy while the latest forecast's bias score was bearish (< 0) and a Sell while it was

@@ -124,6 +124,7 @@ from config import (
     RSI_PERIOD,
 )
 from data_fetcher import compute_rsi, fetch_gold_candles
+from entry_context import build_entry_context, level_distances
 from price_bars import fetch_gold_bars
 from notifier import send_telegram_message
 from storage import (
@@ -577,7 +578,20 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
 
     session = levels.get("session", "?")
     trigger_text = f"{session} TA forecast {forecast['forecast_date']}, {scenario_name} @ ${trigger_price:.2f}"
-    insert_trade_b(rule_name, trade_type, trigger_price, trigger_ts, trigger_text, forecast["id"])
+    context = build_entry_context(
+        now,
+        rsi_value=rsi_value,
+        dxy_readings=dxy_readings,
+        forecast=forecast,
+        extra={
+            "scenario": scenario_name,
+            "trigger_price": round(float(trigger_price), 2),
+            "spot_at_poll": round(float(gold_price), 2),
+            "minutes_since_touch": round((now - trigger_ts).total_seconds() / 60, 1),
+            **level_distances(trigger_price, forecast),
+        },
+    )
+    insert_trade_b(rule_name, trade_type, trigger_price, trigger_ts, trigger_text, forecast["id"], context)
     send_telegram_message(
         _open_message(trade_type, rule_name, trigger_price, session, forecast["forecast_date"], trigger_ts)
     )

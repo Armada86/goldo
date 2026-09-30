@@ -62,6 +62,7 @@ from config import (
     RSI_PERIOD,
 )
 from data_fetcher import compute_rsi, fetch_gold_candles
+from entry_context import build_entry_context
 from price_bars import fetch_gold_bars
 from notifier import send_telegram_message
 from storage import (
@@ -449,7 +450,14 @@ def check_broker_trades(prices: dict[str, float]) -> None:
 
             if rsi_ok and dxy_ok:
                 triggering_text = _triggering_text(alerts, trade_type)
-                insert_trade(rule_name, trade_type, gold_price, now, triggering_text)
+                flagging = _triggering_names(alerts, trade_type)
+                context = build_entry_context(
+                    now,
+                    rsi_value=rsi_value,
+                    dxy_readings=dxy_readings,
+                    extra={"flagging": flagging, "signal_price": round(float(gold_price), 2)},
+                )
+                insert_trade(rule_name, trade_type, gold_price, now, triggering_text, context)
                 triggering_names = _triggering_names(alerts, trade_type)
                 send_telegram_message(_open_message(trade_type, rule_name, gold_price, triggering_names, now))
             else:
