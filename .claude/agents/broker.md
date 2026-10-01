@@ -229,7 +229,7 @@ earlier from retroactively "finding" that already-past touch — observed live: 
 forecast existed. If price
 already broke through the zone's far side (the scenario's own `stop`, e.g. "stop above 4293") before
 or without a clean touch of the near edge, the fade is invalidated and no trade opens. Only fires
-up to **3 times per (forecast row, rule), re-arming only after a win** — see "Broker B: position
+up to **2 times per (forecast row, rule), re-arming only after a win** — see "Broker B: position
 sizing & concurrency" below.
 
 **Exit**: identical mechanism to Broker A — **+$10**/**-$10** unrealized P/L, real 1-minute candle
@@ -360,7 +360,7 @@ instead of `(ok, reason)`, and `_notify_timing_block()` builds separate dedup/me
   none of the other three rules can fire while any one of them has an open position, regardless of
   which rule opened it. This was true when Broker B only had two rules and stays true now that it has
   four; adding rules never relaxes it.
-- **Re-arms after a win, retires after a stop-out.** A rule can fire up to `MAX_TRADES_PER_LEVEL` (3)
+- **Re-arms after a win, retires after a stop-out.** A rule can fire up to `MAX_TRADES_PER_LEVEL` (2)
   times off the *current* forecast row, but only re-arms after its previous trade there hit the +$10
   take-profit: the **first stop-out** (−$10) at a level retires that rule for the rest of that forecast
   (`storage.trade_b_level_history()`, keyed on the forecast's `id` + the rule name, returns the

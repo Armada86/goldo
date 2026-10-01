@@ -16,7 +16,7 @@ zone" scenarios (`sell_resistance`/`buy_support`) *and* their mirrored breakout 
 (`bull_breakout`/`bear_breakdown`) -- see ZONE_SCENARIOS below for the name/trade-type/rule-name
 mapping. Only one trade open at a time, across all four rules, same as Broker A -- a fresh entry is
 never opened while a Broker B position is already open, no matter which of the four levels it is.
-**Each level re-arms after a win**: up to MAX_TRADES_PER_LEVEL (3) trades per (forecast, level), but
+**Each level re-arms after a win**: up to MAX_TRADES_PER_LEVEL (2) trades per (forecast, level), but
 the first stop-out at a level retires it for that forecast (trade_b_level_history()). A re-arm only
 fires on a genuine fresh touch -- price must be observed back on the away side of the trigger at
 some point after the previous trade closed before the next touch counts (see
@@ -170,7 +170,7 @@ ENTRY_CANDLE_LOOKBACK_MINUTES = 20
 # winning trade there. The first stop-out at a level means it broke, and it's never re-traded off
 # that forecast (otherwise a fade stopped out above resistance would re-enter immediately, with
 # price still above the level).
-MAX_TRADES_PER_LEVEL = 3
+MAX_TRADES_PER_LEVEL = 2
 
 # A touch is only filled if the poll noticing it is at most this old (poll interval + slack for a slow
 # run) -- a touch older than that was missed or blocked on an earlier poll, and filling it now means a
