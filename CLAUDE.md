@@ -167,7 +167,8 @@ the value from two polls back instead of one).
   on it) but doesn't send it. Each alert message states the window, direction
   (up/down), the swing size, the threshold, and the current price; the `$` vs. no-unit formatting is
   picked per-name via `config.DOLLAR_UNIT_NAMES`, not hardcoded per file.
-- `check_sma_crossover` — 20/50-day SMA crossover on gold futures daily closes, no config threshold
+- `check_sma_crossover` — 20/50-day SMA crossover on gold futures daily closes, no config threshold.
+  **Disabled (1 Oct 2026, user request): no longer called from `main.poll_once()`, so no SMA messages reach Telegram.**
 - `check_rsi_alerts` — RSI(14) on gold spot only (`RSI_PERIOD`), computed from Twelve Data 15-min
   candles via `data_fetcher.fetch_gold_candles()`/`compute_rsi()` (Wilder's formula, the same helpers
   the dashboard's RSI panel uses). Like `check_sma_crossover`, this is a crossing check (compares the

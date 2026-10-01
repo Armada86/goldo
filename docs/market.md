@@ -164,7 +164,7 @@ Not every indicator uses the same alert logic — see `rules.py` / `CLAUDE.md` f
   compact symbols table), and the three FRED rate/index series at the user's later request, leaving the
   dashboard showing only the nine continuously-traded market prices/yields (`gold`, `gld`, `iau`,
   `gldm`, `gdx`, `gdxj`, `ring`, `dxy`, `us10y`)
-- `gold` also has a separate 20/50-day SMA crossover check on daily closes, independent of any threshold
+- `gold`'s 20/50-day SMA crossover check (`rules.check_sma_crossover()`) still exists but is **disabled** — no longer called from `main.poll_once()`, so nothing about the SMAs goes to Telegram
 - The API Weekly Crude Oil Stock report has its own dedicated mechanism entirely outside `rules.py`/
   `main.poll_once()`: `oil_weekly_job.py`, triggered repeatedly by cron-job.org across each Tuesday's
   multi-hour release window (not the regular 5-min poll), alerts and records the release directly the
