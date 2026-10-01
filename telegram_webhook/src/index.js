@@ -44,6 +44,12 @@
  *                                                          trading from 7 till 10 o'clock"); no date =
  *                                                          immediate stop, date without times = all day
  *   (the Python poll enforces all three -- see trading_control.py -- this Worker only records them)
+ *   "run TA"                                           -> dispatch the ta_forecast.yml GitHub workflow (the same
+ *                                                          job cron-job.org runs at 7am/12pm). It writes a
+ *                                                          new ta_forecasts row, which is by definition the
+ *                                                          latest one -- what Broker B trades and the
+ *                                                          dashboard shows -- and sends it to Telegram.
+ *                                                          Needs the GITHUB_DISPATCH_TOKEN secret.
  * Anything else is silently ignored -- no reply -- so the chat doesn't become a bot that talks
  * back to every unrelated message.
  *
@@ -263,6 +269,31 @@ async function schedulePause(sql, start, end) {
   );
 }
 
+const RUN_TA_RE = /\brun\s+(?:ta|technical\s+analysis)\b/i;
+
+/** Triggers ta_forecast.yml via GitHub's workflow_dispatch API; returns the Telegram reply text. */
+async function runTa(env) {
+  if (!env.GITHUB_DISPATCH_TOKEN) {
+    return `${REJECT_MARKER}Run TA is not set up: the GITHUB_DISPATCH_TOKEN secret is missing on the Worker.`;
+  }
+  const repo = env.GITHUB_REPO || "Armada86/goldo";
+  const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/ta_forecast.yml/dispatches`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.GITHUB_DISPATCH_TOKEN}`,
+      Accept: "application/vnd.github+json",
+      "User-Agent": "goldo-telegram-webhook",
+      "X-GitHub-Api-Version": "2022-11-28",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ ref: "main" }),
+  });
+  if (res.status !== 204) {
+    return `${REJECT_MARKER}Could not start the TA run (GitHub replied ${res.status}). Check the GITHUB_DISPATCH_TOKEN permissions.`;
+  }
+  return "\u{1F4C8} Running a new technical analysis. It takes a minute or two; when it arrives here it is the active forecast.";
+}
+
 async function fetchGoldPrice(apiKey) {
   const res = await fetch(`https://api.twelvedata.com/price?symbol=XAU%2FUSD&apikey=${apiKey}`);
   const data = await res.json();
@@ -410,6 +441,11 @@ export default {
       return new Response("OK", { status: 200 }); // unauthorized chat -- silently ignore
     }
 
+    if (RUN_TA_RE.test(message.text)) {
+      await sendTelegram(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, await runTa(env));
+      return new Response("OK", { status: 200 });
+    }
+
     const sql = neon(env.DATABASE_URL);
 
     const control = parseControlCommand(message.text);
@@ -446,4 +482,4 @@ export default {
   },
 };
 
-export { parseCommand, parseControlCommand, etToUtc, formatTs, pnl }; // exported for the test file only
+export { RUN_TA_RE, parseCommand, parseControlCommand, etToUtc, formatTs, pnl }; // exported for the test file only
