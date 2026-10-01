@@ -536,6 +536,11 @@ the label from position, so older rows stored as Morning/Midday show as TA1/TA2 
 selectable on the dashboard, so a run started on a weekend isn't browsable there (it still is the active forecast
 for Broker B).
 
+**Pause note on the dashboard**: beside the forecast header, `dashboard.py` shows a red "Trading paused from 7:00 AM to
+10:30 AM" (ET) for any scheduled pause (`trading_pauses`) overlapping the selected TA run's stretch -- from that run's
+`ts` to the next run's (or the end of that ET day for the last run). Only scheduled pauses: a `stop trading` override
+keeps just its latest state, so past manual stops aren't shown.
+
 **`run TA` command**: the Worker dispatches `.github/workflows/ta_forecast.yml` through GitHub's `workflow_dispatch`
 API (`runTa()`), so a manual run is the exact same job as the 7am/12pm cron-job.org ones -- it grades the previous row,
 writes a new `ta_forecasts` row and sends it to Telegram. That row is the latest by `ts`, so it is automatically the
