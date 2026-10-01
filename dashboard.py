@@ -195,6 +195,31 @@ def load_latest_gold_price() -> float | None:
     return float(row[0]) if row else None
 
 
+def load_trading_pauses_between(start, end) -> list[tuple]:
+    """Scheduled Telegram pauses (`trading_pauses`, see trading_control.py) overlapping [start, end), as
+    (start_ts, end_ts) oldest first. Empty if the table doesn't exist yet (no pause was ever scheduled).
+    "stop trading" overrides aren't listed: only the latest one is stored, with no history."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('trading_pauses')")
+        if cur.fetchone()[0] is None:
+            return []
+        cur.execute(
+            "SELECT start_ts, end_ts FROM trading_pauses WHERE start_ts < %s AND end_ts > %s ORDER BY start_ts",
+            (end, start),
+        )
+        return [(r[0], r[1]) for r in cur.fetchall()]
+
+
+def pause_note_html(pauses: list[tuple]) -> str:
+    """Red 'Trading paused from 7:00 AM to 10:30 AM' note (ET) for the forecast header, '' if none."""
+    if not pauses:
+        return ""
+    def fmt(ts):
+        return ts.astimezone(DISPLAY_TZ).strftime("%I:%M %p").lstrip("0")
+    text = "; ".join(f"Trading paused from {fmt(s)} to {fmt(e)}" for s, e in pauses)
+    return f"<span style='color:#cf222e;font-size:14px;font-weight:600;margin-left:12px;'>{text}</span>"
+
+
 def load_broker_pnl_for_date(d) -> dict:
     """Broker A (`trades`) + Broker B (`broker_b_trades`) realized P&L for trades that *closed* within
     one ET calendar day -- a trade opened the day before but closed today counts as today's, matching
@@ -337,7 +362,23 @@ if min_forecast_date is not None:
     if forecast and forecast.get("levels"):
         levels = forecast["levels"] or {}
         forecast_local = forecast["ts"].astimezone(DISPLAY_TZ)
-        st.subheader("Today's Forecast" if selected_date == today_et else f"Forecast — {selected_date:%b %d, %Y}")
+        # A run "covers" the time from its own ts until the next run's (or the end of that ET day for the
+        # last one); any scheduled pause overlapping that stretch is flagged in red beside the header.
+        run_start = forecast["ts"]
+        if cur_run < len(runs):
+            run_end = runs[cur_run]["ts"]
+        else:
+            day_after = selected_date + timedelta(days=1)
+            run_end = datetime(day_after.year, day_after.month, day_after.day, tzinfo=DISPLAY_TZ)
+        try:
+            pause_note = pause_note_html(load_trading_pauses_between(run_start, run_end))
+        except Exception:
+            pause_note = ""
+        header_text = "Today's Forecast" if selected_date == today_et else f"Forecast — {selected_date:%b %d, %Y}"
+        st.markdown(
+            f"<h3 style='margin:0;padding:0.5rem 0 0.25rem 0;'>{header_text}{pause_note}</h3>",
+            unsafe_allow_html=True,
+        )
         # "\$" everywhere here, not "$" -- st.caption() renders markdown, and Streamlit treats a pair
         # of literal $ as inline LaTeX; two or more dollar amounts in the same string (the candle line
         # below) silently mangled into math notation before this was escaped.
