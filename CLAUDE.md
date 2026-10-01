@@ -339,7 +339,7 @@ invalidated (no trade) if price already broke the zone's far side (the scenario'
 before/without a clean touch; the two breakout rules have no such invalidation, since crossing the
 trigger is the entire signal. **Deliberately applies no TA-bias gate** — Broker B trades whichever of the four levels price actually reaches, buy or sell, regardless of
 what the forecast's overall bias score says (this bias check and the breakout scenarios were both
-added/removed at the user's explicit request; see `.claude/agents/broker.md`'s "Broker A entry gating" section). Fires **up to `MAX_TRADES_PER_LEVEL` (3) times per (forecast row, rule), re-arming only after a
+added/removed at the user's explicit request; see `.claude/agents/broker.md`'s "Broker A entry gating" section). Fires **up to `MAX_TRADES_PER_LEVEL` (2) times per (forecast row, rule), re-arming only after a
 win**: `storage.trade_b_level_history()` returns that level's trade count and whether any was stopped
 out, and the first stop-out retires the rule for that forecast row (the level broke; a fade stopped out
 above resistance would otherwise re-enter at once), until the next `ta_forecast_job.py` run supplies
@@ -690,8 +690,8 @@ The legend gains a "Live" dot entry only when `live_price` is given. A third opt
 `scenario_outcomes` (`dict[str, dict]`, keyed by scenario name -- `sell_resistance`/`buy_support`/
 `bull_breakout`/`bear_breakdown`, each value `{"results": [bool, ...]}`, one bool per closed trade in order, True = win), draws Broker B's
 actual track record for that forecast row's four levels as one mark per trade -- a green "✓" per win
-(`DIAGRAM_COLOR_SUPPORT`) and a red "✗" per loss (`DIAGRAM_COLOR_RESISTANCE`), so a level that won twice
-then lost reads "✓✓✗" (changed 29 Sep 2026 from a single "✓N"/"✗" summarizing the level). A fade's marks
+(`DIAGRAM_COLOR_SUPPORT`) and a red "✗" per loss (`DIAGRAM_COLOR_RESISTANCE`), so a level that won once
+then lost reads "✓✗" (changed 29 Sep 2026 from a single "✓N"/"✗" summarizing the level). A fade's marks
 trail its zone label on the right; a breakout/breakdown's sit on the right end of its stop line. Nothing
 at all if Broker B has never traded the level (or its first trade is still open) this forecast row. this forecast row. `dashboard.py` supplies this for every forecast it renders, not just the latest one
 -- browsing to any past date/session shows that row's own outcomes, not just today's. No legend entry

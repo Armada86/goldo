@@ -628,7 +628,7 @@ def render_diagram_svg(
     `scenario_outcomes`, if given, is Broker B's actual trade record for this forecast row's four
     scenarios (dashboard.py builds it from `broker_b_trades`, keyed by scenario name:
     `{"results": [bool, ...]}`, one bool per closed trade in order, True = win) -- drawn as one mark per
-    trade, a green ✓ per win and a red ✗ per loss, so a level that won twice then lost reads ✓✓✗.
+    trade, a green ✓ per win and a red ✗ per loss, so a level that won once then lost reads ✓✗.
     `sell_resistance`/`buy_support` marks follow their zone's label on the right; `bull_breakout`/
     `bear_breakdown` marks sit on the right end of the breakout stop line they share a trigger price with
     (a breakout's trigger is literally a fade's stop -- see `build_scenarios()`). A scenario never yet
@@ -674,8 +674,8 @@ def render_diagram_svg(
 
     def outcome_marks(scenario_name: str) -> list[tuple[str, str]]:
         """One (glyph, color) per closed Broker B trade on this scenario this forecast row, in trade
-        order -- green ✓ for a win, red ✗ for a loss -- so a level that won twice then lost shows
-        ✓✓✗. Empty if there's nothing to show yet."""
+        order -- green ✓ for a win, red ✗ for a loss -- so a level that won once then lost shows
+        ✓✗. Empty if there's nothing to show yet."""
         results = (scenario_outcomes or {}).get(scenario_name, {}).get("results", [])
         return [
             ("✓", DIAGRAM_COLOR_SUPPORT) if won else ("✗", DIAGRAM_COLOR_RESISTANCE) for won in results

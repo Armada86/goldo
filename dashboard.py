@@ -138,7 +138,7 @@ def load_broker_b_outcomes(forecast_id: int) -> dict[str, dict]:
     `broker_b_trades.rule_name` via `broker_b.ZONE_SCENARIOS`, the same mapping `broker_b.py` itself
     uses -- so this can never drift from which rule actually trades which scenario. `results` is one
     bool per closed trade in open order (True = win, `pnl > 0`; False = loss, `pnl < 0`), so the diagram
-    shows every result -- a level that won twice then lost reads ✓✓✗. An open trade with no closed
+    shows every result -- a level that won once then lost reads ✓✗. An open trade with no closed
     result yet is left out."""
     rule_to_scenario = {rule_name: name for name, (_, rule_name) in broker_b.ZONE_SCENARIOS.items()}
     with get_connection() as conn, conn.cursor() as cur:
