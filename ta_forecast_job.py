@@ -452,6 +452,11 @@ def session_label(ts: datetime) -> str:
     return "Midday" if ts.astimezone(DISPLAY_TZ).hour >= MIDDAY_FROM_HOUR_ET else "Morning"
 
 
+def run_label(n: int | None) -> str:
+    """'TA3' for the third run of the ET day; plain 'TA' when the number isn't known (dry run)."""
+    return f"TA{n}" if n else "TA"
+
+
 def _fmt_price(v) -> str:
     return "?" if v is None else f"${v:,.2f}"
 
@@ -505,7 +510,7 @@ def _big_picture_lines(price: float, ind: dict) -> list[str]:
     ]
 
 
-def render(snap: dict, bias: tuple, resistances, supports, scenarios, review_lines, macro_lines, now) -> str:
+def render(snap: dict, bias: tuple, resistances, supports, scenarios, review_lines, macro_lines, now, run_name: str | None = None) -> str:
     price, ind = snap["price"], snap["indicators"]
     score, label, reasons = bias
     ema = ind["ema_1h"]
@@ -534,7 +539,7 @@ def render(snap: dict, bias: tuple, resistances, supports, scenarios, review_lin
 
     p = ind["pivot"]
     out = [
-        f"XAU/USD technical forecast ({session_label(now)}) -- {now.astimezone(DISPLAY_TZ):%Y-%m-%d %H:%M ET}",
+        f"XAU/USD technical forecast ({run_name or session_label(now)}) -- {now.astimezone(DISPLAY_TZ):%Y-%m-%d %H:%M ET}",
         f"Price {_fmt_price(price)} (Twelve Data 1h close).",
         "",
         f"SUMMARY: {label} (score {score:+d}/6). Price is {ema_note}, "
@@ -910,16 +915,19 @@ def main(dry_run: bool) -> None:
     scenarios = build_scenarios(resistances, supports, snap["buffer"])
 
     prev = None
+    run_number = None
     if not dry_run:
-        from storage import get_latest_ta_forecast, init_db, insert_ta_forecast
+        from storage import count_ta_forecasts_for_date, get_latest_ta_forecast, init_db, insert_ta_forecast
 
         init_db()
         prev = get_latest_ta_forecast()
+        # TA1, TA2, ... = this ET day's runs in order (scheduled or started by the Telegram "run TA").
+        run_number = count_ta_forecasts_for_date(now.astimezone(DISPLAY_TZ).date()) + 1
     review_lines, review = review_previous(prev) if not dry_run else (["(dry run: previous forecast not read)"], None)
 
-    analysis = render(snap, bias, resistances, supports, scenarios, review_lines, _macro_context(), now)
+    analysis = render(snap, bias, resistances, supports, scenarios, review_lines, _macro_context(), now, run_label(run_number))
     levels = {
-        "session": session_label(now),
+        "session": run_label(run_number),
         "price": price,
         "price_ts": snap["price_ts"],
         "bias": bias[1],

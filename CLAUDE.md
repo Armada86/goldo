@@ -527,12 +527,18 @@ without am/pm are read as pm. `check_broker_trades()`/`check_broker_b_trades()` 
 `trading_control.trading_pause_reason()` first: while paused they close any open trade at market (at the first
 poll inside a scheduled pause, so up to 5 minutes late) and open nothing. Fails open on a DB error.
 
+**TA run naming (TA1, TA2, ...)**: runs are no longer Morning/Midday. A run's name is its position among that ET
+day's `ta_forecasts` rows (`ta_forecast_job.py` stores it as `levels.session` = `TA<n>` via `storage.
+count_ta_forecasts_for_date()`, and puts it in the Telegram header); `dashboard.py`'s second ◀/▶ row
+(`load_forecast_runs_for_date()`) steps through all of them, defaulting to the latest on a date change, and derives
+the label from position, so older rows stored as Morning/Midday show as TA1/TA2 too. Weekend dates aren't
+selectable on the dashboard, so a run started on a weekend isn't browsable there (it still is the active forecast
+for Broker B).
+
 **`run TA` command**: the Worker dispatches `.github/workflows/ta_forecast.yml` through GitHub's `workflow_dispatch`
 API (`runTa()`), so a manual run is the exact same job as the 7am/12pm cron-job.org ones -- it grades the previous row,
 writes a new `ta_forecasts` row and sends it to Telegram. That row is the latest by `ts`, so it is automatically the
-"active" forecast for Broker B (`get_latest_ta_forecast()`) and the dashboard (its per-(date, session) lookups now
-take the *newest* row, `ORDER BY ts DESC`, so a second Morning/Midday run on the same day replaces the first on
-screen). Needs one extra Worker secret, `GITHUB_DISPATCH_TOKEN` (fine-grained token, Actions: read & write on this
+"active" forecast for Broker B (`get_latest_ta_forecast()`) and the dashboard (its run picker lists every row of the day). Needs one extra Worker secret, `GITHUB_DISPATCH_TOKEN` (fine-grained token, Actions: read & write on this
 repo; the one cron-job.org uses works); optional `GITHUB_REPO` var (default `Armada86/goldo`).
 
 **Security**: every request's `X-Telegram-Bot-Api-Secret-Token` header is checked against a secret

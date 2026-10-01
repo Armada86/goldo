@@ -812,6 +812,13 @@ def insert_ta_forecast(
         )
 
 
+def count_ta_forecasts_for_date(forecast_date: date) -> int:
+    """How many ta_forecasts rows exist for this ET date -- the next run is TA<count + 1>."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM ta_forecasts WHERE forecast_date = %s", (forecast_date,))
+        return cur.fetchone()[0]
+
+
 def get_latest_ta_forecast() -> dict | None:
     """Most recent ta_forecasts row, or None if the table is empty. `diagram_svg` is None on rows
     written before that column existed."""
