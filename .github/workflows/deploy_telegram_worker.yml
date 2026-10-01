@@ -1,0 +1,31 @@
+name: Deploy Telegram Worker
+
+# Manual deploy of telegram_webhook/ (the Cloudflare Worker) -- run it from the Actions tab after
+# changing anything in that folder. Needs two repo secrets: CLOUDFLARE_API_TOKEN (the "Edit Cloudflare
+# Workers" token template) and CLOUDFLARE_ACCOUNT_ID. The Worker's own secrets (DATABASE_URL, Telegram
+# tokens, ...) already live in Cloudflare and are not touched by a deploy.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - run: npm ci
+        working-directory: telegram_webhook
+
+      - run: npm test
+        working-directory: telegram_webhook
+
+      - uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: telegram_webhook
+          command: deploy
