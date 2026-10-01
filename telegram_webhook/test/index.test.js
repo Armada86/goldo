@@ -91,3 +91,13 @@ test("run TA: matches its phrasings only", () => {
   assert.ok(!RUN_TA_RE.test("run tag"));
   assert.ok(!RUN_TA_RE.test("stop trading"));
 });
+
+test("parseControlCommand: '.' works as the minutes separator (10.30 am)", () => {
+  const r = parseControlCommand("Stop trading thursday 1st of oct from 7am to 10.30 am", NOW);
+  assert.equal(r.action, "pause");
+  assert.equal(r.start.toISOString(), "2026-10-01T11:00:00.000Z");
+  assert.equal(r.end.toISOString(), "2026-10-01T14:30:00.000Z");
+  const s = parseControlCommand("stop trading 2 oct 2026 from 9.15 till 10.45", NOW);
+  assert.equal(s.start.toISOString(), "2026-10-02T13:15:00.000Z");
+  assert.equal(s.end.toISOString(), "2026-10-02T14:45:00.000Z");
+});

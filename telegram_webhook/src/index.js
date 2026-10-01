@@ -127,7 +127,7 @@ const DAY_FIRST_RE = new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?${M
 const MONTH_FIRST_RE = new RegExp(`\\b${MONTH_PAT}\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b(?:,?\\s+(\\d{4}))?`, "i");
 const ISO_DATE_RE = /\b(\d{4})-(\d{1,2})-(\d{1,2})\b/;
 const WEEKDAY_RE = new RegExp(`\\b(${WEEKDAYS.join("|")})\\b`, "i");
-const TIME_RANGE_RE = /(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:o'?clock\s*)?(?:-|\u2013|to|till|until|til)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i;
+const TIME_RANGE_RE = /(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm)?\s*(?:o'?clock\s*)?(?:-|\u2013|to|till|until|til)\s*(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm)?/i;
 
 function etParts(ms) {
   const parts = new Intl.DateTimeFormat("en-US", {
