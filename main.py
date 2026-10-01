@@ -17,7 +17,6 @@ from rules import (
     check_intrahour_swing_alerts,
     check_pct_change_alerts,
     check_rsi_alerts,
-    check_sma_crossover,
     check_value_change_alerts,
 )
 from storage import init_db, save_alert, save_readings
@@ -53,7 +52,7 @@ def poll_once() -> None:
     alerts = check_pct_change_alerts(prices)
     alerts += check_abs_change_alerts(prices)
     alerts += check_value_change_alerts(prices)
-    alerts += check_sma_crossover()
+    # SMA crossover alerts are disabled at the user's request (they repeated every poll in Telegram).
     alerts += check_rsi_alerts()
     swing_alerts = check_intrahour_swing_alerts(prices)
 
