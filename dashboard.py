@@ -112,45 +112,23 @@ st.caption(f"Page refreshes every 5 min · last loaded {now_local.strftime('%Y-%
 # column, which only ever covers the "today, no candle" case) -- one code path for both "today" and a
 # browsed historical date, and it always reflects the diagram code's current look even for an old row.
 FORECAST_DATE_KEY = "forecast_date_picker"
-FORECAST_SESSION_KEY = "forecast_session_picker"
-SESSIONS = ["Morning", "Midday"]
+FORECAST_RUN_KEY = "forecast_run_picker"  # 1-based run number within the selected date (TA1, TA2, ...)
+FORECAST_RUN_DATE_KEY = "forecast_run_picker_date"  # the date FORECAST_RUN_KEY was last reset for
 
 
-def load_forecast_sessions_for_date(d) -> list[str]:
-    """Which of Morning/Midday have a ta_forecasts row for this ET date, in that order -- gates the
-    session navigator's arrows and picks the fallback session when the currently selected one isn't
-    available for a newly selected date. A row with no `session` key at all (the very first-ever
-    forecast row, 23 Sep 2026 ~9:23am ET, predates the Morning/Midday split added later that same day)
-    counts as Morning, same as `load_forecast_for_date_session()` below."""
+def load_forecast_runs_for_date(d) -> list[dict]:
+    """Every ta_forecasts row for this ET date, oldest first. Their position is the run's name: the first
+    is TA1, the second TA2, and so on -- every run is reachable (scheduled or started by the Telegram
+    "run TA" command), instead of the old Morning/Midday slots where a second run replaced the first.
+    Includes `id` -- needed to look up each row's own Broker B trades for the diagram's per-level
+    outcome markers (see `load_broker_b_outcomes()`)."""
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "SELECT DISTINCT COALESCE(levels->>'session', 'Morning') FROM ta_forecasts WHERE forecast_date = %s",
+            "SELECT id, ts, analysis, levels FROM ta_forecasts WHERE forecast_date = %s ORDER BY ts, id",
             (d,),
         )
-        found = {r[0] for r in cur.fetchall()}
-    return [s for s in SESSIONS if s in found]
-
-
-def load_forecast_for_date_session(d, session: str) -> dict | None:
-    """The forecast for a specific ET date *and* session (Morning/Midday), or None if there isn't one.
-    `levels->>'session' IS NULL` counts as Morning: see `load_forecast_sessions_for_date()`'s docstring
-    for why. Includes `id` -- needed to look up this row's own Broker B trades for the diagram's
-    per-level outcome markers (see `load_broker_b_outcomes()`)."""
-    with get_connection() as conn, conn.cursor() as cur:
-        if session == "Morning":
-            cur.execute(
-                "SELECT id, ts, analysis, levels FROM ta_forecasts WHERE forecast_date = %s "
-                "AND (levels->>'session' = 'Morning' OR levels->>'session' IS NULL) ORDER BY ts DESC LIMIT 1",
-                (d,),
-            )
-        else:
-            cur.execute(
-                "SELECT id, ts, analysis, levels FROM ta_forecasts WHERE forecast_date = %s "
-                "AND levels->>'session' = %s ORDER BY ts DESC LIMIT 1",
-                (d, session),
-            )
-        row = cur.fetchone()
-    return {"id": row[0], "ts": row[1], "analysis": row[2], "levels": row[3]} if row else None
+        rows = cur.fetchall()
+    return [{"id": r[0], "ts": r[1], "analysis": r[2], "levels": r[3]} for r in rows]
 
 
 def load_broker_b_outcomes(forecast_id: int) -> dict[str, dict]:
@@ -296,44 +274,38 @@ if min_forecast_date is not None:
         )
     selected_date = st.session_state[FORECAST_DATE_KEY]
 
-    # A second ◀/▶ row lets Morning/Midday be picked independently of the date -- without it, once a
-    # Midday run prints, the Morning run for that same date becomes unreachable (the original bug
-    # report). Falls back to the latest available session for the date whenever the currently selected
-    # one doesn't exist there (first load, or after navigating to a date lacking it) -- matches what
-    # this section used to show by default (the single most recent row) -- but otherwise leaves a
-    # manually chosen session alone across reruns.
+    # A second ◀/▶ row picks which of the day's technical-analysis runs (TA1, TA2, ...) to show, so every
+    # run is reachable, not just one per Morning/Midday slot. A date change resets it to the latest run.
     try:
-        available_sessions = load_forecast_sessions_for_date(selected_date)
+        runs = load_forecast_runs_for_date(selected_date)
     except Exception as e:
-        st.error(f"Could not load available sessions for {selected_date}: {e}")
-        available_sessions = []
-    if FORECAST_SESSION_KEY not in st.session_state or st.session_state[FORECAST_SESSION_KEY] not in available_sessions:
-        st.session_state[FORECAST_SESSION_KEY] = available_sessions[-1] if available_sessions else "Morning"
+        st.error(f"Could not load the forecasts for {selected_date}: {e}")
+        runs = []
+    if (
+        st.session_state.get(FORECAST_RUN_DATE_KEY) != selected_date
+        or not 1 <= st.session_state.get(FORECAST_RUN_KEY, 0) <= len(runs)
+    ):
+        st.session_state[FORECAST_RUN_KEY] = max(len(runs), 1)
+        st.session_state[FORECAST_RUN_DATE_KEY] = selected_date
 
-    # Same st.rerun()-after-mutation fix as the date row above, and more visibly necessary here: both
-    # arrows' disabled= share one cur_idx computed before either button runs, so without forcing a
-    # fresh run, a click here left *both* arrows showing the pre-click (and therefore inverted) state
-    # on screen until some unrelated widget interaction happened to trigger a real rerun -- this was
-    # reported as "the arrows point the wrong way" after switching from Morning to Midday.
-    sess_prev, sess_label, sess_next = st.columns([1, 5, 1])
-    cur_idx = SESSIONS.index(st.session_state[FORECAST_SESSION_KEY])
-    with sess_prev:
-        if st.button("◀", key="forecast_session_prev",
-                     disabled=cur_idx <= 0 or SESSIONS[cur_idx - 1] not in available_sessions):
-            st.session_state[FORECAST_SESSION_KEY] = SESSIONS[cur_idx - 1]
+    # Same st.rerun()-after-mutation fix as the date row above (without it both arrows' disabled= stay
+    # one click stale, since they share cur_run computed before either button runs).
+    run_prev, run_label, run_next = st.columns([1, 5, 1])
+    cur_run = st.session_state[FORECAST_RUN_KEY]
+    with run_prev:
+        if st.button("◀", key="forecast_run_prev", disabled=cur_run <= 1):
+            st.session_state[FORECAST_RUN_KEY] = cur_run - 1
             st.rerun()
-    with sess_next:
-        if st.button("▶", key="forecast_session_next",
-                     disabled=cur_idx >= len(SESSIONS) - 1 or SESSIONS[cur_idx + 1] not in available_sessions):
-            st.session_state[FORECAST_SESSION_KEY] = SESSIONS[cur_idx + 1]
+    with run_next:
+        if st.button("▶", key="forecast_run_next", disabled=cur_run >= len(runs)):
+            st.session_state[FORECAST_RUN_KEY] = cur_run + 1
             st.rerun()
-    with sess_label:
+    with run_label:
         st.markdown(
             f"<div style='text-align:center;padding-top:6px;font-size:13px;color:#444;'>"
-            f"{st.session_state[FORECAST_SESSION_KEY]}</div>",
+            f"TA{cur_run}" + (f" of {len(runs)}" if runs else "") + "</div>",
             unsafe_allow_html=True,
         )
-    selected_session = st.session_state[FORECAST_SESSION_KEY]
 
     try:
         pnl = load_broker_pnl_for_date(selected_date)
@@ -353,7 +325,7 @@ if min_forecast_date is not None:
         )
 
     try:
-        forecast = load_forecast_for_date_session(selected_date, selected_session)
+        forecast = runs[cur_run - 1] if runs else None
         if forecast and selected_date != today_et:
             candle, live_price = load_gold_day_ohlc(selected_date), None
         else:
@@ -370,7 +342,7 @@ if min_forecast_date is not None:
         # of literal $ as inline LaTeX; two or more dollar amounts in the same string (the candle line
         # below) silently mangled into math notation before this was escaped.
         caption = (
-            f"{forecast_local.strftime('%Y-%m-%d %H:%M %Z')} ({levels.get('session') or 'Morning'}) · "
+            f"{forecast_local.strftime('%Y-%m-%d %H:%M %Z')} (TA{cur_run}) · "
             f"\\${levels.get('price', 0):,.2f} · {levels.get('bias', '?')} "
             f"(score {levels.get('bias_score', 0):+d}/6)"
         )
