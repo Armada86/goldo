@@ -527,6 +527,14 @@ without am/pm are read as pm. `check_broker_trades()`/`check_broker_b_trades()` 
 `trading_control.trading_pause_reason()` first: while paused they close any open trade at market (at the first
 poll inside a scheduled pause, so up to 5 minutes late) and open nothing. Fails open on a DB error.
 
+**`run TA` command**: the Worker dispatches `.github/workflows/ta_forecast.yml` through GitHub's `workflow_dispatch`
+API (`runTa()`), so a manual run is the exact same job as the 7am/12pm cron-job.org ones -- it grades the previous row,
+writes a new `ta_forecasts` row and sends it to Telegram. That row is the latest by `ts`, so it is automatically the
+"active" forecast for Broker B (`get_latest_ta_forecast()`) and the dashboard (its per-(date, session) lookups now
+take the *newest* row, `ORDER BY ts DESC`, so a second Morning/Midday run on the same day replaces the first on
+screen). Needs one extra Worker secret, `GITHUB_DISPATCH_TOKEN` (fine-grained token, Actions: read & write on this
+repo; the one cron-job.org uses works); optional `GITHUB_REPO` var (default `Armada86/goldo`).
+
 **Security**: every request's `X-Telegram-Bot-Api-Secret-Token` header is checked against a secret
 set when the webhook was registered (`setWebhook`'s own `secret_token` param) — a request that doesn't
 carry the right header is rejected outright (403), so the Worker can't be triggered by anyone who

@@ -140,13 +140,13 @@ def load_forecast_for_date_session(d, session: str) -> dict | None:
         if session == "Morning":
             cur.execute(
                 "SELECT id, ts, analysis, levels FROM ta_forecasts WHERE forecast_date = %s "
-                "AND (levels->>'session' = 'Morning' OR levels->>'session' IS NULL) ORDER BY ts LIMIT 1",
+                "AND (levels->>'session' = 'Morning' OR levels->>'session' IS NULL) ORDER BY ts DESC LIMIT 1",
                 (d,),
             )
         else:
             cur.execute(
                 "SELECT id, ts, analysis, levels FROM ta_forecasts WHERE forecast_date = %s "
-                "AND levels->>'session' = %s ORDER BY ts LIMIT 1",
+                "AND levels->>'session' = %s ORDER BY ts DESC LIMIT 1",
                 (d, session),
             )
         row = cur.fetchone()

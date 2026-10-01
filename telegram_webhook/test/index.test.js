@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseCommand, parseControlCommand, etToUtc, formatTs, pnl } from "../src/index.js";
+import { RUN_TA_RE, parseCommand, parseControlCommand, etToUtc, formatTs, pnl } from "../src/index.js";
 
 test("parseCommand: open commands, various phrasing", () => {
   assert.deepEqual(parseCommand("sell broker A"), { action: "open", tradeType: "Sell", brokerLetter: "A" });
@@ -83,4 +83,11 @@ test("parseControlCommand: rejects bad input instead of guessing", () => {
 test("etToUtc: DST boundaries", () => {
   assert.equal(etToUtc(2026, 11, 1, 12, 0).toISOString(), "2026-11-01T17:00:00.000Z"); // after fall-back
   assert.equal(etToUtc(2026, 7, 1, 12, 0).toISOString(), "2026-07-01T16:00:00.000Z");
+});
+
+test("run TA: matches its phrasings only", () => {
+  assert.ok(RUN_TA_RE.test("run TA"));
+  assert.ok(RUN_TA_RE.test("Run technical analysis please"));
+  assert.ok(!RUN_TA_RE.test("run tag"));
+  assert.ok(!RUN_TA_RE.test("stop trading"));
 });
