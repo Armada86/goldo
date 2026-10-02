@@ -249,7 +249,7 @@ indicators (any window) land alerts in the `alerts` table within a trailing 10 m
 direction — GLD/IAU/GLDM/GDX/GDXJ/RING up, DXY down (sell on the exact opposite, and it's 5-of-7, not
 all 7); US10Y is deliberately excluded from this indicator set (still alerted/frequency-tested like
 the others, just never consulted for a Broker entry — was included when this rule was
-`Consensus6of8`); close at $10 unrealized profit or $10 unrealized loss (`broker.STOP_LOSS_THRESHOLD`; briefly widened to $15 on 29-30 Sep 2026, back to $10), using a real 1-minute candle scan
+`Consensus6of8`); close at $10 unrealized profit or $10 unrealized loss (`broker.STOP_LOSS_THRESHOLD`; briefly widened to $15 on 29-30 Sep 2026, back to $10; the Telegram `make SL <n>` command overrides it for both brokers -- see below), using a real 1-minute candle scan
 (not a single point-in-time price) so a spike that briefly touched $10 and reversed before the next
 poll still closes at the true level (`broker._find_exit()`). **There is no TA-bias gate on either engine** -- Broker A's (skip a Buy while the latest forecast reads bearish, a
 Sell while bullish) was removed 30 Sep 2026 at the user's request; Broker B never had one. **Two further entry
@@ -548,6 +548,12 @@ keeps just its latest state, so past manual stops aren't shown.
 and stop-out flag reset and each of the four levels may trade again (`MAX_TRADES_PER_LEVEL` more times) off the current
 forecast. Entry still needs a fresh approach and touch, and every normal filter (hours, DXY, RSI, ADX, pauses) still applies.
 Broker A has no levels, so it is unaffected.
+
+**`make SL <n>` command (both brokers)**: "make SL 15" / "set stop loss 12.5" stores the stop-loss distance in a one-row
+`stop_loss_setting` table (Worker creates it on first use, `init_db()` too; 1-100, else an error reply and nothing changes).
+`broker.stop_loss_threshold()` reads it (falls back to `STOP_LOSS_THRESHOLD`, $10, if unset or on a DB error) and
+`_find_exit()` uses it for both brokers, so it applies to every later check, open trades included, until changed again.
+The take-profit stays $10. Docs: `docs/telegram-commands.md`.
 
 **`run TA` command**: the Worker dispatches `.github/workflows/ta_forecast.yml` through GitHub's `workflow_dispatch`
 API (`runTa()`), so a manual run is the exact same job as the 7am/12pm cron-job.org ones -- it grades the previous row,

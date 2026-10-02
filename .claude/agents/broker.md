@@ -109,7 +109,7 @@ $4,150.00 support level on 29 Sep 2026). A Buy enters on the ask and exits on th
 and exits on the ask. Where this spec below says "1-minute candles", read that.
 
 **Exit**: close the 1 oz position the first time its unrealized P/L reaches **+$10** (take profit) or
-**-$10** (stop loss; `broker.STOP_LOSS_THRESHOLD`, briefly $15 on 29-30 Sep 2026). Checked every poll (every 5 minutes), but not against a single live spot-price
+**-$10** (stop loss; `broker.STOP_LOSS_THRESHOLD`, briefly $15 on 29-30 Sep 2026; the Telegram `make SL <n>` command overrides it for both brokers, read via `broker.stop_loss_threshold()`). Checked every poll (every 5 minutes), but not against a single live spot-price
 sample — a poll-to-poll gap can hide a spike that touched the target and reversed before the next
 check. Instead, each poll fetches real 1-minute OHLC candles covering the time since the trade opened
 and scans their high/low for the first bar that actually touched +$10 or -$10, closing at that real
