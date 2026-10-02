@@ -4,7 +4,7 @@ Send `start stop loss analysis` or `start SLA` to the Telegram bot. It replays e
 Broker B trade against a grid of stop-loss and trailing-stop settings and sends back advice: a stop loss
 (for example -$10 or -$15) and a trailing stop (how much profit switches it on, and how far behind the best
 price it follows). It changes nothing. You apply the advice yourself with `make SL <n>` and
-`make trail <distance> activate <profit>`.
+`make trail <activation> <distance>` (for example `make trail 3 10`).
 
 Code: `stop_loss_analysis.py` (the analysis), `stop_loss_analysis_job.py` (reads trades and prices, sends the
 message), `.github/workflows/stop_loss_analysis.yml` (the job, started by the Worker the same way as `run TA`).

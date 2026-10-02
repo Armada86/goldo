@@ -126,16 +126,27 @@ test("make SL: rejects out-of-range values and ignores unrelated text", () => {
   assert.equal(parseStopLoss("make it rain"), null);
 });
 
+test("make trail: activation first, then distance", () => {
+  assert.deepEqual(parseTrail("make trail 3 10"), { activation: 3, distance: 10 });
+  assert.deepEqual(parseTrail("Make trail 3/10"), { activation: 3, distance: 10 });
+  assert.deepEqual(parseTrail("make trail 3 / 10"), { activation: 3, distance: 10 });
+  assert.deepEqual(parseTrail("make trail 3, 10"), { activation: 3, distance: 10 });
+  assert.deepEqual(parseTrail("make trail 3 and 10"), { activation: 3, distance: 10 });
+  assert.deepEqual(parseTrail("make trail $2.5 $7.5"), { activation: 2.5, distance: 7.5 });
+  assert.deepEqual(parseTrail("set trailing stop to 7 7"), { activation: 7, distance: 7 });
+  assert.ok(parseTrail("make trail 3 500").error);
+});
+
 test("make trail: distance, with activation defaulting to the same number", () => {
-  assert.deepEqual(parseTrail("make trail 7"), { distance: 7, activation: 7 });
-  assert.deepEqual(parseTrail("Set trailing stop to $5.5"), { distance: 5.5, activation: 5.5 });
-  assert.deepEqual(parseTrail("change the trailing-stop 8"), { distance: 8, activation: 8 });
+  assert.deepEqual(parseTrail("make trail 7"), { activation: 7, distance: 7 });
+  assert.deepEqual(parseTrail("Set trailing stop to $5.5"), { activation: 5.5, distance: 5.5 });
+  assert.deepEqual(parseTrail("change the trailing-stop 8"), { activation: 8, distance: 8 });
 });
 
 test("make trail: optional activation", () => {
-  assert.deepEqual(parseTrail("make trail 6 activate 8"), { distance: 6, activation: 8 });
-  assert.deepEqual(parseTrail("make trail 6 after $9"), { distance: 6, activation: 9 });
-  assert.deepEqual(parseTrail("make trail 6, activation at 4"), { distance: 6, activation: 4 });
+  assert.deepEqual(parseTrail("make trail 6 activate 8"), { activation: 8, distance: 6 });
+  assert.deepEqual(parseTrail("make trail 6 after $9"), { activation: 9, distance: 6 });
+  assert.deepEqual(parseTrail("make trail 6, activation at 4"), { activation: 4, distance: 6 });
 });
 
 test("make trail: rejects out-of-range values, ignores unrelated and stop-loss text", () => {
