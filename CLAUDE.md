@@ -565,7 +565,9 @@ the peak (conservative). The peak is recomputed from the bars every poll, so no 
 the point-price fallback can only judge the initial stop, and the next good scan closes the trade retroactively at the true level.
 Chosen after a backtest of 28 trades (+$42.46 vs +$40 for fixed $10/$10; tighter trails and early breakeven locks lost money --
 see the Stop Loss Analysis artifact). Broker B treats a close at breakeven or better as a win for its re-arm rule (stop-out = pnl < 0).
-`forex_broker.py` keeps its platform TP/SL at `EXIT_THRESHOLD`; the constants are code-only (no Telegram command to change them yet).
+`forex_broker.py` keeps its platform TP/SL at `EXIT_THRESHOLD`. The Telegram `make trail <distance> [activate <profit>]` command overrides the two constants
+for both brokers (`trailing_stop_setting` one-row table, created by the Worker on first use and by `init_db()`; 1-100 each, activation defaults to the
+distance; `broker.trailing_stop_params()` reads it once per `_find_exit()` and falls back to the constants on unset/DB error), open trades included.
 
 **`run TA` command**: the Worker dispatches `.github/workflows/ta_forecast.yml` through GitHub's `workflow_dispatch`
 API (`runTa()`), so a manual run is the exact same job as the 7am/12pm cron-job.org ones -- it grades the previous row,

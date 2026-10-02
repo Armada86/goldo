@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { REARM_RE, RUN_TA_RE, parseStopLoss, parseCommand, parseControlCommand, etToUtc, formatTs, pnl } from "../src/index.js";
+import { REARM_RE, RUN_TA_RE, parseStopLoss, parseTrail, parseCommand, parseControlCommand, etToUtc, formatTs, pnl } from "../src/index.js";
 
 test("parseCommand: open commands, various phrasing", () => {
   assert.deepEqual(parseCommand("sell broker A"), { action: "open", tradeType: "Sell", brokerLetter: "A" });
@@ -124,4 +124,25 @@ test("make SL: rejects out-of-range values and ignores unrelated text", () => {
   assert.equal(parseStopLoss("stop trading"), null);
   assert.equal(parseStopLoss("SL 15"), null);
   assert.equal(parseStopLoss("make it rain"), null);
+});
+
+test("make trail: distance, with activation defaulting to the same number", () => {
+  assert.deepEqual(parseTrail("make trail 7"), { distance: 7, activation: 7 });
+  assert.deepEqual(parseTrail("Set trailing stop to $5.5"), { distance: 5.5, activation: 5.5 });
+  assert.deepEqual(parseTrail("change the trailing-stop 8"), { distance: 8, activation: 8 });
+});
+
+test("make trail: optional activation", () => {
+  assert.deepEqual(parseTrail("make trail 6 activate 8"), { distance: 6, activation: 8 });
+  assert.deepEqual(parseTrail("make trail 6 after $9"), { distance: 6, activation: 9 });
+  assert.deepEqual(parseTrail("make trail 6, activation at 4"), { distance: 6, activation: 4 });
+});
+
+test("make trail: rejects out-of-range values, ignores unrelated and stop-loss text", () => {
+  assert.ok(parseTrail("make trail 0").error);
+  assert.ok(parseTrail("make trail 5 activate 500").error);
+  assert.equal(parseTrail("make SL 15"), null);
+  assert.equal(parseTrail("stop trading"), null);
+  assert.equal(parseStopLoss("make trail 7"), null);
+  assert.equal(parseTrail("make it rain"), null);
 });
