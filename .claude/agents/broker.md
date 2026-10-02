@@ -108,8 +108,8 @@ Twelve Data directly -- Twelve Data missed real touches the user's platform show
 $4,150.00 support level on 29 Sep 2026). A Buy enters on the ask and exits on the bid; a Sell enters on the bid
 and exits on the ask. Where this spec below says "1-minute candles", read that.
 
-**Exit**: close the 1 oz position the first time its unrealized P/L reaches **+$10** (take profit) or
-**-$10** (stop loss; `broker.STOP_LOSS_THRESHOLD`, briefly $15 on 29-30 Sep 2026; the Telegram `make SL <n>` command overrides it for both brokers, read via `broker.stop_loss_threshold()`). Checked every poll (every 5 minutes), but not against a single live spot-price
+**Exit** (changed 2 Oct 2026: **no fixed take-profit; trailing stop, $7 activation / $7 distance** -- `broker.TRAILING_STOP_ACTIVATION`/`TRAILING_STOP_DISTANCE`):
+close the 1 oz position when price hits the stop, which starts at **-$10** and, once the trade is $7 in profit, trails $7 behind the best price reached (never below breakeven after that). Where this section says +$10 / take profit below, read it as superseded. The initial stop is `broker.STOP_LOSS_THRESHOLD`, briefly $15 on 29-30 Sep 2026; the Telegram `make SL <n>` command overrides it for both brokers, read via `broker.stop_loss_threshold()`). Checked every poll (every 5 minutes), but not against a single live spot-price
 sample — a poll-to-poll gap can hide a spike that touched the target and reversed before the next
 check. Instead, each poll fetches real 1-minute OHLC candles covering the time since the trade opened
 and scans their high/low for the first bar that actually touched +$10 or -$10, closing at that real
@@ -232,9 +232,9 @@ or without a clean touch of the near edge, the fade is invalidated and no trade 
 up to **2 times per (forecast row, rule), re-arming only after a win** — see "Broker B: position
 sizing & concurrency" below.
 
-**Exit**: identical mechanism to Broker A — **+$10**/**-$10** unrealized P/L, real 1-minute candle
+**Exit**: identical mechanism to Broker A — trailing stop (initial -$10, $7/$7 trail, no fixed target), real 1-minute candle
 scan for the crossing (`broker._find_exit()`, imported directly, not reimplemented). This is
-independent of the forecast's own target ladder/stop distance — Broker B always uses the flat $10 take-profit / $10 stop-loss,
+independent of the forecast's own target ladder/stop distance — Broker B always uses the same trailing stop as Broker A,
 regardless of what the forecast's PLAN section says its stop/targets are. Same exit for all four rules
 below; not repeated per rule.
 

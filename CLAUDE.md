@@ -249,7 +249,7 @@ indicators (any window) land alerts in the `alerts` table within a trailing 10 m
 direction — GLD/IAU/GLDM/GDX/GDXJ/RING up, DXY down (sell on the exact opposite, and it's 5-of-7, not
 all 7); US10Y is deliberately excluded from this indicator set (still alerted/frequency-tested like
 the others, just never consulted for a Broker entry — was included when this rule was
-`Consensus6of8`); close at $10 unrealized profit or $10 unrealized loss (`broker.STOP_LOSS_THRESHOLD`; briefly widened to $15 on 29-30 Sep 2026, back to $10; the Telegram `make SL <n>` command overrides it for both brokers -- see below), using a real 1-minute candle scan
+`Consensus6of8`); exit on a **trailing stop** (2 Oct 2026; no fixed take-profit any more -- see "Trailing stop" below) that starts at the $10 stop-loss (`broker.STOP_LOSS_THRESHOLD`; briefly widened to $15 on 29-30 Sep 2026, back to $10; the Telegram `make SL <n>` command overrides it for both brokers -- see below), using a real 1-minute candle scan
 (not a single point-in-time price) so a spike that briefly touched $10 and reversed before the next
 poll still closes at the true level (`broker._find_exit()`). **There is no TA-bias gate on either engine** -- Broker A's (skip a Buy while the latest forecast reads bearish, a
 Sell while bullish) was removed 30 Sep 2026 at the user's request; Broker B never had one. **Two further entry
@@ -406,7 +406,7 @@ so the live numbers (clock time, DXY delta, RSI value) only ever land in the Tel
 the dedup key. Fixed 25 Sep 2026 — the original version put the live number straight into the dedup
 key, so the same ongoing block re-sent every ~5-minute poll instead of once.
 
-Same $10 take-profit / $10 stop-loss as Broker A (`broker._find_exit()`, imported directly
+Same trailing-stop exit as Broker A (`broker._find_exit()`, imported directly
 rather than reimplemented, so the two engines' exit math can't drift apart), same 1 oz size. Entirely
 separate Postgres `broker_b_trades` table (`trades`' columns plus `ta_forecast_id`, so a trade can be
 traced back to the exact forecast row/scenario that produced it) and separate open-trade tracking —
@@ -513,9 +513,9 @@ runtimes that can't hold a normal TCP pool open), `rule_name` set to `Telegram-b
 row exists yet to attribute the trade to, it replies explaining why instead of opening one. If no
 manual **close** command ever arrives, a Telegram-opened trade is still picked up and auto-closed the
 normal way by the existing Python poll (`check_broker_trades()`/`check_broker_b_trades()`, already
-scanning for the $10 take-profit / $10 stop-loss every 5 minutes) — the two paths don't conflict, they just
+scanning for the trailing stop every 5 minutes) — the two paths don't conflict, they just
 both watch the same `status = 'Open'` row. A **close** command is an unconditional override: it closes
-at whatever the current spot price is, regardless of unrealized P/L, unlike the automatic $10 target —
+at whatever the current spot price is, regardless of unrealized P/L, unlike the automatic trailing stop —
 the whole point of a manual close is to not wait for that target.
 
 **Trading on/off commands (`trading_control.py`, both brokers)**: three more messages the Worker understands,
@@ -553,7 +553,19 @@ Broker A has no levels, so it is unaffected.
 `stop_loss_setting` table (Worker creates it on first use, `init_db()` too; 1-100, else an error reply and nothing changes).
 `broker.stop_loss_threshold()` reads it (falls back to `STOP_LOSS_THRESHOLD`, $10, if unset or on a DB error) and
 `_find_exit()` uses it for both brokers, so it applies to every later check, open trades included, until changed again.
-The take-profit stays $10. Docs: `docs/telegram-commands.md`.
+It is the *initial* stop; the trailing stop below takes over once a trade is in profit. Docs: `docs/telegram-commands.md`.
+
+**Trailing stop, no take-profit (2 Oct 2026, both brokers)**: the fixed +$10 target is gone. `broker._scan_exit_crossing()` replays every
+1-minute bar since the trade opened (`_exit_bar_count()` fetches them, up to 3000) against a stop that starts at
+`-stop_loss_threshold()` and, once the trade has been `TRAILING_STOP_ACTIVATION` ($7) in profit, follows
+`TRAILING_STOP_DISTANCE` ($7) behind the best price reached (`_exit_stop_offset()`) -- so after activation it is at breakeven or
+better and only moves in the trade's favour; a trade that peaks at +$15 can't close below +$8. Exit price is the stop level
+(like before), on the bid for a Buy / ask for a Sell. Each bar is checked against the stop as it stood *before* that bar can raise
+the peak (conservative). The peak is recomputed from the bars every poll, so no extra state is stored; if the candle fetch fails
+the point-price fallback can only judge the initial stop, and the next good scan closes the trade retroactively at the true level.
+Chosen after a backtest of 28 trades (+$42.46 vs +$40 for fixed $10/$10; tighter trails and early breakeven locks lost money --
+see the Stop Loss Analysis artifact). Broker B treats a close at breakeven or better as a win for its re-arm rule (stop-out = pnl < 0).
+`forex_broker.py` keeps its platform TP/SL at `EXIT_THRESHOLD`; the constants are code-only (no Telegram command to change them yet).
 
 **`run TA` command**: the Worker dispatches `.github/workflows/ta_forecast.yml` through GitHub's `workflow_dispatch`
 API (`runTa()`), so a manual run is the exact same job as the 7am/12pm cron-job.org ones -- it grades the previous row,
