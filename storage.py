@@ -145,6 +145,15 @@ def init_db() -> None:
         )
         cur.execute(
             """
+            CREATE TABLE IF NOT EXISTS trailing_stop_setting (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                activation DOUBLE PRECISION NOT NULL,
+                distance DOUBLE PRECISION NOT NULL
+            )
+            """
+        )
+        cur.execute(
+            """
             CREATE TABLE IF NOT EXISTS stop_loss_setting (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
                 stop_loss DOUBLE PRECISION NOT NULL
@@ -931,6 +940,19 @@ def trade_b_level_history(ta_forecast_id: int, rule_name: str) -> dict:
         cur.execute(query, params)
         count, stopped_out, last_close_ts = cur.fetchone()
     return {"count": count, "stopped_out": stopped_out, "last_close_ts": last_close_ts}
+
+
+def get_trailing_stop_override() -> tuple[float, float] | None:
+    """(activation, distance) in $ per oz last set by the Telegram "make trail <n>" command
+    (telegram_webhook/), or None if it was never set. Both brokers' trailing stops use it in place
+    of broker.TRAILING_STOP_ACTIVATION / TRAILING_STOP_DISTANCE."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('trailing_stop_setting')")
+        if cur.fetchone()[0] is None:
+            return None
+        cur.execute("SELECT activation, distance FROM trailing_stop_setting WHERE id = 1")
+        row = cur.fetchone()
+    return (float(row[0]), float(row[1])) if row else None
 
 
 def get_stop_loss_override() -> float | None:

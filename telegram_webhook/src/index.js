@@ -58,6 +58,11 @@
  *                                                          stays at that value until changed again and also
  *                                                          applies to a trade that is already open
  *                                                          (stop_loss_setting table, read by broker.py)
+ *   "make trail 7" / "make trail 6 activate 8"          -> set the trailing stop for BOTH brokers: the first number is how
+ *                                                          far behind the best price the stop follows, the optional
+ *                                                          second one how much profit switches it on (default: the same
+ *                                                          number). Applies to open trades too (trailing_stop_setting
+ *                                                          table, read by broker.py)
  * Anything else is silently ignored -- no reply -- so the chat doesn't become a bot that talks
  * back to every unrelated message.
  *
@@ -293,6 +298,7 @@ async function rearmLevels(sql) {
 }
 
 const STOP_LOSS_RE = /\b(?:make|set|change)\s+(?:the\s+)?(?:sl|stop[\s-]?loss)\s*(?:to|at|=|:)?\s*\$?(\d+(?:[.,]\d+)?)/i;
+const TRAIL_RE = /\b(?:make|set|change)\s+(?:the\s+)?trail(?:ing)?(?:[\s-]*stop)?\s*(?:to|at|=|:)?\s*\$?(\d+(?:[.,]\d+)?)(?:\s*(?:,|and|with)?\s*(?:activat\w*|after|from|starting)\s*(?:at|when|to)?\s*\$?(\d+(?:[.,]\d+)?))?/i;
 const STOP_LOSS_MIN = 1;
 const STOP_LOSS_MAX = 100;
 
@@ -305,6 +311,32 @@ function parseStopLoss(text) {
     return { error: `Stop-loss must be between $${STOP_LOSS_MIN} and $${STOP_LOSS_MAX}. Nothing was changed.` };
   }
   return { value };
+}
+
+/** Returns null (not a trail command), {error}, or {distance, activation} (dollars per oz). Activation defaults to the distance. */
+function parseTrail(text) {
+  const m = TRAIL_RE.exec(text);
+  if (!m) return null;
+  const distance = Number(m[1].replace(",", "."));
+  const activation = m[2] === undefined ? distance : Number(m[2].replace(",", "."));
+  for (const v of [distance, activation]) {
+    if (!(v >= STOP_LOSS_MIN && v <= STOP_LOSS_MAX)) {
+      return { error: `Trailing-stop values must be between $${STOP_LOSS_MIN} and $${STOP_LOSS_MAX}. Nothing was changed.` };
+    }
+  }
+  return { distance, activation };
+}
+
+async function setTrail(sql, activation, distance) {
+  await sql`CREATE TABLE IF NOT EXISTS trailing_stop_setting (id INTEGER PRIMARY KEY CHECK (id = 1), activation DOUBLE PRECISION NOT NULL, distance DOUBLE PRECISION NOT NULL)`;
+  await sql`
+    INSERT INTO trailing_stop_setting (id, activation, distance) VALUES (1, ${activation}, ${distance})
+    ON CONFLICT (id) DO UPDATE SET activation = EXCLUDED.activation, distance = EXCLUDED.distance
+  `;
+  return (
+    `\u{1F4C8} Trailing stop set for Broker A and Broker B: it starts trailing once a trade is $${activation.toFixed(2)} in profit ` +
+    `and then follows $${distance.toFixed(2)} behind the best price. It applies to open trades too, and it stays until you change it.`
+  );
 }
 
 async function setStopLoss(sql, value) {
@@ -505,6 +537,13 @@ export default {
       return new Response("OK", { status: 200 });
     }
 
+    const trail = parseTrail(message.text);
+    if (trail) {
+      const trailReply = trail.error ? `${REJECT_MARKER}${trail.error}` : await setTrail(sql, trail.activation, trail.distance);
+      await sendTelegram(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, trailReply);
+      return new Response("OK", { status: 200 });
+    }
+
     const stopLoss = parseStopLoss(message.text);
     if (stopLoss) {
       const slReply = stopLoss.error ? `${REJECT_MARKER}${stopLoss.error}` : await setStopLoss(sql, stopLoss.value);
@@ -546,4 +585,4 @@ export default {
   },
 };
 
-export { REARM_RE, RUN_TA_RE, parseStopLoss, parseCommand, parseControlCommand, etToUtc, formatTs, pnl }; // exported for the test file only
+export { REARM_RE, RUN_TA_RE, parseStopLoss, parseTrail, parseCommand, parseControlCommand, etToUtc, formatTs, pnl }; // exported for the test file only

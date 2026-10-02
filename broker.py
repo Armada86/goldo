@@ -85,6 +85,7 @@ from storage import (
     get_recent_alerts,
     get_recent_readings,
     get_stop_loss_override,
+    get_trailing_stop_override,
     insert_trade,
     record_broker_a_blocked_if_new,
 )
@@ -99,7 +100,7 @@ STOP_LOSS_THRESHOLD = 10.0  # default stop-loss, $ per troy ounce -- was widened
 # (STOP_LOSS_THRESHOLD / the Telegram "make SL" value) and, once a trade has been TRAILING_STOP_ACTIVATION in
 # profit, follows TRAILING_STOP_DISTANCE behind the best price reached -- so after activation it sits at
 # breakeven or better and only moves in the trade's favour. $ per troy ounce.
-TRAILING_STOP_ACTIVATION = 7.0
+TRAILING_STOP_ACTIVATION = 7.0  # defaults; the Telegram "make trail <n>" command overrides both (trailing_stop_params())
 TRAILING_STOP_DISTANCE = 7.0
 
 # How many minutes of 1-min candles the exit check pulls each poll -- comfortably more than one
@@ -330,18 +331,41 @@ def stop_loss_threshold() -> float:
     return override if override is not None and override > 0 else STOP_LOSS_THRESHOLD
 
 
-def _exit_stop_offset(peak: float, stop_loss_distance: float) -> float:
+def trailing_stop_params() -> tuple[float, float]:
+    """(activation, distance) both brokers use right now: the values last set with the Telegram
+    "make trail <n>" command if there are any (they apply to open trades too), else the
+    TRAILING_STOP_* defaults. A DB error falls back to the defaults rather than blocking an exit."""
+    try:
+        override = get_trailing_stop_override()
+    except Exception:
+        return TRAILING_STOP_ACTIVATION, TRAILING_STOP_DISTANCE
+    if override is not None and override[0] > 0 and override[1] > 0:
+        return override
+    return TRAILING_STOP_ACTIVATION, TRAILING_STOP_DISTANCE
+
+
+def _exit_stop_offset(
+    peak: float, stop_loss_distance: float, activation: float | None = None, distance: float | None = None
+) -> float:
     """Where the stop sits relative to entry, in $ per oz in the trade's favour (negative = below
     entry for a Buy / above entry for a Sell), given the best profit `peak` reached so far. It starts
-    at -stop_loss_distance; once the trade has been TRAILING_STOP_ACTIVATION in profit it follows
-    TRAILING_STOP_DISTANCE behind the peak (so it never sits below entry after activation) and only
+    at -stop_loss_distance; once the trade has been `activation` in profit it follows
+    `distance` behind the peak (trailing_stop_params() when not given) (so it never sits below entry after activation) and only
     ever moves in the trade's favour."""
-    if peak < TRAILING_STOP_ACTIVATION:
+    if activation is None or distance is None:
+        activation, distance = trailing_stop_params()
+    if peak < activation:
         return -stop_loss_distance
-    return max(-stop_loss_distance, peak - TRAILING_STOP_DISTANCE)
+    return max(-stop_loss_distance, peak - distance)
 
 
-def _scan_exit_crossing(trade: dict, candles, stop_loss_distance: float | None = None) -> tuple[float, datetime] | None:
+def _scan_exit_crossing(
+    trade: dict,
+    candles,
+    stop_loss_distance: float | None = None,
+    activation: float | None = None,
+    distance: float | None = None,
+) -> tuple[float, datetime] | None:
     """Replays 1-min OHLC candles (all of them since the trade opened, in order) against this trade's
     trailing stop -- see the module docstring for why a candle scan beats a point-in-time price. There
     is no fixed take-profit (removed 2 Oct 2026): the only exit is the stop, which starts at
@@ -351,11 +375,13 @@ def _scan_exit_crossing(trade: dict, candles, stop_loss_distance: float | None =
     ordering when a single bar spans both."""
     if stop_loss_distance is None:
         stop_loss_distance = stop_loss_threshold()
+    if activation is None or distance is None:
+        activation, distance = trailing_stop_params()
     is_buy = trade["trade_type"] == "Buy"
     entry = float(trade["entry_price"])
     peak = 0.0  # best profit reached so far, $ per oz
     for _, bar in candles.iterrows():
-        offset = _exit_stop_offset(peak, stop_loss_distance)
+        offset = _exit_stop_offset(peak, stop_loss_distance, activation, distance)
         stop_price = entry + offset if is_buy else entry - offset
         hit = bar["low"] <= stop_price if is_buy else bar["high"] >= stop_price
         if hit:
@@ -379,6 +405,7 @@ def _find_exit(trade: dict, fallback_price: float, fallback_ts: datetime) -> tup
     if the candle fetch fails or turns up no crossing, so a Twelve Data hiccup never blocks a
     trade from closing at all."""
     stop_loss_distance = stop_loss_threshold()  # read once, so one check can't straddle a change
+    trail_activation, trail_distance = trailing_stop_params()
     try:
         # A Buy closes (sells) on the bid, a Sell closes (buys back) on the ask -- see price_bars.py.
         exit_side = "bid" if trade["trade_type"] == "Buy" else "ask"
@@ -389,7 +416,7 @@ def _find_exit(trade: dict, fallback_price: float, fallback_ts: datetime) -> tup
         # entry technically happened) -- scanning it for an exit crossing can otherwise close a
         # trade in the same minute it opened, at a P/L it never actually had a chance to earn.
         candles = candles[candles["datetime"] > trade["open_ts"]]
-        crossing = _scan_exit_crossing(trade, candles, stop_loss_distance)
+        crossing = _scan_exit_crossing(trade, candles, stop_loss_distance, trail_activation, trail_distance)
     except Exception:
         crossing = None  # best-effort accuracy improvement -- fall back below, don't block on it
 
