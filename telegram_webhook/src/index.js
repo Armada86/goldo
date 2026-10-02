@@ -63,6 +63,10 @@
  *                                                          second one how much profit switches it on (default: the same
  *                                                          number). Applies to open trades too (trailing_stop_setting
  *                                                          table, read by broker.py)
+ *   "start stop loss analysis" / "start SLA"           -> dispatch the stop_loss_analysis.yml GitHub workflow: it replays every
+ *                                                          closed trade against a grid of stop-loss / trailing-stop
+ *                                                          settings and sends advice here (Needs GITHUB_DISPATCH_TOKEN,
+ *                                                          like "run TA"). It changes nothing; apply it with make SL / make trail.
  * Anything else is silently ignored -- no reply -- so the chat doesn't become a bot that talks
  * back to every unrelated message.
  *
@@ -353,13 +357,13 @@ async function setStopLoss(sql, value) {
 
 const RUN_TA_RE = /\brun\s+(?:ta|technical\s+analysis)\b/i;
 
-/** Triggers ta_forecast.yml via GitHub's workflow_dispatch API; returns the Telegram reply text. */
-async function runTa(env) {
+/** Dispatches a GitHub Actions workflow via workflow_dispatch. Returns null on success, else the error reply text. */
+async function dispatchWorkflow(env, workflowFile, what) {
   if (!env.GITHUB_DISPATCH_TOKEN) {
-    return `${REJECT_MARKER}Run TA is not set up: the GITHUB_DISPATCH_TOKEN secret is missing on the Worker.`;
+    return `${REJECT_MARKER}${what} is not set up: the GITHUB_DISPATCH_TOKEN secret is missing on the Worker.`;
   }
   const repo = env.GITHUB_REPO || "Armada86/goldo";
-  const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/ta_forecast.yml/dispatches`, {
+  const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/${workflowFile}/dispatches`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${env.GITHUB_DISPATCH_TOKEN}`,
@@ -371,9 +375,28 @@ async function runTa(env) {
     body: JSON.stringify({ ref: "main" }),
   });
   if (res.status !== 204) {
-    return `${REJECT_MARKER}Could not start the TA run (GitHub replied ${res.status}). Check the GITHUB_DISPATCH_TOKEN permissions.`;
+    return `${REJECT_MARKER}Could not start ${what} (GitHub replied ${res.status}). Check the GITHUB_DISPATCH_TOKEN permissions.`;
   }
+  return null;
+}
+
+/** Triggers ta_forecast.yml via GitHub's workflow_dispatch API; returns the Telegram reply text. */
+async function runTa(env) {
+  const error = await dispatchWorkflow(env, "ta_forecast.yml", "the TA run");
+  if (error) return error;
   return "\u{1F4C8} Running a new technical analysis. It takes a minute or two; when it arrives here it is the active forecast.";
+}
+
+const SLA_RE = /\b(?:start|run)\s+(?:the\s+)?(?:sla|stop[\s-]?loss\s+analysis)\b/i;
+
+/** Triggers stop_loss_analysis.yml; the job sends its advice to this chat when it finishes. */
+async function runSla(env) {
+  const error = await dispatchWorkflow(env, "stop_loss_analysis.yml", "the stop loss analysis");
+  if (error) return error;
+  return (
+    "\u{1F4CA} Stop loss analysis started. It replays every closed trade against different stop-loss and trailing-stop settings. " +
+    "The advice arrives here in a few minutes (it paces its price requests). Nothing changes until you send make SL / make trail."
+  );
 }
 
 async function fetchGoldPrice(apiKey) {
@@ -525,6 +548,11 @@ export default {
       return new Response("OK", { status: 200 }); // unauthorized chat -- silently ignore
     }
 
+    if (SLA_RE.test(message.text)) {
+      await sendTelegram(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, await runSla(env));
+      return new Response("OK", { status: 200 });
+    }
+
     if (RUN_TA_RE.test(message.text)) {
       await sendTelegram(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, await runTa(env));
       return new Response("OK", { status: 200 });
@@ -585,4 +613,4 @@ export default {
   },
 };
 
-export { REARM_RE, RUN_TA_RE, parseStopLoss, parseTrail, parseCommand, parseControlCommand, etToUtc, formatTs, pnl }; // exported for the test file only
+export { REARM_RE, RUN_TA_RE, SLA_RE, parseStopLoss, parseTrail, parseCommand, parseControlCommand, etToUtc, formatTs, pnl }; // exported for the test file only
