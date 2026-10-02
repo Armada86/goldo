@@ -541,6 +541,12 @@ for Broker B).
 `ts` to the next run's (or the end of that ET day for the last run). Only scheduled pauses: a `stop trading` override
 keeps just its latest state, so past manual stops aren't shown.
 
+**`rearm levels` command (Broker B)**: the Worker writes the current time to a one-row `broker_b_rearm` table
+(`rearm_ts`); `storage.trade_b_level_history()` then counts only trades opened *after* it, so every level's trade count
+and stop-out flag reset and each of the four levels may trade again (`MAX_TRADES_PER_LEVEL` more times) off the current
+forecast. Entry still needs a fresh approach and touch, and every normal filter (hours, DXY, RSI, ADX, pauses) still applies.
+Broker A has no levels, so it is unaffected.
+
 **`run TA` command**: the Worker dispatches `.github/workflows/ta_forecast.yml` through GitHub's `workflow_dispatch`
 API (`runTa()`), so a manual run is the exact same job as the 7am/12pm cron-job.org ones -- it grades the previous row,
 writes a new `ta_forecasts` row and sends it to Telegram. That row is the latest by `ts`, so it is automatically the
