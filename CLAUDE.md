@@ -281,7 +281,9 @@ XAU/USD price alerts' 🟡 prefix, `rules.XAUUSD_ALERT_PREFIX`) in the chat. The
 line names only the flagging indicators (`broker._triggering_names()`, e.g. "GLD, GDX, GDXJ, RING,
 DXY") — deliberately no prices/swing sizes/thresholds, to keep the message short. The full detail
 (`broker._triggering_text()`) still goes into the `trades` row's `triggering_alerts` column for the
-Broker subagent's later analysis; only the Telegram message is trimmed. Every open/close message also
+Broker subagent's later analysis; only the Telegram message is trimmed. Every open/close message names the trade by its table id (`BROKER A #7`, `BROKER B #36` --
+`insert_trade()`/`insert_trade_b()` return it; the Telegram-command Worker does the same via `RETURNING id`), so a
+conversation can refer to a trade unambiguously; ids are per broker, so always read it with the broker letter. Every open/close message also
 ends with a `Filled: <date> <time> <tz>` line (`broker._format_ts()`, ET via the same `DISPLAY_TZ`
 convention `dashboard.py`/`ta_forecast_job.py` use) stating `open_ts`/`exit_ts` exactly — added 25 Sep
 2026 because a poll only runs every 5 minutes, so the Telegram message can arrive several minutes
