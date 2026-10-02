@@ -58,11 +58,11 @@
  *                                                          stays at that value until changed again and also
  *                                                          applies to a trade that is already open
  *                                                          (stop_loss_setting table, read by broker.py)
- *   "make trail 7" / "make trail 6 activate 8"          -> set the trailing stop for BOTH brokers: the first number is how
- *                                                          far behind the best price the stop follows, the optional
- *                                                          second one how much profit switches it on (default: the same
- *                                                          number). Applies to open trades too (trailing_stop_setting
- *                                                          table, read by broker.py)
+ *   "make trail 3 10" / "make trail 7"                 -> set the trailing stop for BOTH brokers: the FIRST number is how much
+ *                                                          profit switches it on (activation), the SECOND how far behind
+ *                                                          the best price it then follows (distance); one number sets both.
+ *                                                          "make trail 10 activate 3" also works (the keyword names the role).
+ *                                                          Applies to open trades too (trailing_stop_setting table, read by broker.py)
  *   "start stop loss analysis" / "start SLA"           -> dispatch the stop_loss_analysis.yml GitHub workflow: it replays every
  *                                                          closed trade against a grid of stop-loss / trailing-stop
  *                                                          settings and sends advice here (Needs GITHUB_DISPATCH_TOKEN,
@@ -302,7 +302,11 @@ async function rearmLevels(sql) {
 }
 
 const STOP_LOSS_RE = /\b(?:make|set|change)\s+(?:the\s+)?(?:sl|stop[\s-]?loss)\s*(?:to|at|=|:)?\s*\$?(\d+(?:[.,]\d+)?)/i;
-const TRAIL_RE = /\b(?:make|set|change)\s+(?:the\s+)?trail(?:ing)?(?:[\s-]*stop)?\s*(?:to|at|=|:)?\s*\$?(\d+(?:[.,]\d+)?)(?:\s*(?:,|and|with)?\s*(?:activat\w*|after|from|starting)\s*(?:at|when|to)?\s*\$?(\d+(?:[.,]\d+)?))?/i;
+const TRAIL_RE = /\b(?:make|set|change)\s+(?:the\s+)?trail(?:ing)?(?:[\s-]*stop)?\s*(?:to|at|=|:)?\s*\$?(\d+(?:[.,]\d+)?)([\s\S]*)$/i;
+// After the first number: an explicit "activate 8" (then the FIRST number is the distance), or a second number (then the
+// first is the activation and the second the distance: "make trail 3 10", "3/10", "3, 10", "3 and 10").
+const TRAIL_KEYWORD_RE = /^\s*(?:,|and|with)?\s*(?:activat\w*|after|from|starting)\s*(?:at|when|to)?\s*\$?(\d+(?:[.,]\d+)?)/i;
+const TRAIL_PAIR_RE = /^(?:\s*\/\s*|\s*,\s+|\s+and\s+|\s+)\$?(\d+(?:[.,]\d+)?)/i;
 const STOP_LOSS_MIN = 1;
 const STOP_LOSS_MAX = 100;
 
@@ -317,18 +321,32 @@ function parseStopLoss(text) {
   return { value };
 }
 
-/** Returns null (not a trail command), {error}, or {distance, activation} (dollars per oz). Activation defaults to the distance. */
+/**
+ * Returns null (not a trail command), {error}, or {activation, distance} (dollars per oz).
+ *   "make trail 3 10"            -> activation 3, distance 10 (activation first, then distance)
+ *   "make trail 7"               -> both 7
+ *   "make trail 10 activate 3"   -> distance 10, activation 3 (the keyword names the role)
+ */
 function parseTrail(text) {
   const m = TRAIL_RE.exec(text);
   if (!m) return null;
-  const distance = Number(m[1].replace(",", "."));
-  const activation = m[2] === undefined ? distance : Number(m[2].replace(",", "."));
+  const first = Number(m[1].replace(",", "."));
+  const rest = m[2] || "";
+  let activation = first;
+  let distance = first;
+  const keyword = TRAIL_KEYWORD_RE.exec(rest);
+  const pair = keyword ? null : TRAIL_PAIR_RE.exec(rest);
+  if (keyword) {
+    activation = Number(keyword[1].replace(",", "."));
+  } else if (pair) {
+    distance = Number(pair[1].replace(",", "."));
+  }
   for (const v of [distance, activation]) {
     if (!(v >= STOP_LOSS_MIN && v <= STOP_LOSS_MAX)) {
       return { error: `Trailing-stop values must be between $${STOP_LOSS_MIN} and $${STOP_LOSS_MAX}. Nothing was changed.` };
     }
   }
-  return { distance, activation };
+  return { activation, distance };
 }
 
 async function setTrail(sql, activation, distance) {

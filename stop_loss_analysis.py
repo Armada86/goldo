@@ -264,7 +264,7 @@ def format_report(result: dict, first_ts, last_ts, n_bid_ask: int, n_mid: int, n
         f"- Stop loss: -${_num(rec['stop_loss'])}",
         f"- Trailing stop: starts at +${_num(rec['activation'])}, follows ${_num(rec['distance'])} behind the best price",
         f"Replay result: {_money(rec['total'])} for this setting vs {_money(cur['total'])} for your current "
-        f"(-${_num(cur['stop_loss'])}, trail {_num(cur['activation'])}/{_num(cur['distance'])}). "
+        f"(-${_num(cur['stop_loss'])}, trail from +{_num(cur['activation'])}, {_num(cur['distance'])} behind). "
         f"The old fixed +$10 / -$10 rule: {_money(result['old_rule_total'])}.",
         f"Needs to beat the current by {_money(result['needed_gain'])} to advise a change; it beats it by {_money(result['gain'])} "
         f"({_money(rec['gain_without_best'])} without its single best trade, {rec['best_trade']}).",
@@ -274,13 +274,13 @@ def format_report(result: dict, first_ts, last_ts, n_bid_ask: int, n_mid: int, n
     for row in result["per_stop_loss"]:
         mark = "  <- advised" if row["stop_loss"] == rec["stop_loss"] else ""
         lines.append(
-            f"-${_num(row['stop_loss'])}: {_money(row['total'])}  (trail {_num(row['activation'])}/{_num(row['distance'])}){mark}"
+            f"-${_num(row['stop_loss'])}: {_money(row['total'])}  (trail from +{_num(row['activation'])}, {_num(row['distance'])} behind){mark}"
         )
     if result["alternatives"]:
         lines += ["", "Other settings that also scored well:"]
         for alt in result["alternatives"]:
             lines.append(
-                f"-${_num(alt['stop_loss'])}, trail {_num(alt['activation'])}/{_num(alt['distance'])}: {_money(alt['total'])}"
+                f"-${_num(alt['stop_loss'])}, trail from +{_num(alt['activation'])}, {_num(alt['distance'])} behind: {_money(alt['total'])}"
             )
     lines += [
         "",
@@ -297,6 +297,6 @@ def format_report(result: dict, first_ts, last_ts, n_bid_ask: int, n_mid: int, n
             "",
             "To apply:",
             f"make SL {_num(rec['stop_loss'])}",
-            f"make trail {_num(rec['distance'])} activate {_num(rec['activation'])}",
+            f"make trail {_num(rec['activation'])} {_num(rec['distance'])}",
         ]
     return "\n".join(lines)
