@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { REARM_RE, RUN_TA_RE, parseStopLoss, parseTrail, parseCommand, parseControlCommand, etToUtc, formatTs, pnl } from "../src/index.js";
+import { REARM_RE, RUN_TA_RE, SLA_RE, parseStopLoss, parseTrail, parseCommand, parseControlCommand, etToUtc, formatTs, pnl } from "../src/index.js";
 
 test("parseCommand: open commands, various phrasing", () => {
   assert.deepEqual(parseCommand("sell broker A"), { action: "open", tradeType: "Sell", brokerLetter: "A" });
@@ -145,4 +145,14 @@ test("make trail: rejects out-of-range values, ignores unrelated and stop-loss t
   assert.equal(parseTrail("stop trading"), null);
   assert.equal(parseStopLoss("make trail 7"), null);
   assert.equal(parseTrail("make it rain"), null);
+});
+
+test("start SLA: matches its phrasings only", () => {
+  assert.ok(SLA_RE.test("start SLA"));
+  assert.ok(SLA_RE.test("Start stop loss analysis"));
+  assert.ok(SLA_RE.test("run the stop-loss analysis"));
+  assert.ok(!SLA_RE.test("SLA"));
+  assert.ok(!SLA_RE.test("stop trading"));
+  assert.ok(!SLA_RE.test("make SL 15"));
+  assert.ok(!SLA_RE.test("start trading"));
 });

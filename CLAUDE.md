@@ -569,6 +569,14 @@ see the Stop Loss Analysis artifact). Broker B treats a close at breakeven or be
 for both brokers (`trailing_stop_setting` one-row table, created by the Worker on first use and by `init_db()`; 1-100 each, activation defaults to the
 distance; `broker.trailing_stop_params()` reads it once per `_find_exit()` and falls back to the constants on unset/DB error), open trades included.
 
+**`start SLA` command (stop loss analysis, 2 Oct 2026)**: "start stop loss analysis" / "start SLA" makes the Worker dispatch
+`.github/workflows/stop_loss_analysis.yml` (same `GITHUB_DISPATCH_TOKEN` mechanism as `run TA`, via the shared `dispatchWorkflow()`),
+which runs `stop_loss_analysis_job.py`: it reads every closed Broker A/B trade, fetches 1-minute bars (FOREX.com bid/ask for the last
+~2.8 days, Twelve Data mid before that, paced to the free tier's 8 calls/min, key sent in a header), replays each trade's entry against a
+grid of stop-loss / trailing-stop settings with the live exit rule (`stop_loss_analysis.py`, vectorised and checked against
+`broker._scan_exit_crossing()`; 5 PM ET horizon; one position at a time per broker) and sends advice to Telegram. It only advises -- the user
+applies it with `make SL` / `make trail`. Method, grid, advice rule and limits: `docs/stop-loss-analysis.md`.
+
 **`run TA` command**: the Worker dispatches `.github/workflows/ta_forecast.yml` through GitHub's `workflow_dispatch`
 API (`runTa()`), so a manual run is the exact same job as the 7am/12pm cron-job.org ones -- it grades the previous row,
 writes a new `ta_forecasts` row and sends it to Telegram. That row is the latest by `ts`, so it is automatically the

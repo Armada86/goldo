@@ -955,6 +955,25 @@ def get_trailing_stop_override() -> tuple[float, float] | None:
     return (float(row[0]), float(row[1])) if row else None
 
 
+def get_closed_trades_for_analysis(since: datetime) -> list[dict]:
+    """Every closed Broker A and Broker B trade opened at or after `since`, oldest first, for the
+    stop loss analysis (stop_loss_analysis_job.py). Only the entry matters to the replay, so trades that
+    were closed by hand or by a "stop trading" command are included like any other."""
+    rows: list[dict] = []
+    with get_connection() as conn, conn.cursor() as cur:
+        for table, broker in (("trades", "A"), ("broker_b_trades", "B")):
+            cur.execute(
+                f"SELECT id, rule_name, trade_type, entry_price, open_ts FROM {table} "
+                "WHERE status = 'Closed' AND open_ts >= %s ORDER BY open_ts",
+                (since,),
+            )
+            for trade_id, rule_name, trade_type, entry_price, open_ts in cur.fetchall():
+                rows.append({"broker": broker, "id": trade_id, "rule_name": rule_name, "trade_type": trade_type,
+                             "entry_price": float(entry_price), "open_ts": open_ts})
+    rows.sort(key=lambda r: r["open_ts"])
+    return rows
+
+
 def get_stop_loss_override() -> float | None:
     """The stop-loss ($ per oz) last set by the Telegram "make SL 15" command (telegram_webhook/), or
     None if it was never set. Both brokers' exits use it in place of broker.STOP_LOSS_THRESHOLD."""
