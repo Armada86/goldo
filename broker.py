@@ -19,7 +19,7 @@ real crossing entirely: if gold spikes past the $10 target and reverses before t
 point-in-time price at that next poll may be back under the target, and the trade would wrongly stay
 open with the missed profit unrecorded. _scan_exit_crossing() fixes this by fetching real 1-minute
 OHLC candles (fetch_candles(), Twelve Data) covering the window since the trade opened, and scanning
-each bar's high/low for the first point that actually crossed the $10 take-profit or $10 stop-loss level
+each bar's high/low for the first point that actually crossed the stop level (the stop-loss, then a trailing stop -- see TRAILING_STOP_* below)
 -- catching a spike-and-reverse the next poll's point sample alone would have missed, and closing at
 the true crossing price/time rather than whatever the spot price happens to be at poll time. This
 still only *detects* the crossing at the next poll (up to ~5 minutes after the real event) -- it fixes
@@ -92,13 +92,21 @@ from storage import (
 # Consensus5of7-buy / Consensus5of7-sell entry window and exit target -- see
 # .claude/agents/broker.md.
 ENTRY_WINDOW_MINUTES = 10
-EXIT_THRESHOLD = 10.0  # take-profit, $ per troy ounce (also what forex_broker.py uses for both its TP and SL)
+EXIT_THRESHOLD = 10.0  # NOT used by Broker A/B any more (their fixed take-profit was removed 2 Oct 2026); forex_broker.py still uses it for both its TP and SL
 STOP_LOSS_THRESHOLD = 10.0  # default stop-loss, $ per troy ounce -- was widened to $15 on 29 Sep 2026, back to $10 on 30 Sep 2026; Broker A and B only. The Telegram "make SL <n>" command overrides it (stop_loss_threshold())
+
+# Trailing stop (2 Oct 2026, both brokers; replaces the fixed $10 take-profit): the stop starts at the stop-loss
+# (STOP_LOSS_THRESHOLD / the Telegram "make SL" value) and, once a trade has been TRAILING_STOP_ACTIVATION in
+# profit, follows TRAILING_STOP_DISTANCE behind the best price reached -- so after activation it sits at
+# breakeven or better and only moves in the trade's favour. $ per troy ounce.
+TRAILING_STOP_ACTIVATION = 7.0
+TRAILING_STOP_DISTANCE = 7.0
 
 # How many minutes of 1-min candles the exit check pulls each poll -- comfortably more than one
 # 5-min poll interval, so a slightly late-firing poll still has full coverage back to the last
 # check. See _scan_exit_crossing() / module docstring.
 EXIT_CANDLE_LOOKBACK_MINUTES = 20
+EXIT_CANDLE_MAX_BARS = 3000  # the trailing stop needs every bar since entry, so a long-held trade fetches more
 
 # How far back the DXY confirmation check looks for a net move backing the trade -- see module
 # docstring's entry-filter entry. Matches broker_b._dxy_confirms()'s own window.
@@ -322,37 +330,47 @@ def stop_loss_threshold() -> float:
     return override if override is not None and override > 0 else STOP_LOSS_THRESHOLD
 
 
-def _exit_levels(trade: dict, stop_loss_distance: float | None = None) -> tuple[float, float]:
-    """(take_profit_price, stop_loss_price) for this trade -- EXIT_THRESHOLD ($10) in profit and
-    the stop-loss distance (stop_loss_threshold(), $10 unless overridden from Telegram) against, on
-    opposite sides, mirrored for Buy vs Sell."""
-    if stop_loss_distance is None:
-        stop_loss_distance = stop_loss_threshold()
-    entry = trade["entry_price"]
-    if trade["trade_type"] == "Buy":
-        return entry + EXIT_THRESHOLD, entry - stop_loss_distance
-    return entry - EXIT_THRESHOLD, entry + stop_loss_distance
+def _exit_stop_offset(peak: float, stop_loss_distance: float) -> float:
+    """Where the stop sits relative to entry, in $ per oz in the trade's favour (negative = below
+    entry for a Buy / above entry for a Sell), given the best profit `peak` reached so far. It starts
+    at -stop_loss_distance; once the trade has been TRAILING_STOP_ACTIVATION in profit it follows
+    TRAILING_STOP_DISTANCE behind the peak (so it never sits below entry after activation) and only
+    ever moves in the trade's favour."""
+    if peak < TRAILING_STOP_ACTIVATION:
+        return -stop_loss_distance
+    return max(-stop_loss_distance, peak - TRAILING_STOP_DISTANCE)
 
 
 def _scan_exit_crossing(trade: dict, candles, stop_loss_distance: float | None = None) -> tuple[float, datetime] | None:
-    """Scans 1-min OHLC candles in chronological order for the first bar whose high/low actually
-    touched this trade's take-profit or stop-loss level -- see module docstring for why this beats
-    comparing entry price to a single later point-in-time price. Returns (exit_price, exit_ts) at
-    the first bar that crossed either level, or None if neither level was touched in `candles`."""
-    take_profit, stop_loss = _exit_levels(trade, stop_loss_distance)
+    """Replays 1-min OHLC candles (all of them since the trade opened, in order) against this trade's
+    trailing stop -- see the module docstring for why a candle scan beats a point-in-time price. There
+    is no fixed take-profit (removed 2 Oct 2026): the only exit is the stop, which starts at
+    -stop_loss_distance and then trails behind the best price (_exit_stop_offset()). Returns
+    (stop_price, bar_time) for the first bar that touched the stop, or None. Each bar is checked
+    against the stop as it stood BEFORE that bar's own high/low can raise the peak, the conservative
+    ordering when a single bar spans both."""
+    if stop_loss_distance is None:
+        stop_loss_distance = stop_loss_threshold()
     is_buy = trade["trade_type"] == "Buy"
+    entry = float(trade["entry_price"])
+    peak = 0.0  # best profit reached so far, $ per oz
     for _, bar in candles.iterrows():
-        hit_tp = bar["high"] >= take_profit if is_buy else bar["low"] <= take_profit
-        hit_sl = bar["low"] <= stop_loss if is_buy else bar["high"] >= stop_loss
-        if hit_tp and hit_sl:
-            # Both levels fall inside the same 1-min bar -- an OHLC bar alone can't tell which was
-            # touched first. Conservatively assume the worse outcome for this imaginary trade.
-            return stop_loss, bar["datetime"].to_pydatetime()
-        if hit_tp:
-            return take_profit, bar["datetime"].to_pydatetime()
-        if hit_sl:
-            return stop_loss, bar["datetime"].to_pydatetime()
+        offset = _exit_stop_offset(peak, stop_loss_distance)
+        stop_price = entry + offset if is_buy else entry - offset
+        hit = bar["low"] <= stop_price if is_buy else bar["high"] >= stop_price
+        if hit:
+            return stop_price, bar["datetime"].to_pydatetime()
+        favourable = bar["high"] - entry if is_buy else entry - bar["low"]
+        peak = max(peak, favourable)
     return None
+
+
+def _exit_bar_count(trade: dict, now: datetime) -> int:
+    """How many 1-min bars to fetch: everything since the trade opened (the trailing stop depends on
+    the peak since entry), never fewer than EXIT_CANDLE_LOOKBACK_MINUTES and capped at
+    EXIT_CANDLE_MAX_BARS (FOREX.com serves ~4000 per call)."""
+    minutes = int((now - trade["open_ts"]).total_seconds() // 60) + 5
+    return max(EXIT_CANDLE_LOOKBACK_MINUTES, min(minutes, EXIT_CANDLE_MAX_BARS))
 
 
 def _find_exit(trade: dict, fallback_price: float, fallback_ts: datetime) -> tuple[float, datetime, float] | None:
@@ -364,7 +382,7 @@ def _find_exit(trade: dict, fallback_price: float, fallback_ts: datetime) -> tup
     try:
         # A Buy closes (sells) on the bid, a Sell closes (buys back) on the ask -- see price_bars.py.
         exit_side = "bid" if trade["trade_type"] == "Buy" else "ask"
-        candles = fetch_gold_bars(EXIT_CANDLE_LOOKBACK_MINUTES, exit_side)
+        candles = fetch_gold_bars(_exit_bar_count(trade, fallback_ts), exit_side)
         # Strictly after open_ts, not >=: the entry candle's own high/low can span a level the
         # entry price sits nowhere near reaching yet (e.g. Broker B fills mid-candle at the near
         # edge of a level, but that same candle's low already touched the take-profit *before* the
@@ -380,7 +398,9 @@ def _find_exit(trade: dict, fallback_price: float, fallback_ts: datetime) -> tup
         return exit_price, exit_ts, _pnl(trade, exit_price)
 
     pnl = _pnl(trade, fallback_price)
-    if pnl >= EXIT_THRESHOLD or pnl <= -stop_loss_distance:
+    # Point-price fallback (candle fetch failed): only the initial stop can be judged from one price; the
+    # trailing part is picked up by the next successful candle scan, which replays every bar since entry.
+    if pnl <= -stop_loss_distance:
         return fallback_price, fallback_ts, pnl
     return None
 
@@ -431,7 +451,7 @@ def _notify_blocked(
 
 def check_broker_trades(prices: dict[str, float]) -> None:
     """Runs once per poll, after this cycle's alerts are saved. Closes the open trade (if any) the
-    moment its unrealized P/L reaches the $10 take-profit or $10 stop-loss, then looks for a fresh
+    moment the trailing stop (or the initial stop-loss) is hit, then looks for a fresh
     Consensus5of7-buy/-sell entry signal -- at least MIN_FLAGGING_COUNT (5) of the seven
     intrahour-swing indicators, in the required directions, landing in the alerts table within the
     trailing ENTRY_WINDOW_MINUTES (10) minutes -- gated by the trading-hours

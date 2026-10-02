@@ -32,7 +32,7 @@
  *   "close broker a" / "close broker B"                -> close that broker's open position NOW,
  *                                                          at the current spot price, regardless
  *                                                          of unrealized P/L (unlike the automatic
- *                                                          $10 take-profit/stop-loss, a manual
+ *                                                          trailing stop, a manual
  *                                                          close is an unconditional override)
  *   "stop trading"                                     -> close BOTH brokers' open positions at spot and
  *                                                          pause all trading until the program's own
@@ -71,7 +71,8 @@
 
 import { neon } from "@neondatabase/serverless";
 
-const EXIT_THRESHOLD = 10.0; // must match broker.EXIT_THRESHOLD / broker_b's same constant
+const TRAILING_STOP_ACTIVATION = 7.0; // must match broker.TRAILING_STOP_ACTIVATION (no fixed take-profit any more)
+const TRAILING_STOP_DISTANCE = 7.0; // must match broker.TRAILING_STOP_DISTANCE
 
 const TRADE_ALERT_PREFIX_A = "\u{1F535} "; // blue circle -- broker.TRADE_ALERT_PREFIX
 const PROFIT_MARKER_A = "\u{1F7E2} "; // green circle -- broker.PROFIT_MARKER
@@ -314,7 +315,7 @@ async function setStopLoss(sql, value) {
   `;
   return (
     `\u{1F6D1} Stop-loss set to $${value.toFixed(2)} for Broker A and Broker B. ` +
-    `It stays at $${value.toFixed(2)} until you change it, and applies to open trades too (take-profit stays $${EXIT_THRESHOLD.toFixed(0)}).`
+    `It stays at $${value.toFixed(2)} until you change it, and applies to open trades too (no fixed take-profit: once a trade is $${TRAILING_STOP_ACTIVATION.toFixed(0)} up, the stop trails $${TRAILING_STOP_DISTANCE.toFixed(0)} behind its best price).`
   );
 }
 
@@ -405,7 +406,7 @@ async function closeBrokerA(sql, apiKey) {
   return (
     `${TRADE_ALERT_PREFIX_A.trimEnd()}${marker}BROKER A #${trade.id}: closed ${trade.trade_type} 1 oz XAU/USD @ $${price.toFixed(2)} ` +
     `(opened @ $${trade.entry_price.toFixed(2)}, rule ${trade.rule_name}) -- ${result} of $${Math.abs(p).toFixed(2)} ` +
-    `(manual close via Telegram, not the $${EXIT_THRESHOLD.toFixed(0)} auto-target)\n` +
+    `(manual close via Telegram, not the automatic trailing stop)\n` +
     `Filled: ${formatTs(now)}`
   );
 }
@@ -461,7 +462,7 @@ async function closeBrokerB(sql, apiKey) {
   return (
     `${TRADE_ALERT_PREFIX_B.trimEnd()}${marker}BROKER B #${trade.id}: closed ${trade.trade_type} 1 oz XAU/USD @ $${price.toFixed(2)} ` +
     `(opened @ $${trade.entry_price.toFixed(2)}, rule ${trade.rule_name}) -- ${result} of $${Math.abs(p).toFixed(2)} ` +
-    `(manual close via Telegram, not the $${EXIT_THRESHOLD.toFixed(0)} auto-target)\n` +
+    `(manual close via Telegram, not the automatic trailing stop)\n` +
     `Filled: ${formatTs(now)}`
   );
 }
