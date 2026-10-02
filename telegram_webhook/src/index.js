@@ -54,6 +54,10 @@
  *                                                          TA levels, so each level can trade again (up to
  *                                                          its normal per-level limit); the Python poll reads
  *                                                          the rearm time (broker_b_rearm table)
+ *   "make SL 15" / "set stop loss 12.5"                -> set the stop-loss ($ per oz, 1-100) for BOTH brokers; it
+ *                                                          stays at that value until changed again and also
+ *                                                          applies to a trade that is already open
+ *                                                          (stop_loss_setting table, read by broker.py)
  * Anything else is silently ignored -- no reply -- so the chat doesn't become a bot that talks
  * back to every unrelated message.
  *
@@ -287,6 +291,33 @@ async function rearmLevels(sql) {
   );
 }
 
+const STOP_LOSS_RE = /\b(?:make|set|change)\s+(?:the\s+)?(?:sl|stop[\s-]?loss)\s*(?:to|at|=|:)?\s*\$?(\d+(?:[.,]\d+)?)/i;
+const STOP_LOSS_MIN = 1;
+const STOP_LOSS_MAX = 100;
+
+/** Returns null (not a stop-loss command), {error}, or {value} (dollars per oz). */
+function parseStopLoss(text) {
+  const m = STOP_LOSS_RE.exec(text);
+  if (!m) return null;
+  const value = Number(m[1].replace(",", "."));
+  if (!(value >= STOP_LOSS_MIN && value <= STOP_LOSS_MAX)) {
+    return { error: `Stop-loss must be between $${STOP_LOSS_MIN} and $${STOP_LOSS_MAX}. Nothing was changed.` };
+  }
+  return { value };
+}
+
+async function setStopLoss(sql, value) {
+  await sql`CREATE TABLE IF NOT EXISTS stop_loss_setting (id INTEGER PRIMARY KEY CHECK (id = 1), stop_loss DOUBLE PRECISION NOT NULL)`;
+  await sql`
+    INSERT INTO stop_loss_setting (id, stop_loss) VALUES (1, ${value})
+    ON CONFLICT (id) DO UPDATE SET stop_loss = EXCLUDED.stop_loss
+  `;
+  return (
+    `\u{1F6D1} Stop-loss set to $${value.toFixed(2)} for Broker A and Broker B. ` +
+    `It stays at $${value.toFixed(2)} until you change it, and applies to open trades too (take-profit stays $${EXIT_THRESHOLD.toFixed(0)}).`
+  );
+}
+
 const RUN_TA_RE = /\brun\s+(?:ta|technical\s+analysis)\b/i;
 
 /** Triggers ta_forecast.yml via GitHub's workflow_dispatch API; returns the Telegram reply text. */
@@ -473,6 +504,13 @@ export default {
       return new Response("OK", { status: 200 });
     }
 
+    const stopLoss = parseStopLoss(message.text);
+    if (stopLoss) {
+      const slReply = stopLoss.error ? `${REJECT_MARKER}${stopLoss.error}` : await setStopLoss(sql, stopLoss.value);
+      await sendTelegram(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, slReply);
+      return new Response("OK", { status: 200 });
+    }
+
     const control = parseControlCommand(message.text);
     if (control) {
       let controlReply;
@@ -507,4 +545,4 @@ export default {
   },
 };
 
-export { REARM_RE, RUN_TA_RE, parseCommand, parseControlCommand, etToUtc, formatTs, pnl }; // exported for the test file only
+export { REARM_RE, RUN_TA_RE, parseStopLoss, parseCommand, parseControlCommand, etToUtc, formatTs, pnl }; // exported for the test file only

@@ -84,6 +84,7 @@ from storage import (
     get_open_trade,
     get_recent_alerts,
     get_recent_readings,
+    get_stop_loss_override,
     insert_trade,
     record_broker_a_blocked_if_new,
 )
@@ -92,7 +93,7 @@ from storage import (
 # .claude/agents/broker.md.
 ENTRY_WINDOW_MINUTES = 10
 EXIT_THRESHOLD = 10.0  # take-profit, $ per troy ounce (also what forex_broker.py uses for both its TP and SL)
-STOP_LOSS_THRESHOLD = 10.0  # stop-loss, $ per troy ounce -- was widened to $15 on 29 Sep 2026, back to $10 on 30 Sep 2026; Broker A and B only
+STOP_LOSS_THRESHOLD = 10.0  # default stop-loss, $ per troy ounce -- was widened to $15 on 29 Sep 2026, back to $10 on 30 Sep 2026; Broker A and B only. The Telegram "make SL <n>" command overrides it (stop_loss_threshold())
 
 # How many minutes of 1-min candles the exit check pulls each poll -- comfortably more than one
 # 5-min poll interval, so a slightly late-firing poll still has full coverage back to the last
@@ -310,21 +311,35 @@ def _pnl(trade: dict, current_price: float) -> float:
     return trade["entry_price"] - current_price
 
 
-def _exit_levels(trade: dict) -> tuple[float, float]:
+def stop_loss_threshold() -> float:
+    """The stop-loss distance ($ per oz) both brokers use right now: the value last set with the
+    Telegram "make SL <n>" command if there is one (it applies to open trades too), else
+    STOP_LOSS_THRESHOLD. A DB error falls back to the default rather than blocking an exit."""
+    try:
+        override = get_stop_loss_override()
+    except Exception:
+        return STOP_LOSS_THRESHOLD
+    return override if override is not None and override > 0 else STOP_LOSS_THRESHOLD
+
+
+def _exit_levels(trade: dict, stop_loss_distance: float | None = None) -> tuple[float, float]:
     """(take_profit_price, stop_loss_price) for this trade -- EXIT_THRESHOLD ($10) in profit and
-    STOP_LOSS_THRESHOLD ($10) against, on opposite sides, mirrored for Buy vs Sell."""
+    the stop-loss distance (stop_loss_threshold(), $10 unless overridden from Telegram) against, on
+    opposite sides, mirrored for Buy vs Sell."""
+    if stop_loss_distance is None:
+        stop_loss_distance = stop_loss_threshold()
     entry = trade["entry_price"]
     if trade["trade_type"] == "Buy":
-        return entry + EXIT_THRESHOLD, entry - STOP_LOSS_THRESHOLD
-    return entry - EXIT_THRESHOLD, entry + STOP_LOSS_THRESHOLD
+        return entry + EXIT_THRESHOLD, entry - stop_loss_distance
+    return entry - EXIT_THRESHOLD, entry + stop_loss_distance
 
 
-def _scan_exit_crossing(trade: dict, candles) -> tuple[float, datetime] | None:
+def _scan_exit_crossing(trade: dict, candles, stop_loss_distance: float | None = None) -> tuple[float, datetime] | None:
     """Scans 1-min OHLC candles in chronological order for the first bar whose high/low actually
     touched this trade's take-profit or stop-loss level -- see module docstring for why this beats
     comparing entry price to a single later point-in-time price. Returns (exit_price, exit_ts) at
     the first bar that crossed either level, or None if neither level was touched in `candles`."""
-    take_profit, stop_loss = _exit_levels(trade)
+    take_profit, stop_loss = _exit_levels(trade, stop_loss_distance)
     is_buy = trade["trade_type"] == "Buy"
     for _, bar in candles.iterrows():
         hit_tp = bar["high"] >= take_profit if is_buy else bar["low"] <= take_profit
@@ -345,6 +360,7 @@ def _find_exit(trade: dict, fallback_price: float, fallback_ts: datetime) -> tup
     intrabar candle path first; falls back to the plain point-price check (the original behavior)
     if the candle fetch fails or turns up no crossing, so a Twelve Data hiccup never blocks a
     trade from closing at all."""
+    stop_loss_distance = stop_loss_threshold()  # read once, so one check can't straddle a change
     try:
         # A Buy closes (sells) on the bid, a Sell closes (buys back) on the ask -- see price_bars.py.
         exit_side = "bid" if trade["trade_type"] == "Buy" else "ask"
@@ -355,7 +371,7 @@ def _find_exit(trade: dict, fallback_price: float, fallback_ts: datetime) -> tup
         # entry technically happened) -- scanning it for an exit crossing can otherwise close a
         # trade in the same minute it opened, at a P/L it never actually had a chance to earn.
         candles = candles[candles["datetime"] > trade["open_ts"]]
-        crossing = _scan_exit_crossing(trade, candles)
+        crossing = _scan_exit_crossing(trade, candles, stop_loss_distance)
     except Exception:
         crossing = None  # best-effort accuracy improvement -- fall back below, don't block on it
 
@@ -364,7 +380,7 @@ def _find_exit(trade: dict, fallback_price: float, fallback_ts: datetime) -> tup
         return exit_price, exit_ts, _pnl(trade, exit_price)
 
     pnl = _pnl(trade, fallback_price)
-    if pnl >= EXIT_THRESHOLD or pnl <= -STOP_LOSS_THRESHOLD:
+    if pnl >= EXIT_THRESHOLD or pnl <= -stop_loss_distance:
         return fallback_price, fallback_ts, pnl
     return None
 

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { REARM_RE, RUN_TA_RE, parseCommand, parseControlCommand, etToUtc, formatTs, pnl } from "../src/index.js";
+import { REARM_RE, RUN_TA_RE, parseStopLoss, parseCommand, parseControlCommand, etToUtc, formatTs, pnl } from "../src/index.js";
 
 test("parseCommand: open commands, various phrasing", () => {
   assert.deepEqual(parseCommand("sell broker A"), { action: "open", tradeType: "Sell", brokerLetter: "A" });
@@ -108,4 +108,20 @@ test("rearm levels: matches its phrasings only", () => {
   assert.ok(REARM_RE.test("REARM LEVEL"));
   assert.ok(!REARM_RE.test("rearm"));
   assert.ok(!REARM_RE.test("stop trading"));
+});
+
+test("make SL: sets the stop-loss from its phrasings", () => {
+  assert.deepEqual(parseStopLoss("make SL 15"), { value: 15 });
+  assert.deepEqual(parseStopLoss("Make SL 10"), { value: 10 });
+  assert.deepEqual(parseStopLoss("set stop loss to 12.5"), { value: 12.5 });
+  assert.deepEqual(parseStopLoss("make the stop-loss $20"), { value: 20 });
+  assert.deepEqual(parseStopLoss("make SL 7,5"), { value: 7.5 });
+});
+
+test("make SL: rejects out-of-range values and ignores unrelated text", () => {
+  assert.ok(parseStopLoss("make SL 0").error);
+  assert.ok(parseStopLoss("make SL 500").error);
+  assert.equal(parseStopLoss("stop trading"), null);
+  assert.equal(parseStopLoss("SL 15"), null);
+  assert.equal(parseStopLoss("make it rain"), null);
 });

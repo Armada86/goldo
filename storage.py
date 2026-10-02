@@ -145,6 +145,14 @@ def init_db() -> None:
         )
         cur.execute(
             """
+            CREATE TABLE IF NOT EXISTS stop_loss_setting (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                stop_loss DOUBLE PRECISION NOT NULL
+            )
+            """
+        )
+        cur.execute(
+            """
             CREATE TABLE IF NOT EXISTS trading_pauses (
                 id SERIAL PRIMARY KEY,
                 start_ts TIMESTAMPTZ NOT NULL,
@@ -923,6 +931,18 @@ def trade_b_level_history(ta_forecast_id: int, rule_name: str) -> dict:
         cur.execute(query, params)
         count, stopped_out, last_close_ts = cur.fetchone()
     return {"count": count, "stopped_out": stopped_out, "last_close_ts": last_close_ts}
+
+
+def get_stop_loss_override() -> float | None:
+    """The stop-loss ($ per oz) last set by the Telegram "make SL 15" command (telegram_webhook/), or
+    None if it was never set. Both brokers' exits use it in place of broker.STOP_LOSS_THRESHOLD."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('stop_loss_setting')")
+        if cur.fetchone()[0] is None:
+            return None
+        cur.execute("SELECT stop_loss FROM stop_loss_setting WHERE id = 1")
+        row = cur.fetchone()
+    return float(row[0]) if row else None
 
 
 def get_last_close_ts_b() -> datetime | None:
