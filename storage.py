@@ -137,6 +137,14 @@ def init_db() -> None:
         )
         cur.execute(
             """
+            CREATE TABLE IF NOT EXISTS broker_b_rearm (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                rearm_ts TIMESTAMPTZ NOT NULL
+            )
+            """
+        )
+        cur.execute(
+            """
             CREATE TABLE IF NOT EXISTS trading_pauses (
                 id SERIAL PRIMARY KEY,
                 start_ts TIMESTAMPTZ NOT NULL,
@@ -892,11 +900,23 @@ def trade_b_level_history(ta_forecast_id: int, rule_name: str) -> dict:
     means the level broke, so it's never re-traded off this forecast), and when the latest one
     closed (a re-entry only counts touches after that, never the touch that opened the last trade)."""
     with get_connection() as conn, conn.cursor() as cur:
-        cur.execute(
+        # Telegram "rearm levels" (see telegram_webhook/): trades opened at or before the rearm time no
+        # longer count, neither their number nor any stop-out -- every level gets a fresh budget.
+        cur.execute("SELECT to_regclass('broker_b_rearm')")
+        rearm_ts = None
+        if cur.fetchone()[0] is not None:
+            cur.execute("SELECT rearm_ts FROM broker_b_rearm WHERE id = 1")
+            row = cur.fetchone()
+            rearm_ts = row[0] if row else None
+        query = (
             "SELECT COUNT(*), COALESCE(BOOL_OR(pnl < 0), FALSE), MAX(close_ts) FROM broker_b_trades "
-            "WHERE ta_forecast_id = %s AND rule_name = %s",
-            (ta_forecast_id, rule_name),
+            "WHERE ta_forecast_id = %s AND rule_name = %s"
         )
+        params: tuple = (ta_forecast_id, rule_name)
+        if rearm_ts is not None:
+            query += " AND open_ts > %s"
+            params += (rearm_ts,)
+        cur.execute(query, params)
         count, stopped_out, last_close_ts = cur.fetchone()
     return {"count": count, "stopped_out": stopped_out, "last_close_ts": last_close_ts}
 

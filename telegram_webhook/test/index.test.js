@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { RUN_TA_RE, parseCommand, parseControlCommand, etToUtc, formatTs, pnl } from "../src/index.js";
+import { REARM_RE, RUN_TA_RE, parseCommand, parseControlCommand, etToUtc, formatTs, pnl } from "../src/index.js";
 
 test("parseCommand: open commands, various phrasing", () => {
   assert.deepEqual(parseCommand("sell broker A"), { action: "open", tradeType: "Sell", brokerLetter: "A" });
@@ -100,4 +100,12 @@ test("parseControlCommand: '.' works as the minutes separator (10.30 am)", () =>
   const s = parseControlCommand("stop trading 2 oct 2026 from 9.15 till 10.45", NOW);
   assert.equal(s.start.toISOString(), "2026-10-02T13:15:00.000Z");
   assert.equal(s.end.toISOString(), "2026-10-02T14:45:00.000Z");
+});
+
+test("rearm levels: matches its phrasings only", () => {
+  assert.ok(REARM_RE.test("rearm levels"));
+  assert.ok(REARM_RE.test("Re-arm all levels"));
+  assert.ok(REARM_RE.test("REARM LEVEL"));
+  assert.ok(!REARM_RE.test("rearm"));
+  assert.ok(!REARM_RE.test("stop trading"));
 });

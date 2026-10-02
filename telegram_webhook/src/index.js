@@ -50,6 +50,10 @@
  *                                                          latest one -- what Broker B trades and the
  *                                                          dashboard shows -- and sends it to Telegram.
  *                                                          Needs the GITHUB_DISPATCH_TOKEN secret.
+ *   "rearm levels"                                     -> Broker B: forget every earlier trade/stop-out on the
+ *                                                          TA levels, so each level can trade again (up to
+ *                                                          its normal per-level limit); the Python poll reads
+ *                                                          the rearm time (broker_b_rearm table)
  * Anything else is silently ignored -- no reply -- so the chat doesn't become a bot that talks
  * back to every unrelated message.
  *
@@ -269,6 +273,20 @@ async function schedulePause(sql, start, end) {
   );
 }
 
+const REARM_RE = /\bre-?arm\s+(?:all\s+)?levels?\b/i;
+
+async function rearmLevels(sql) {
+  await sql`CREATE TABLE IF NOT EXISTS broker_b_rearm (id INTEGER PRIMARY KEY CHECK (id = 1), rearm_ts TIMESTAMPTZ NOT NULL)`;
+  await sql`
+    INSERT INTO broker_b_rearm (id, rearm_ts) VALUES (1, ${new Date().toISOString()})
+    ON CONFLICT (id) DO UPDATE SET rearm_ts = EXCLUDED.rearm_ts
+  `;
+  return (
+    `${TRADE_ALERT_PREFIX_B.trimEnd()}\u{1F501} BROKER B: all levels re-armed. Earlier trades and stop-outs no longer count, ` +
+    "so each level can trade again. A level still needs a fresh approach and touch before it fires."
+  );
+}
+
 const RUN_TA_RE = /\brun\s+(?:ta|technical\s+analysis)\b/i;
 
 /** Triggers ta_forecast.yml via GitHub's workflow_dispatch API; returns the Telegram reply text. */
@@ -448,6 +466,11 @@ export default {
 
     const sql = neon(env.DATABASE_URL);
 
+    if (REARM_RE.test(message.text)) {
+      await sendTelegram(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, await rearmLevels(sql));
+      return new Response("OK", { status: 200 });
+    }
+
     const control = parseControlCommand(message.text);
     if (control) {
       let controlReply;
@@ -482,4 +505,4 @@ export default {
   },
 };
 
-export { RUN_TA_RE, parseCommand, parseControlCommand, etToUtc, formatTs, pnl }; // exported for the test file only
+export { REARM_RE, RUN_TA_RE, parseCommand, parseControlCommand, etToUtc, formatTs, pnl }; // exported for the test file only
