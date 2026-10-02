@@ -414,10 +414,10 @@ def _notify_timing_block(candidates: list, gold_price: float, forecast: dict, no
 
 
 def _open_message(
-    trade_type: str, rule_name: str, price: float, session: str, forecast_date, open_ts: datetime
+    trade_id: int, trade_type: str, rule_name: str, price: float, session: str, forecast_date, open_ts: datetime
 ) -> str:
     return (
-        f"{TRADE_ALERT_PREFIX}BROKER B: opened {trade_type} 1 oz XAU/USD @ ${price:.2f} (rule {rule_name}).\n"
+        f"{TRADE_ALERT_PREFIX}BROKER B #{trade_id}: opened {trade_type} 1 oz XAU/USD @ ${price:.2f} (rule {rule_name}).\n"
         f"Trigger: {session} TA forecast level, {forecast_date}\n"
         f"Filled: {_format_ts(open_ts)}"
     )
@@ -426,7 +426,7 @@ def _open_message(
 def _close_message(trade: dict, exit_price: float, exit_ts: datetime, pnl: float) -> str:
     result = "profit" if pnl >= 0 else "loss"
     return (
-        f"{TRADE_ALERT_PREFIX.rstrip()}{_result_marker(pnl, PROFIT_MARKER, LOSS_MARKER)}BROKER B: closed {trade['trade_type']} 1 oz XAU/USD @ ${exit_price:.2f} "
+        f"{TRADE_ALERT_PREFIX.rstrip()}{_result_marker(pnl, PROFIT_MARKER, LOSS_MARKER)}BROKER B #{trade['id']}: closed {trade['trade_type']} 1 oz XAU/USD @ ${exit_price:.2f} "
         f"(opened @ ${trade['entry_price']:.2f}, rule {trade['rule_name']}) -- "
         f"{result} of ${abs(pnl):.2f}\n"
         f"Filled: {_format_ts(exit_ts)}"
@@ -667,7 +667,9 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
             **level_distances(trigger_price, forecast),
         },
     )
-    insert_trade_b(rule_name, trade_type, trigger_price, trigger_ts, trigger_text, forecast["id"], context)
+    trade_id = insert_trade_b(
+        rule_name, trade_type, trigger_price, trigger_ts, trigger_text, forecast["id"], context
+    )
     send_telegram_message(
-        _open_message(trade_type, rule_name, trigger_price, session, forecast["forecast_date"], trigger_ts)
+        _open_message(trade_id, trade_type, rule_name, trigger_price, session, forecast["forecast_date"], trigger_ts)
     )

@@ -369,9 +369,11 @@ def _find_exit(trade: dict, fallback_price: float, fallback_ts: datetime) -> tup
     return None
 
 
-def _open_message(trade_type: str, rule_name: str, price: float, triggering_names: str, open_ts: datetime) -> str:
+def _open_message(
+    trade_id: int, trade_type: str, rule_name: str, price: float, triggering_names: str, open_ts: datetime
+) -> str:
     return (
-        f"{TRADE_ALERT_PREFIX}BROKER A: opened {trade_type} 1 oz XAU/USD @ ${price:.2f} (rule {rule_name}).\n"
+        f"{TRADE_ALERT_PREFIX}BROKER A #{trade_id}: opened {trade_type} 1 oz XAU/USD @ ${price:.2f} (rule {rule_name}).\n"
         f"Trigger: {triggering_names}\n"
         f"Filled: {_format_ts(open_ts)}"
     )
@@ -380,7 +382,7 @@ def _open_message(trade_type: str, rule_name: str, price: float, triggering_name
 def _close_message(trade: dict, exit_price: float, exit_ts: datetime, pnl: float) -> str:
     result = "profit" if pnl >= 0 else "loss"
     return (
-        f"{TRADE_ALERT_PREFIX.rstrip()}{_result_marker(pnl)}BROKER A: closed {trade['trade_type']} 1 oz XAU/USD @ ${exit_price:.2f} "
+        f"{TRADE_ALERT_PREFIX.rstrip()}{_result_marker(pnl)}BROKER A #{trade['id']}: closed {trade['trade_type']} 1 oz XAU/USD @ ${exit_price:.2f} "
         f"(opened @ ${trade['entry_price']:.2f}, rule {trade['rule_name']}) -- "
         f"{result} of ${abs(pnl):.2f}\n"
         f"Filled: {_format_ts(exit_ts)}"
@@ -496,9 +498,9 @@ def check_broker_trades(prices: dict[str, float]) -> None:
                     dxy_readings=dxy_readings,
                     extra={"flagging": flagging, "signal_price": round(float(gold_price), 2)},
                 )
-                insert_trade(rule_name, trade_type, gold_price, now, triggering_text, context)
+                trade_id = insert_trade(rule_name, trade_type, gold_price, now, triggering_text, context)
                 triggering_names = _triggering_names(alerts, trade_type)
-                send_telegram_message(_open_message(trade_type, rule_name, gold_price, triggering_names, now))
+                send_telegram_message(_open_message(trade_id, trade_type, rule_name, gold_price, triggering_names, now))
             else:
                 dedup_reasons = "; ".join(r for r in (rsi_category, dxy_category, adx_category) if r)
                 message_reasons = "; ".join(r for r in (rsi_detail, dxy_detail, adx_detail) if r)

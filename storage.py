@@ -372,14 +372,16 @@ def insert_trade(
     open_ts: datetime,
     triggering_alerts: str,
     entry_context: dict | None = None,
-) -> None:
+) -> int:
+    """Inserts the open trade and returns its new id (the trade number shown in Telegram messages)."""
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
             "INSERT INTO trades (rule_name, trade_type, entry_price, open_ts, triggering_alerts, status, "
-            "entry_context) VALUES (%s, %s, %s, %s, %s, 'Open', %s)",
+            "entry_context) VALUES (%s, %s, %s, %s, %s, 'Open', %s) RETURNING id",
             (rule_name, trade_type, entry_price, open_ts, triggering_alerts,
              Json(entry_context) if entry_context else None),
         )
+        return cur.fetchone()[0]
 
 
 def close_trade_row(trade_id: int, exit_price: float, close_ts: datetime, pnl: float) -> None:
@@ -874,15 +876,17 @@ def insert_trade_b(
     triggering_alerts: str,
     ta_forecast_id: int,
     entry_context: dict | None = None,
-) -> None:
+) -> int:
+    """Inserts the open trade and returns its new id (the trade number shown in Telegram messages)."""
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
             "INSERT INTO broker_b_trades "
             "(rule_name, trade_type, entry_price, open_ts, triggering_alerts, ta_forecast_id, status, "
-            "entry_context) VALUES (%s, %s, %s, %s, %s, %s, 'Open', %s)",
+            "entry_context) VALUES (%s, %s, %s, %s, %s, %s, 'Open', %s) RETURNING id",
             (rule_name, trade_type, entry_price, open_ts, triggering_alerts, ta_forecast_id,
              Json(entry_context) if entry_context else None),
         )
+        return cur.fetchone()[0]
 
 
 def close_trade_row_b(trade_id: int, exit_price: float, close_ts: datetime, pnl: float) -> None:

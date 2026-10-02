@@ -338,12 +338,13 @@ async function openBrokerA(sql, tradeType, apiKey) {
   }
   const now = new Date();
   const ruleName = `Telegram-${tradeType.toLowerCase()}`;
-  await sql`
+  const inserted = await sql`
     INSERT INTO trades (rule_name, trade_type, entry_price, open_ts, triggering_alerts, status)
     VALUES (${ruleName}, ${tradeType}, ${price}, ${now.toISOString()}, 'Manual (Telegram command)', 'Open')
+    RETURNING id
   `;
   return (
-    `${TRADE_ALERT_PREFIX_A}BROKER A: opened ${tradeType} 1 oz XAU/USD @ $${price.toFixed(2)} (rule ${ruleName}).\n` +
+    `${TRADE_ALERT_PREFIX_A}BROKER A #${inserted[0].id}: opened ${tradeType} 1 oz XAU/USD @ $${price.toFixed(2)} (rule ${ruleName}).\n` +
     `Trigger: Manual (Telegram command)\n` +
     `Filled: ${formatTs(now)}`
   );
@@ -371,7 +372,7 @@ async function closeBrokerA(sql, apiKey) {
   const marker = p >= 0 ? PROFIT_MARKER_A : LOSS_MARKER_A;
   const result = p >= 0 ? "profit" : "loss";
   return (
-    `${TRADE_ALERT_PREFIX_A.trimEnd()}${marker}BROKER A: closed ${trade.trade_type} 1 oz XAU/USD @ $${price.toFixed(2)} ` +
+    `${TRADE_ALERT_PREFIX_A.trimEnd()}${marker}BROKER A #${trade.id}: closed ${trade.trade_type} 1 oz XAU/USD @ $${price.toFixed(2)} ` +
     `(opened @ $${trade.entry_price.toFixed(2)}, rule ${trade.rule_name}) -- ${result} of $${Math.abs(p).toFixed(2)} ` +
     `(manual close via Telegram, not the $${EXIT_THRESHOLD.toFixed(0)} auto-target)\n` +
     `Filled: ${formatTs(now)}`
@@ -393,12 +394,13 @@ async function openBrokerB(sql, tradeType, apiKey) {
   }
   const now = new Date();
   const ruleName = `Telegram-${tradeType.toLowerCase()}`;
-  await sql`
+  const inserted = await sql`
     INSERT INTO broker_b_trades (rule_name, trade_type, entry_price, open_ts, triggering_alerts, ta_forecast_id, status)
     VALUES (${ruleName}, ${tradeType}, ${price}, ${now.toISOString()}, 'Manual (Telegram command)', ${forecasts[0].id}, 'Open')
+    RETURNING id
   `;
   return (
-    `${TRADE_ALERT_PREFIX_B}BROKER B: opened ${tradeType} 1 oz XAU/USD @ $${price.toFixed(2)} (rule ${ruleName}).\n` +
+    `${TRADE_ALERT_PREFIX_B}BROKER B #${inserted[0].id}: opened ${tradeType} 1 oz XAU/USD @ $${price.toFixed(2)} (rule ${ruleName}).\n` +
     `Trigger: Manual (Telegram command)\n` +
     `Filled: ${formatTs(now)}`
   );
@@ -426,7 +428,7 @@ async function closeBrokerB(sql, apiKey) {
   const marker = p >= 0 ? PROFIT_MARKER_B : LOSS_MARKER_B;
   const result = p >= 0 ? "profit" : "loss";
   return (
-    `${TRADE_ALERT_PREFIX_B.trimEnd()}${marker}BROKER B: closed ${trade.trade_type} 1 oz XAU/USD @ $${price.toFixed(2)} ` +
+    `${TRADE_ALERT_PREFIX_B.trimEnd()}${marker}BROKER B #${trade.id}: closed ${trade.trade_type} 1 oz XAU/USD @ $${price.toFixed(2)} ` +
     `(opened @ $${trade.entry_price.toFixed(2)}, rule ${trade.rule_name}) -- ${result} of $${Math.abs(p).toFixed(2)} ` +
     `(manual close via Telegram, not the $${EXIT_THRESHOLD.toFixed(0)} auto-target)\n` +
     `Filled: ${formatTs(now)}`
