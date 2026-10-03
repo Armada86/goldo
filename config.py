@@ -165,3 +165,14 @@ RSI_OVERSOLD_THRESHOLD = 30
 ADX_PERIOD = 14
 ADX_TRENDING_THRESHOLD = 25  # at/above: a real trend -- fades are blocked, RSI exhaustion blocks are waived
 ADX_CHOP_THRESHOLD = 20  # below: no trend -- breakouts and Broker A's momentum consensus are blocked
+
+# Broker B entry gates added 3 Oct 2026 after Friday 2 Oct's review (4 of 5 trades stopped out). Both are
+# hand-picked from a 15-trade sample (see broker_b.py); validate with a backtest/`start SLA` before tightening.
+# ATR(14) on gold's 15-min candles: at/above this the $10 stop is about one ATR wide, i.e. inside normal noise
+# (ATR was ~$5-10 on earlier days, $11-13 on all five of Friday's trades). Blocks every Broker B rule.
+ATR_PERIOD = 14
+ATR_HIGH_VOLATILITY_THRESHOLD = 12.0
+# RSI(14) exhaustion on the two FADE rules (the breakout rules already use RSI_OVERBOUGHT/OVERSOLD above):
+# TA-Zone-sell blocked at/above the first, TA-Zone-buy at/below the second (both 68-and-up fade-sells lost).
+FADE_RSI_OVERBOUGHT_THRESHOLD = 68
+FADE_RSI_OVERSOLD_THRESHOLD = 32

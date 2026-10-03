@@ -305,6 +305,14 @@ exhaustion block when ADX >= 25. Each block goes through the existing deduplicat
 (Broker A `_notify_blocked()`, Broker B `_notify_blocked()`), with a fixed dedup category and the live ADX only in
 the message text; unknown ADX fails open (RSI block stays on). Blocked touches/signals are consumed as before.
 
+**Volatility + fade-RSI gates (Broker B, added 3 Oct 2026)**: after Friday 2 Oct's end-of-day review (5 trades, 1 win, -$30; ATR(14) was $11-13
+on all five, both fade-sells at RSI >= ~69 lost), `broker_b._atr_confirms()` blocks all four rules when ATR(14) on gold's 15-min candles is >=
+`config.ATR_HIGH_VOLATILITY_THRESHOLD` ($12), and `_rsi_confirms()` now also blocks `TA-Zone-sell` at RSI >= `FADE_RSI_OVERBOUGHT_THRESHOLD` (68) /
+`TA-Zone-buy` at RSI <= `FADE_RSI_OVERSOLD_THRESHOLD` (32) (waived at ADX >= 25, where the ADX gate already blocks fades). One candle fetch now
+supplies RSI/ADX/ATR (`data_fetcher.fetch_gold_rsi_adx_atr()`; Broker A still uses the RSI/ADX wrapper). Every block sends the usual deduplicated ⛔
+Telegram notice naming the level and the live reading. Broker A is unaffected. Cutoffs are hand-picked from 15 trades -- calibrate from
+`entry_context` (`rsi14`, `atr14`) or `start SLA`.
+
 **Entry context on every trade (`entry_context.py`, added 30 Sep 2026)**: each Broker A / Broker B trade now stores a
 JSONB snapshot of the conditions at entry (`trades.entry_context` / `broker_b_trades.entry_context`, added by
 `init_db()`): ET hour/minute/weekday, RSI(14), DXY's net 15-min change and its threshold, the latest forecast's

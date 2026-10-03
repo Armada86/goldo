@@ -181,14 +181,16 @@ def compute_adx(df: pd.DataFrame, period: int = 14) -> pd.Series:
     return dx.ewm(alpha=alpha, min_periods=period, adjust=False).mean()
 
 
-def fetch_gold_rsi_adx(rsi_period: int = 14, adx_period: int = 14) -> tuple[float | None, float | None]:
-    """(RSI, ADX) of gold spot's latest 15-min candle from one candle fetch, so a broker gating on both
-    pays for a single Twelve Data call. Each is None if it couldn't be computed (fetch failure, too few
-    candles) -- callers fail open on None."""
+def fetch_gold_rsi_adx_atr(
+    rsi_period: int = 14, adx_period: int = 14, atr_period: int = 14
+) -> tuple[float | None, float | None, float | None]:
+    """(RSI, ADX, ATR) of gold spot's latest 15-min candle from one candle fetch, so a broker gating on
+    all three pays for a single Twelve Data call. Each is None if it couldn't be computed (fetch failure,
+    too few candles) -- callers fail open on None. ATR is in dollars."""
     try:
         candles = fetch_gold_candles()
     except Exception:
-        return None, None
+        return None, None, None
     try:
         rsi = float(compute_rsi(candles["close"], period=rsi_period).dropna().iloc[-1])
     except Exception:
@@ -197,4 +199,14 @@ def fetch_gold_rsi_adx(rsi_period: int = 14, adx_period: int = 14) -> tuple[floa
         adx = float(compute_adx(candles, period=adx_period).dropna().iloc[-1])
     except Exception:
         adx = None
+    try:
+        atr = float(compute_atr(candles, period=atr_period).dropna().iloc[-1])
+    except Exception:
+        atr = None
+    return rsi, adx, atr
+
+
+def fetch_gold_rsi_adx(rsi_period: int = 14, adx_period: int = 14) -> tuple[float | None, float | None]:
+    """(RSI, ADX) -- see fetch_gold_rsi_adx_atr(), which this wraps (Broker A doesn't need ATR)."""
+    rsi, adx, _ = fetch_gold_rsi_adx_atr(rsi_period, adx_period)
     return rsi, adx

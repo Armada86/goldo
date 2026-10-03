@@ -86,6 +86,14 @@ the round-trip back down, all inside the 9-11pm ET window, the market's thinnest
    Also, the RSI exhaustion gate above is waived when ADX >= 25 (extreme RSI in a strong trend is
    continuation). Blocks send the normal deduplicated Telegram notice.
 
+5. **RSI exhaustion on the fades + high-volatility (ATR) gate** (3 Oct 2026, after Friday 2 Oct's review: 4 of 5
+   trades stopped out, all with ATR(14) $11-13; both fade-sells taken at RSI >= ~69 lost). `_rsi_confirms()` now
+   also blocks `TA-Zone-sell` at RSI >= `FADE_RSI_OVERBOUGHT_THRESHOLD` (68) and `TA-Zone-buy` at RSI <=
+   `FADE_RSI_OVERSOLD_THRESHOLD` (32) (still waived at ADX >= 25, where the ADX gate already blocks fades);
+   `_atr_confirms()` blocks all four rules when 15-min ATR(14) >= `ATR_HIGH_VOLATILITY_THRESHOLD` ($12).
+   Cutoffs are hand-picked from a 15-trade sample -- calibrate from `entry_context` (`rsi14`, `atr14`) / `start SLA`.
+   Every block sends the normal deduplicated ⛔ Telegram notice.
+
 All filters fail open (no block) on a DB/API hiccup or missing data, the same convention as Broker A's
 filters -- a data problem should degrade Broker B toward its old
 unfiltered behavior, never toward refusing to trade at all. Applied per-candidate touch, earliest
@@ -130,12 +138,16 @@ from config import (
     ADX_CHOP_THRESHOLD,
     ADX_PERIOD,
     ADX_TRENDING_THRESHOLD,
+    ATR_HIGH_VOLATILITY_THRESHOLD,
+    ATR_PERIOD,
+    FADE_RSI_OVERBOUGHT_THRESHOLD,
+    FADE_RSI_OVERSOLD_THRESHOLD,
     INTRAHOUR_SWING_ALERT_THRESHOLD,
     RSI_OVERBOUGHT_THRESHOLD,
     RSI_OVERSOLD_THRESHOLD,
     RSI_PERIOD,
 )
-from data_fetcher import fetch_gold_rsi_adx
+from data_fetcher import fetch_gold_rsi_adx_atr
 from entry_context import build_entry_context, level_distances
 from price_bars import fetch_gold_bars
 from notifier import send_telegram_message
@@ -331,7 +343,9 @@ def _rsi_confirms(
     past the overbought/oversold threshold, see module docstring's "RSI exhaustion" entry; both set
     only when ok is False. `category` has no live number (dedup key, see _dxy_confirms()'s docstring
     for why); `detail` carries the actual reading, for the Telegram text only. Only gates the two
-    breakout rules; the two fade rules always pass. `rsi_value` is the caller's single shared RSI(14)
+    breakout rules at RSI_OVERBOUGHT/OVERSOLD_THRESHOLD and, since 3 Oct 2026, the two fade rules at the
+    tighter FADE_RSI_OVERBOUGHT/OVERSOLD_THRESHOLD (a sell fade into stretched upside momentum, or a buy
+    fade into stretched downside, kept losing). `rsi_value` is the caller's single shared RSI(14)
     computation (see check_broker_b_trades) -- None if it couldn't be computed this poll, which fails
     this open (ok=True). The block is waived in a strong trend (ADX >= ADX_TRENDING_THRESHOLD), where
     an extreme RSI is continuation rather than exhaustion; an unknown ADX keeps it on."""
@@ -341,6 +355,10 @@ def _rsi_confirms(
         threshold, over = RSI_OVERBOUGHT_THRESHOLD, True
     elif scenario_name == "bear_breakdown":
         threshold, over = RSI_OVERSOLD_THRESHOLD, False
+    elif scenario_name == "sell_resistance":
+        threshold, over = FADE_RSI_OVERBOUGHT_THRESHOLD, True
+    elif scenario_name == "buy_support":
+        threshold, over = FADE_RSI_OVERSOLD_THRESHOLD, False
     else:
         return True, None, None
     if rsi_value is None:
@@ -353,6 +371,22 @@ def _rsi_confirms(
         False,
         f"RSI(14) already {word} (threshold {cmp} {threshold})",
         f"RSI(14) already {word}: {rsi_value:.1f} ({cmp} {threshold})",
+    )
+
+
+def _atr_confirms(atr_value: float | None) -> tuple[bool, str | None, str | None]:
+    """(ok, category, detail) -- blocks every rule when gold's ATR(14) on 15-min candles is at/above
+    ATR_HIGH_VOLATILITY_THRESHOLD: the $10 initial stop is then about one ATR wide, inside normal noise
+    (Friday 2 Oct 2026: ATR $11-13, four of five trades stopped out). `category` has no live number
+    (dedup key, see _dxy_confirms()); `detail` carries the reading for the Telegram text only. None
+    (couldn't compute) fails open."""
+    if atr_value is None or atr_value < ATR_HIGH_VOLATILITY_THRESHOLD:
+        return True, None, None
+    return (
+        False,
+        f"volatility too high for the stop (ATR({ATR_PERIOD}) threshold >= ${ATR_HIGH_VOLATILITY_THRESHOLD:.0f})",
+        f"volatility too high for the stop: ATR({ATR_PERIOD}) ${atr_value:.2f} "
+        f"(>= ${ATR_HIGH_VOLATILITY_THRESHOLD:.0f})",
     )
 
 
@@ -609,7 +643,7 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
     except Exception:
         dxy_readings = None
     # One candle fetch supplies both RSI (breakout rules) and ADX (all four rules).
-    rsi_value, adx_value = fetch_gold_rsi_adx(RSI_PERIOD, ADX_PERIOD)
+    rsi_value, adx_value, atr_value = fetch_gold_rsi_adx_atr(RSI_PERIOD, ADX_PERIOD, ATR_PERIOD)
 
     # Earliest touch first; a touch that fails a confirmation gate gets a blocked-entry notice and is
     # skipped in favor of the next-earliest one (a different rule) rather than giving up the whole
@@ -640,11 +674,12 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
         dxy_ok, dxy_category, dxy_detail = _dxy_confirms(trade_type, dxy_readings)
         rsi_ok, rsi_category, rsi_detail = _rsi_confirms(scenario_name, rsi_value, adx_value)
         adx_ok, adx_category, adx_detail = _adx_confirms(scenario_name, adx_value)
-        if dxy_ok and rsi_ok and adx_ok:
+        atr_ok, atr_category, atr_detail = _atr_confirms(atr_value)
+        if dxy_ok and rsi_ok and adx_ok and atr_ok:
             selected = (trigger_ts, trigger_price, trade_type, rule_name, scenario_name)
             break
-        dedup_reasons = "; ".join(r for r in (dxy_category, rsi_category, adx_category) if r)
-        message_reasons = "; ".join(r for r in (dxy_detail, rsi_detail, adx_detail) if r)
+        dedup_reasons = "; ".join(r for r in (dxy_category, rsi_category, adx_category, atr_category) if r)
+        message_reasons = "; ".join(r for r in (dxy_detail, rsi_detail, adx_detail, atr_detail) if r)
         _notify_blocked(
             forecast, rule_name, trigger_price, dedup_reasons, message_reasons, touch_ts=consumed_through
         )
