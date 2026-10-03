@@ -1008,6 +1008,15 @@ specific trade in the Postgres `trades` or
 off for the user or a coding session to apply to both files together. It's invoked on demand like
 `technical-analyst`.
 
+**Broker end-of-day review (`broker_review.py`, `broker_daily_reviews` table, added 3 Oct 2026)**: each weekday after the
+5:00 PM ET close, the `broker` subagent reviews every Broker A/B trade that opened or closed that ET day -- per trade: what was
+good, what was bad, what could be improved or changed -- sends it to Telegram (🔵🟦 `BROKER DAILY REVIEW`) and logs it in
+`broker_daily_reviews` (`review_date` UNIQUE, `trade_count`, `total_pnl`, `analysis`, `trade_reviews` JSONB). Observation only: it
+never edits code or settings. The analysis runs as a Claude Code Routine (the same scheduled-infrastructure pattern as the ADP/NFP
+release watcher, since a subagent can't run inside a GitHub Actions job); `broker_review.py trades` gives it the day's data and
+`broker_review.py save` is its only write path (saves first, then sends; no-op if the date already has a row, so a re-fire can't
+duplicate). No trades that day = nothing sent. Procedure: the "End-of-day review workflow" in `.claude/agents/broker.md`.
+
 `.claude/agents/fundamental-analyst.md` defines a subagent (no `Edit`/`Write` tools, same as
 `technical-analyst` and `broker`) for analyzing scheduled macro data releases (NFP, CPI, PPI, retail
 sales, jobless claims, etc.) and how they move gold. Unlike `technical-analyst`, it *is* meant to query
