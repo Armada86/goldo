@@ -1014,7 +1014,7 @@ good, what was bad, what could be improved or changed -- sends it to Telegram (ð
 `broker_daily_reviews` (`review_date` UNIQUE, `trade_count`, `total_pnl`, `analysis`, `trade_reviews` JSONB). Observation only: it
 never edits code or settings. The analysis runs as a Claude Code Routine (the same scheduled-infrastructure pattern as the ADP/NFP
 release watcher, since a subagent can't run inside a GitHub Actions job); `broker_review.py trades` gives it the day's data and
-`broker_review.py save` is its only write path (saves first, then sends; no-op if the date already has a row, so a re-fire can't
+`broker_review.py save` is its only write path (it talks to Neon over its HTTPS SQL endpoint, `https://<pooler host>/sql`, not psycopg2: a Routine's cloud sandbox only has an HTTPS proxy, so a raw Postgres connection on port 5432 hangs there even with full network access) (saves first, then sends; no-op if the date already has a row, so a re-fire can't
 duplicate). No trades that day = nothing sent. Procedure: the "End-of-day review workflow" in `.claude/agents/broker.md`.
 
 `.claude/agents/fundamental-analyst.md` defines a subagent (no `Edit`/`Write` tools, same as

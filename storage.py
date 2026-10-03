@@ -1189,37 +1189,3 @@ def get_all_trades_b() -> list[dict]:
         }
         for r in rows
     ]
-
-
-def insert_broker_daily_review(
-    review_date,
-    trade_count: int,
-    total_pnl: float | None,
-    analysis: str,
-    trade_reviews: list[dict] | None = None,
-) -> bool:
-    """Records the Broker subagent's end-of-day review (one row per ET trading day). Returns False
-    (and writes nothing) if that date already has one, so a re-fired run can't duplicate it."""
-    import json
-    from datetime import datetime, timezone
-
-    with get_connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO broker_daily_reviews
-                (review_date, created_ts, trade_count, total_pnl, analysis, trade_reviews)
-            VALUES (%s, %s, %s, %s, %s, %s)
-            ON CONFLICT (review_date) DO NOTHING
-            """,
-            (
-                review_date, datetime.now(timezone.utc), trade_count, total_pnl, analysis,
-                json.dumps(trade_reviews) if trade_reviews is not None else None,
-            ),
-        )
-        return cur.rowcount == 1
-
-
-def broker_daily_review_exists(review_date) -> bool:
-    with get_connection() as conn, conn.cursor() as cur:
-        cur.execute("SELECT 1 FROM broker_daily_reviews WHERE review_date = %s", (review_date,))
-        return cur.fetchone() is not None
