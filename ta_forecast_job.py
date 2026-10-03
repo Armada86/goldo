@@ -1,6 +1,6 @@
 """One-shot XAU/USD technical forecast generator -- writes one row to the `ta_forecasts` table.
 
-Modelled on two styles of third-party gold analysis (see docs/technical-analyst-forecast-log.md for
+Modelled on two styles of third-party gold analysis (see docs/technical-analysts/technical-analyst-forecast-log.md for
 both examples and what was taken from each):
   1. an indicator snapshot -- 1h EMA20/50/100/200 stack, RSI(14), MACD(12,26,9), pivot, overall bias;
   2. a conditional trading plan -- sell/buy zones with a hard stop, a breakout trigger that flips the
@@ -594,7 +594,7 @@ def render_diagram_svg(
 ) -> str:
     """Self-contained SVG price ladder: resistance zones above price in red, support zones below in
     green, a thin price line, and the two breakout/breakdown stop lines -- modelled on the reference
-    diagram in docs/technical-analyst-forecast-log.md, redrawn from each run's real zones/price/stops
+    diagram in docs/technical-analysts/technical-analyst-forecast-log.md, redrawn from each run's real zones/price/stops
     at a fixed mobile width instead of that diagram's hand-tuned per-run coordinates. Zone bands (and
     the price line) sit at their true proportional price position; only the label rows are nudged
     apart (never more than DIAGRAM_MIN_LABEL_GAP) to stay legible when two rows land close together --

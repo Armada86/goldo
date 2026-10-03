@@ -38,11 +38,11 @@ implementation.
   `compute_rsi`/`compute_adx`); `rules.py`'s `check_sma_crossover()` does a 20/50-day SMA crossover on
   gold futures (`GC=F`) daily closes. Read these before recomputing anything from scratch.
 - **Config**: `config.py` has every indicator, alert threshold, and data-source mapping.
-- **Description & usage references**: `docs/technical-analyst-gld-log.md` (GLD),
-  `docs/technical-analyst-iau-log.md` (IAU), `docs/technical-analyst-gldm-log.md` (GLDM),
-  `docs/technical-analyst-gdx-log.md` (GDX), `docs/technical-analyst-gdxj-log.md` (GDXJ),
-  `docs/technical-analyst-ring-log.md` (RING), `docs/technical-analyst-dxy-log.md` (DXY), and
-  `docs/technical-analyst-us10y-log.md` (US10Y) — what each indicator is, its relationship to gold, and
+- **Description & usage references**: `docs/technical-analysts/technical-analyst-gld-log.md` (GLD),
+  `docs/technical-analysts/technical-analyst-iau-log.md` (IAU), `docs/technical-analysts/technical-analyst-gldm-log.md` (GLDM),
+  `docs/technical-analysts/technical-analyst-gdx-log.md` (GDX), `docs/technical-analysts/technical-analyst-gdxj-log.md` (GDXJ),
+  `docs/technical-analysts/technical-analyst-ring-log.md` (RING), `docs/technical-analysts/technical-analyst-dxy-log.md` (DXY), and
+  `docs/technical-analysts/technical-analyst-us10y-log.md` (US10Y) — what each indicator is, its relationship to gold, and
   how it's actually wired into the project (`check_intrahour_swing_alerts`, where its live threshold
   lives, how it's re-tuned). Not a findings log — historical analysis writeups
   (question/method/numbers/outcome) are no longer kept here; that detail stays in whatever conversation
@@ -50,7 +50,7 @@ implementation.
   to any of them yourself (no write access, by design — see below); ask the user to have it updated if
   the description or usage itself has changed.
 
-- **Technical forecast methodology**: `docs/technical-analyst-forecast-log.md` describes the
+- **Technical forecast methodology**: `docs/technical-analysts/technical-analyst-forecast-log.md` describes the
   XAU/USD forecast format this project generates (`ta_forecast_job.py`): an indicator snapshot, level
   zones, a four-scenario fade/breakout plan with stops and target ladders, and a candle-graded review
   of the previous plan. It also keeps the two third-party reference analyses it was modelled on, with

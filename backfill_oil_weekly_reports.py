@@ -1,6 +1,6 @@
 """One-time migration/seed: loads the last 52 weeks of API Crude Oil Stock Change releases into the
 `oil_weekly_reports` table in Postgres, fetched live from FMP's economic-calendar endpoint (see
-docs/fundamental-analyst-oil-weekly-log.md for sourcing/method). Unlike backfill_nfp_reports.py/
+docs/fundamental-analysts/fundamental-analyst-oil-weekly-log.md for sourcing/method). Unlike backfill_nfp_reports.py/
 backfill_adp_reports.py (which seeded 12 hand-researched rows, since no automated source existed for
 NFP/ADP release-by-release data at the time), this backfill is fully automated -- FMP's calendar
 already has clean, structured historical data for this indicator, so there's no manual research step.

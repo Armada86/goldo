@@ -2,7 +2,7 @@
 
 What this project tracks, how often each one actually updates, and how it typically moves relative to
 the gold price. See `config.py` for the exact tickers/series and `CLAUDE.md` for the full data-flow
-description; see `docs/technical-analyst-*-log.md` for a description and operational-usage reference on
+description; see `docs/technical-analysts/technical-analyst-*-log.md` for a description and operational-usage reference on
 each of GLD/IAU/GLDM/GDX/GDXJ/RING/DXY/US10Y.
 
 Sorted by **Type** (second column), with `Price` kept on top (gold is the tracked price this whole project is
@@ -17,7 +17,7 @@ are also Technical-agent territory, in their own table below), `Fundamental` for
 macro releases
 (the BLS NFP report, the ADP National Employment Change report, the nine other FRED reports below, and
 the FMP-sourced weekly API Crude Oil Stock Change report — see
-`docs/fundamental-analyst-oil-weekly-log.md`, the first indicator in this project not sourced from
+`docs/fundamental-analysts/fundamental-analyst-oil-weekly-log.md`, the first indicator in this project not sourced from
 FRED/yfinance/Twelve Data) plus the financial stress index (also a FRED macro-risk series, not a
 traded price), and `NA` for the one row neither subagent claims (`gold` itself) — it doesn't mean
 unmonitored, just that no subagent currently specializes in it.
@@ -34,17 +34,17 @@ Also note `iau`/`gldm` are physically-backed gold ETFs like `gld`
 (same-direction, near-1:1 tracking), while `gdx`/`gdxj`/`ring` hold gold-**mining company** shares
 instead — still same-direction with gold on average, but leveraged/noisier, since mining margins amplify
 gold-price moves and add company-specific/equity-market risk on top (see each one's
-`docs/technical-analyst-*-log.md` for the distinction).
+`docs/technical-analysts/technical-analyst-*-log.md` for the distinction).
 
 Note the two separate employment reports below are easy to conflate: **BLS NFP** (`nonfarm_payrolls`)
 is the official government Non-Farm Payrolls report from the Bureau of Labor Statistics — this is the
 one whose release-by-release data (previous/expected/actual, gold's reaction) lives in the Neon
-Postgres `nfp_reports` table and `docs/fundamental-analyst-nfp-log.md` (see CLAUDE.md's "NFP
+Postgres `nfp_reports` table and `docs/fundamental-analysts/fundamental-analyst-nfp-log.md` (see CLAUDE.md's "NFP
 fundamental-analysis data"). **ADP NEC** (`adp_employment`) is the separate, privately-compiled ADP
 National Employment Change report, released a couple of days before BLS NFP each month at 8:15am ET
 (15 minutes before BLS NFP's 8:30am ET) — it is tracked as a FRED indicator here and, like BLS NFP, now
 also has its own Neon Postgres release-data table (`adp_reports`, same column shape as `nfp_reports`)
-and `docs/fundamental-analyst-adp-log.md` log — see CLAUDE.md's "ADP NEC fundamental-analysis data".
+and `docs/fundamental-analysts/fundamental-analyst-adp-log.md` log — see CLAUDE.md's "ADP NEC fundamental-analysis data".
 
 **Not every row trades on the same schedule.** The nine continuously-traded price/index/yield rows each
 track a *different* underlying market with its own hours — gold spot, GLD, IAU, GLDM, GDX, GDXJ, RING,
@@ -69,7 +69,7 @@ frequency` cell instead for how often each one actually changes.
 | **GDX** (`gdx`, VanEck Gold Miners ETF) | Price | Technical | yfinance (`GDX`) | Continuous (intraday, market hours) | Same direction, but leveraged/noisier than the physical ETFs — GDX holds large/mid-cap gold **mining company** shares, not gold itself, so mining-margin leverage plus company/equity-market risk amplify the correlation to gold | No — trailing 15/10/5-min high/low swing alerts (`INTRAHOUR_SWING_ALERT_THRESHOLD`) are still computed and saved to the `alerts` table (the Broker reads them), but not sent to Telegram (`INTRAHOUR_SWING_SEND_TELEGRAM = False`) | Yes — `INTRAHOUR_SWING_ALERT_THRESHOLD["gdx"]` = {15: $0.83, 10: $0.56, 5: $0.28} | Mon–Fri 9:30 AM – 4:00 PM ET (regular NYSE Arca session; no overnight/pre-post-market data via this feed) |
 | **GDXJ** (`gdxj`, VanEck Junior Gold Miners ETF) | Price | Technical | yfinance (`GDXJ`) | Continuous (intraday, market hours) | Same direction, but more leveraged/noisier than GDX — GDXJ holds smaller/earlier-stage ("junior") mining and exploration companies, whose economics are even more sensitive to the gold price than established producers' | No — trailing 15/10/5-min high/low swing alerts (`INTRAHOUR_SWING_ALERT_THRESHOLD`) are still computed and saved to the `alerts` table (the Broker reads them), but not sent to Telegram (`INTRAHOUR_SWING_SEND_TELEGRAM = False`) | Yes — `INTRAHOUR_SWING_ALERT_THRESHOLD["gdxj"]` = {15: $1.16, 10: $0.77, 5: $0.40} | Mon–Fri 9:30 AM – 4:00 PM ET (regular NYSE Arca session; no overnight/pre-post-market data via this feed) |
 | **RING** (`ring`, iShares MSCI Global Gold Miners ETF) | Price | Technical | yfinance (`RING`) | Continuous (intraday, market hours) | Same direction, but leveraged/noisier than the physical ETFs — RING holds global gold **mining company** shares (same space as GDX, different index/methodology), so mining-margin leverage plus company/equity-market risk amplify the correlation to gold | No — trailing 15/10/5-min high/low swing alerts (`INTRAHOUR_SWING_ALERT_THRESHOLD`) are still computed and saved to the `alerts` table (the Broker reads them), but not sent to Telegram (`INTRAHOUR_SWING_SEND_TELEGRAM = False`) | Yes — `INTRAHOUR_SWING_ALERT_THRESHOLD["ring"]` = {15: $0.69, 10: $0.46, 5: $0.22} | Mon–Fri 9:30 AM – 4:00 PM ET (regular NYSE Arca session; no overnight/pre-post-market data via this feed) |
-| **DXY** (`dxy`, US Dollar Index) | Index | Technical | yfinance (`DX-Y.NYB`) | Continuous (intraday, market hours) | Opposite direction — gold is dollar-denominated, so a stronger dollar tends to push gold down and vice versa. Real-world correlation is directionally consistent but not clean-cut hour-by-hour (see `docs/technical-analyst-dxy-log.md`) | No — trailing 15/10/5-min high/low swing alerts (`INTRAHOUR_SWING_ALERT_THRESHOLD`) are still computed and saved to the `alerts` table (the Broker reads them), but not sent to Telegram (`INTRAHOUR_SWING_SEND_TELEGRAM = False`) | Yes — `INTRAHOUR_SWING_ALERT_THRESHOLD["dxy"]` = {15: 0.0445, 10: 0.0223, 5: 0.0147} index points | Sun 8:00 PM – Fri 6:00 PM ET, with a brief daily pause (~6:00–8:00 PM ET) — standard ICE US Dollar Index futures session |
+| **DXY** (`dxy`, US Dollar Index) | Index | Technical | yfinance (`DX-Y.NYB`) | Continuous (intraday, market hours) | Opposite direction — gold is dollar-denominated, so a stronger dollar tends to push gold down and vice versa. Real-world correlation is directionally consistent but not clean-cut hour-by-hour (see `docs/technical-analysts/technical-analyst-dxy-log.md`) | No — trailing 15/10/5-min high/low swing alerts (`INTRAHOUR_SWING_ALERT_THRESHOLD`) are still computed and saved to the `alerts` table (the Broker reads them), but not sent to Telegram (`INTRAHOUR_SWING_SEND_TELEGRAM = False`) | Yes — `INTRAHOUR_SWING_ALERT_THRESHOLD["dxy"]` = {15: 0.0445, 10: 0.0223, 5: 0.0147} index points | Sun 8:00 PM – Fri 6:00 PM ET, with a brief daily pause (~6:00–8:00 PM ET) — standard ICE US Dollar Index futures session |
 | **Financial stress index** (`financial_stress`, FRED `STLFSI4`) | Index | Fundamental | FRED (`STLFSI4`) | Weekly | Same direction, but noisier — rising stress (risk-off, flight to safety) usually supports gold, though acute stress can also spike dollar demand and cause gold to be sold for liquidity, muddying the relationship | Yes — any change since the previous poll (`VALUE_CHANGE_ALERT_NAMES`) | No — uses `VALUE_CHANGE_ALERT_NAMES` (alerts on any change), not the intrahour-swing mechanism the frequency test covers | N/A — published economic index, not a traded instrument |
 | **Industrial Production** (`industrial_production`, FRED `INDPRO`) | Index | Fundamental | FRED (`INDPRO`) | Monthly | Opposite direction — strong output signals economic strength, typically gold-negative | Yes — any change since the previous poll (`VALUE_CHANGE_ALERT_NAMES`) | No — uses `VALUE_CHANGE_ALERT_NAMES` (alerts on any change), not the intrahour-swing mechanism the frequency test covers | N/A — published economic report, not a traded instrument |
 | **CPI** (`cpi`, FRED `CPIAUCSL`) | Index | Fundamental | FRED (`CPIAUCSL`) | Monthly | Mixed — higher realized inflation supports gold as an inflation hedge, but can also spark rate-hike fears that push yields/the dollar up and gold down | Yes — any change since the previous poll (`VALUE_CHANGE_ALERT_NAMES`) | No — uses `VALUE_CHANGE_ALERT_NAMES` (alerts on any change), not the intrahour-swing mechanism the frequency test covers | N/A — published economic report, not a traded instrument |
@@ -85,7 +85,7 @@ frequency` cell instead for how often each one actually changes.
 | **Initial Jobless Claims (IJC)** (`initial_jobless_claims`, FRED `ICSA`) | Level (weekly claims) | Fundamental | FRED (`ICSA`) | Weekly | Same direction — rising claims signal labor-market weakness, same reasoning as unemployment rate | Yes — any change since the previous poll (`VALUE_CHANGE_ALERT_NAMES`) | No — uses `VALUE_CHANGE_ALERT_NAMES` (alerts on any change), not the intrahour-swing mechanism the frequency test covers | N/A — published economic report, not a traded instrument |
 | **Capacity Utilization** (`capacity_utilization`, FRED `TCU`) | Percent | Fundamental | FRED (`TCU`) | Monthly | Opposite direction — released alongside industrial production, same reasoning | Yes — any change since the previous poll (`VALUE_CHANGE_ALERT_NAMES`) | No — uses `VALUE_CHANGE_ALERT_NAMES` (alerts on any change), not the intrahour-swing mechanism the frequency test covers | N/A — published economic report, not a traded instrument |
 | **Unemployment Rate** (`unemployment_rate`, FRED `UNRATE`) | Percent | Fundamental | FRED (`UNRATE`) | Monthly | Same direction — rising unemployment signals a weakening labor market, supporting gold via rate-cut expectations and safe-haven demand | Yes — any change since the previous poll (`VALUE_CHANGE_ALERT_NAMES`) | No — uses `VALUE_CHANGE_ALERT_NAMES` (alerts on any change), not the intrahour-swing mechanism the frequency test covers | N/A — published economic report, not a traded instrument |
-| **API Weekly Crude Oil Stock** (API Crude Oil Stock Change; not in `config.FRED_SERIES`/`config.INDICATORS`) | Level (millions of barrels, change) | Fundamental | **FMP** (`/stable/economic-calendar`) — not FRED/yfinance/Twelve Data, see `docs/data-sources.md` | Weekly (Tuesday evenings, ~3pm-6pm ET — the exact minute varies, unlike the fixed-time ADP/NFP releases) | Mixed/indirect — a crude build (oversupply) pressures oil down, which ripples into risk/inflation sentiment that's only sometimes gold-relevant; see `docs/fundamental-analyst-oil-weekly-log.md` for the full reasoning | Yes — 🟣 same-minute-ish alert from `oil_weekly_job.py` the moment FMP's `actual` field populates (triggered repeatedly across the release window by `.github/workflows/oil_weekly_watch.yml`, not on the regular 5-min poll cycle); release-by-release detail is recorded in the Neon Postgres `oil_weekly_reports` table — see CLAUDE.md's "API Weekly Crude Oil Stock data" | No — not in `INTRAHOUR_SWING_ALERT_THRESHOLD`, and not polled by `main.poll_once()`/`data_fetcher.py` at all — entirely outside the regular poll loop | N/A — published economic report, not a traded instrument |
+| **API Weekly Crude Oil Stock** (API Crude Oil Stock Change; not in `config.FRED_SERIES`/`config.INDICATORS`) | Level (millions of barrels, change) | Fundamental | **FMP** (`/stable/economic-calendar`) — not FRED/yfinance/Twelve Data, see `docs/data-sources.md` | Weekly (Tuesday evenings, ~3pm-6pm ET — the exact minute varies, unlike the fixed-time ADP/NFP releases) | Mixed/indirect — a crude build (oversupply) pressures oil down, which ripples into risk/inflation sentiment that's only sometimes gold-relevant; see `docs/fundamental-analysts/fundamental-analyst-oil-weekly-log.md` for the full reasoning | Yes — 🟣 same-minute-ish alert from `oil_weekly_job.py` the moment FMP's `actual` field populates (triggered repeatedly across the release window by `.github/workflows/oil_weekly_watch.yml`, not on the regular 5-min poll cycle); release-by-release detail is recorded in the Neon Postgres `oil_weekly_reports` table — see CLAUDE.md's "API Weekly Crude Oil Stock data" | No — not in `INTRAHOUR_SWING_ALERT_THRESHOLD`, and not polled by `main.poll_once()`/`data_fetcher.py` at all — entirely outside the regular poll loop | N/A — published economic report, not a traded instrument |
 
 Every row above alerts on Telegram — see `notifier.send_telegram_message`, called from `main.poll_once`
 for every alert string `rules.py` returns, regardless of which mechanism produced it.
@@ -116,7 +116,7 @@ technical-analyst.md`).
 | **ATR(14)** (Average True Range) | Twelve Data `XAU/USD` daily candles | `ta_forecast_job._atr()` — Wilder-smoothed true range (`max(high-low, \|high-prev_close\|, \|low-prev_close\|)`, then `ewm(alpha=1/14, adjust=False)`). Used only by `ta_forecast_job.py`, for two things: the stop buffer beyond entry zones (`max($5.00, 0.1 × ATR)`), and the minimum required gap between listed resistance/support zones (`0.15 × ATR`, `MIN_LEVEL_GAP_ATR`), so zones don't get listed closer together than the market's own recent daily range would justify. Not used in `rules.py` or any Telegram alert. |
 
 Full methodology and reference-analysis notes for the technical forecast that consumes all five are in
-`docs/technical-analyst-forecast-log.md`.
+`docs/technical-analysts/technical-analyst-forecast-log.md`.
 
 ## Notes on frequency
 
@@ -168,7 +168,7 @@ Not every indicator uses the same alert logic — see `rules.py` / `CLAUDE.md` f
 - The API Weekly Crude Oil Stock report has its own dedicated mechanism entirely outside `rules.py`/
   `main.poll_once()`: `oil_weekly_job.py`, triggered repeatedly by cron-job.org across each Tuesday's
   multi-hour release window (not the regular 5-min poll), alerts and records the release directly the
-  moment FMP's economic-calendar `actual` field appears — see `docs/fundamental-analyst-oil-weekly-log.md`.
+  moment FMP's economic-calendar `actual` field appears — see `docs/fundamental-analysts/fundamental-analyst-oil-weekly-log.md`.
 - `gold`'s RSI(14) alerts once when it crosses into overbought/oversold territory — a crossing check
   like the SMA crossover, not a poll-to-poll comparison, so it doesn't repeat every 5 minutes while RSI
   stays past the threshold; see the "Technical indicators" table above for how it's computed

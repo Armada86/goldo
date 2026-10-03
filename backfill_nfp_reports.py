@@ -1,5 +1,5 @@
 """One-time migration: loads the 12 historical NFP releases that used to live in
-docs/fundamental-analyst-nfp-log.md's table into the `nfp_reports` table in Postgres. Run once
+docs/fundamental-analysts/fundamental-analyst-nfp-log.md's table into the `nfp_reports` table in Postgres. Run once
 (`python backfill_nfp_reports.py`, with DATABASE_URL set) after that table exists -- init_db() below
 creates it if needed. Safe to re-run: it checks for existing rows first and skips instead of
 duplicating, since nothing else in this project needs a unique constraint on release_ts.

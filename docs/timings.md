@@ -35,7 +35,7 @@ Actions mechanism each scheduled job uses.
 | Real-world ADP release time | ~8:15 AM ET | Monthly, weekday | `docs/market.md` |
 | Real-world NFP release time | ~8:30 AM ET | Monthly, weekday (first Friday typically) | `docs/market.md` |
 | API Weekly Crude Oil Stock watch (`oil_weekly_job.py`) | Repeated triggers ~3:00 PM–6:00 PM ET, ~every 10 min | Tuesdays only | `.github/workflows/oil_weekly_watch.yml` |
-| Real-world Weekly Crude Oil Stock release | Observed ~7:00 PM–10:00 PM UTC (3pm–6pm ET) | Tuesday evenings | `docs/fundamental-analyst-oil-weekly-log.md` |
+| Real-world Weekly Crude Oil Stock release | Observed ~7:00 PM–10:00 PM UTC (3pm–6pm ET) | Tuesday evenings | `docs/fundamental-analysts/fundamental-analyst-oil-weekly-log.md` |
 | ADP/NFP Routine (live trigger via `routine_trigger.py`) | Fires within same ~5-min poll cycle when a fresh ADP/NFP alert fires | Whenever alert fires | `routine_trigger.py`, called from `main.poll_once()` |
 | ADP/NFP Routine (own fallback schedule) | Hourly recheck | Continuous | Claude Code Routine, outside this repo |
 | Stop-loss analysis job (`stop_loss_analysis_job.py`) | On-demand via `start SLA` / `start stop loss analysis` Telegram command | Any day, user-triggered | `.github/workflows/stop_loss_analysis.yml` |

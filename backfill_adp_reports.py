@@ -1,6 +1,6 @@
 """One-time migration/seed: loads the last 12 ADP National Employment Change (ADP NEC) releases into
 the `adp_reports` table in Postgres -- the same shape as `backfill_nfp_reports.py`/`nfp_reports`, see
-`docs/fundamental-analyst-adp-log.md` for sourcing/method. Run once (`python backfill_adp_reports.py`,
+`docs/fundamental-analysts/fundamental-analyst-adp-log.md` for sourcing/method. Run once (`python backfill_adp_reports.py`,
 with DATABASE_URL set) -- init_db() below creates the table if needed. Safe to re-run: it checks for
 existing rows first and skips instead of duplicating, since nothing else in this project needs a unique
 constraint on release_ts.
