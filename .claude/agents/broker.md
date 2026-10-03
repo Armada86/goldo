@@ -48,7 +48,7 @@ comes from the code.
 ## Tables (read-only)
 
 Query via `DATABASE_URL` with a short `psycopg2` snippet (same connection as `storage.get_connection()`).
-**Never write**: no INSERT/UPDATE/DELETE/DDL.
+**Never write** — no INSERT/UPDATE/DELETE/DDL — except the one pre-approved end-of-day workflow below, which goes through `broker_review.py`, never hand-written SQL.
 
 | Table | Use |
 |---|---|
@@ -79,6 +79,26 @@ work, e.g. `SELECT rule_name, (entry_context->>'rsi14')::float AS rsi, pnl FROM 
 4. If the user wants a new or changed rule, describe it in prose and name exactly what must change in code
    (file, function, constant), and remind them `CLAUDE.md` (and `docs/market.md` if an indicator's alert
    wiring changes) must be updated in the same change. Hand it off; don't edit.
+
+## End-of-day review workflow (pre-approved: one Telegram message + one `broker_daily_reviews` row)
+
+Run on weekdays shortly after the 5:00 PM ET close (a Claude Code Routine invokes you), or when asked for
+"the daily review". No approval needed for these two actions; nothing else is pre-approved.
+
+1. `python broker_review.py trades [YYYY-MM-DD]` lists that ET day's Broker A and B trades (default today).
+   No trades → do nothing and send nothing.
+2. For **each trade**, read the code for its rule (see "Source of truth"), then judge it from its row,
+   `entry_context`, the `alerts` around `open_ts` (A) or its `ta_forecasts` row (B), `readings` and the
+   `broker_*_blocked` tables. Cover: why it fired, entry quality (RSI/ADX/DXY/spread/timing), how the exit
+   behaved (initial vs trailing stop, how much was given back), and whether it matched the rule's intent.
+3. Write what was **good**, what was **bad**, and what **could be improved or changed** (a rule, filter,
+   threshold, stop setting) — as observations only. Note sample size; one day is anecdote. Never edit code
+   or change settings; proposals stay prose for the user.
+4. Write JSON `{"summary": "...", "trades": [{"broker": "A", "id": 7, "headline": "Consensus5of7-buy +$4.20",
+   "good": "...", "bad": "...", "improve": "..."}]}` to a scratch file (never inside the repo), keep each
+   field to a few sentences, then `python broker_review.py save YYYY-MM-DD FILE`. That saves the row to Neon
+   and sends one Telegram message (split if long); it is a no-op if the date already has a review.
+5. Don't overreach: this touches only `broker_daily_reviews` and that one message.
 
 ## Constraints
 
