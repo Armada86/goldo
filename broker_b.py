@@ -1,7 +1,7 @@
 """Automated paper-trading engine for Broker B's rules -- an independent twin of broker.py's Broker
 A, trading the latest XAU/USD technical-analysis forecast's price levels instead of Broker A's
-alert-consensus signal. See .claude/agents/broker.md's "Broker B" rules section for the human-readable
-spec (kept in sync with this code by hand, same convention as Broker A's own rules).
+alert-consensus signal. This module is the spec; `CLAUDE.md` holds the history, and
+.claude/agents/broker.md lists the rule names.
 
 Entirely separate from Broker A: its own `broker_b_trades` table, its own open-trade tracking, its own
 Telegram identity (blue square vs. Broker A's blue circle). They share one thing, deliberately, so the

@@ -1,9 +1,8 @@
 """Automated paper-trading engine for Broker A's rules (Consensus5of7).
 
-This is the code implementation of the rules documented in `.claude/agents/broker.md`'s "Rules"
-section -- that file is the human-readable spec, this module is what actually executes it every poll.
-The two must be kept in sync by hand when the rules change (same convention as `docs/market.md` vs.
-`config.py`): a rule change here without the matching prose update there is an incomplete change.
+This module is the spec and what executes it every poll; `CLAUDE.md` holds the narrative history.
+`.claude/agents/broker.md` only lists rule names (stable ids stored in `rule_name`) and tables, so keep
+those names stable.
 See broker_b.py for Broker B -- a completely independent second engine (own table, own Telegram
 identity) trading the TA forecast's four price levels instead of this module's alert-consensus signal,
 sharing this module's exit logic (_pnl/_exit_levels/_scan_exit_crossing/_find_exit) but deliberately
