@@ -24,7 +24,7 @@ unmonitored, just that no subagent currently specializes in it.
 
 Note `iau`, `gldm`, `gdx`, `gdxj`, and `ring` are alerted and frequency-tested exactly like `gld` (same
 `check_intrahour_swing_alerts` mechanism, same auto-tuning), and are also part of the Broker's automated
-paper-trading rules: see `.claude/agents/broker.md`'s "Rules" section, whose `Consensus5of7-buy`/`-sell`
+paper-trading rules: see `broker.py` (rule names in `.claude/agents/broker.md`), whose `Consensus5of7-buy`/`-sell`
 rules require at least 5 of seven intrahour-swing indicators
 (`gld`/`iau`/`gldm`/`gdx`/`gdxj`/`ring`/`dxy`) to flag together, not just `gld`/`dxy`. `us10y` is
 alerted/frequency-tested identically to the other seven but is deliberately **not** part of this

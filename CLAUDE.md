@@ -241,9 +241,8 @@ The Forex broker (`forex_broker.py`) is untouched.
 
 **Broker A automated paper-trading (`broker.py`)**: `check_broker_trades()`, called from
 `main.poll_once()` right after this cycle's alerts are saved, is a fully automated imaginary
-buy/sell engine layered on top of the alert mechanisms above — see `.claude/agents/broker.md`'s
-"Broker A" section for the human-readable spec (kept in sync with this code by hand, the same
-convention as `docs/market.md` vs. `config.py`). Currently two mirror-image rules
+buy/sell engine layered on top of the alert mechanisms above — the code
+(`broker.py`) and this file are the spec; `.claude/agents/broker.md` only lists the rule names and tables. Currently two mirror-image rules
 (`Consensus5of7-buy`/`-sell`): buy 1 troy oz of gold spot when at least 5 of 7 intrahour-swing
 indicators (any window) land alerts in the `alerts` table within a trailing 10 minutes in the required
 direction — GLD/IAU/GLDM/GDX/GDXJ/RING up, DXY down (sell on the exact opposite, and it's 5-of-7, not
@@ -320,8 +319,8 @@ Trades from before this, and Telegram-opened ones, have a NULL context.
 **Broker B automated paper-trading (`broker_b.py`)**: `check_broker_b_trades()`, also called from
 `main.poll_once()` (right after Broker A, wrapped in its own `try/except` so a problem here can't
 break the rest of the poll) — a second, fully independent imaginary buy/sell engine, this one trading
-the **latest** `ta_forecasts` row's price zones instead of Broker A's alert-consensus signal. See
-`.claude/agents/broker.md`'s "Broker B" section for the full spec. **Trades all four** of the
+the **latest** `ta_forecasts` row's price zones instead of Broker A's alert-consensus signal. The code
+(`broker_b.py`) and this file are the spec. **Trades all four** of the
 forecast's scenarios, not just the two fade zones — `sell_resistance`/`buy_support` (`TA-Zone-sell`/
 `TA-Zone-buy`) *and* their mirrored breakout scenarios `bull_breakout`/`bear_breakdown`
 (`TA-Breakout-buy`/`TA-Breakout-sell`), each entering the moment a real 1-minute candle actually
@@ -341,7 +340,7 @@ invalidated (no trade) if price already broke the zone's far side (the scenario'
 before/without a clean touch; the two breakout rules have no such invalidation, since crossing the
 trigger is the entire signal. **Deliberately applies no TA-bias gate** — Broker B trades whichever of the four levels price actually reaches, buy or sell, regardless of
 what the forecast's overall bias score says (this bias check and the breakout scenarios were both
-added/removed at the user's explicit request; see `.claude/agents/broker.md`'s "Broker A entry gating" section). Fires **up to `MAX_TRADES_PER_LEVEL` (2) times per (forecast row, rule), re-arming only after a
+added/removed at the user's explicit request; the TA bias gate was removed from Broker A on 30 Sep 2026). Fires **up to `MAX_TRADES_PER_LEVEL` (2) times per (forecast row, rule), re-arming only after a
 win**: `storage.trade_b_level_history()` returns that level's trade count and whether any was stopped
 out, and the first stop-out retires the rule for that forecast row (the level broke; a fade stopped out
 above resistance would otherwise re-enter at once), until the next `ta_forecast_job.py` run supplies
@@ -1003,9 +1002,9 @@ above), which run every poll with no human/session involved. The subagent itself
 explains why a
 specific trade in the Postgres `trades` or
 `broker_b_trades` table fired, and analyzes performance by rule/engine, querying those tables plus
-`alerts`/`ta_forecasts` directly (there is no markdown trade log to read instead). Its own "Rules"
-section is the human-readable spec for what the two modules implement — the two are kept in sync by
-hand — but the subagent never edits any of them; a proposed rule change is drafted in prose and handed
+`alerts`/`ta_forecasts` directly (there is no markdown trade log to read instead). It reads
+`broker.py`/`broker_b.py` for the rules (its file keeps only the rule names and a table guide, slimmed down
+3 Oct 2026 because a prose copy of the rules kept drifting), and never edits any of them; a proposed rule change is drafted in prose and handed
 off for the user or a coding session to apply to both files together. It's invoked on demand like
 `technical-analyst`.
 
