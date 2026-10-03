@@ -1,10 +1,10 @@
 # Technical analyst — IAU description & usage
 
 Description and operational-usage reference for IAU (iShares Gold Trust), a supporting doc for the
-`technical-analyst` subagent. See also `docs/technical-analyst-gld-log.md`,
-`docs/technical-analyst-gldm-log.md`, `docs/technical-analyst-gdx-log.md`,
-`docs/technical-analyst-gdxj-log.md`, `docs/technical-analyst-ring-log.md`,
-`docs/technical-analyst-dxy-log.md`, and `docs/technical-analyst-us10y-log.md` for the other tracked
+`technical-analyst` subagent. See also `docs/technical-analysts/technical-analyst-gld-log.md`,
+`docs/technical-analysts/technical-analyst-gldm-log.md`, `docs/technical-analysts/technical-analyst-gdx-log.md`,
+`docs/technical-analysts/technical-analyst-gdxj-log.md`, `docs/technical-analysts/technical-analyst-ring-log.md`,
+`docs/technical-analysts/technical-analyst-dxy-log.md`, and `docs/technical-analysts/technical-analyst-us10y-log.md` for the other tracked
 indicators, and `docs/market.md` for the full indicator reference table.
 
 ## Description

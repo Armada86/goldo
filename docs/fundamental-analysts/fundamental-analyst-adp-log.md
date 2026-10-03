@@ -1,7 +1,7 @@
 # Fundamental analyst — ADP National Employment Change description & analysis
 
 Description and running analysis log for the ADP National Employment Change report (ADP NEC), a
-supporting doc for the `fundamental-analyst` subagent — the same role `docs/fundamental-analyst-nfp-log.md`
+supporting doc for the `fundamental-analyst` subagent — the same role `docs/fundamental-analysts/fundamental-analyst-nfp-log.md`
 plays for BLS Non-Farm Payrolls. Kept narrow — the question asked, the method, and descriptive/
 methodology notes — not full writeups (those stay in whatever conversation produced them) and not the
 raw per-release data (see below — that lives in Postgres, not markdown tables). `adp_employment` (FRED
@@ -43,7 +43,7 @@ date/time, previous number, expected (consensus) number, actual number, and how 
 the following 5 minutes, 10 minutes, 30 minutes, 1 hour, and 2 hours. (The resulting data lives in the
 `adp_reports` table now — see above — not inline here.)
 
-**Method** (mirrors `docs/fundamental-analyst-nfp-log.md`'s method exactly, substituting ADP's own
+**Method** (mirrors `docs/fundamental-analysts/fundamental-analyst-nfp-log.md`'s method exactly, substituting ADP's own
 release time):
 - Release dates/times and expected/actual/previous figures: ADP's own press releases
   (`mediacenter.adp.com`/`adp-ri-nrip-static.adp.com`), economic-calendar consensus data
@@ -81,7 +81,7 @@ kind of provider variance flagged in the NFP log's Feb 2026 entry; both sources 
   The only outright reversal at +5min was the May 6, 2026 release (Apr 2026 data): a miss (109K vs.
   118K expected, which should push gold up) where gold instead fell -0.15% in the first five minutes.
   Every other release in the sample moved the "textbook" way in that first candle. This is a materially
-  cleaner signal than BLS NFP showed in the equivalent analysis (`docs/fundamental-analyst-nfp-log.md`:
+  cleaner signal than BLS NFP showed in the equivalent analysis (`docs/fundamental-analysts/fundamental-analyst-nfp-log.md`:
   "no consistent directional relationship between the beat/miss size and gold's move" even at the same
   short-horizon windows).
 - **The edge decays fast and doesn't reliably survive to +1h.** The hit rate falls from 92% at +5min to

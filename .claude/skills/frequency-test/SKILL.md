@@ -29,4 +29,4 @@ approval step. Don't conflate the two.
 - Data sources and why dxy/us10y use coarser bars: `docs/data-sources.md`
 - Settings: `config.py` (`INTRAHOUR_SWING_WINDOWS_MINUTES`, `GOLD_SWING_THRESHOLDS`,
   `FREQUENCY_TEST_LOOKBACK_DAYS`, `COMMON_SESSION_START_ET`/`_END_ET`)
-- Per-indicator background: `docs/technical-analyst-<name>-log.md`
+- Per-indicator background: `docs/technical-analysts/technical-analyst-<name>-log.md`

@@ -510,7 +510,7 @@ def insert_nfp_report(
     notes: str | None = None,
 ) -> None:
     """Records one Non-Farm Payrolls release's figures and gold spot's reaction -- see
-    docs/fundamental-analyst-nfp-log.md for what this replaces (a hand-maintained markdown table) and
+    docs/fundamental-analysts/fundamental-analyst-nfp-log.md for what this replaces (a hand-maintained markdown table) and
     why (a routine update here no longer needs a repo commit). Dollar/percentage deltas vs.
     gold_at_release aren't stored -- derive them from the raw prices when reading."""
     with get_connection() as conn, conn.cursor() as cur:
@@ -601,7 +601,7 @@ def insert_adp_report(
     notes: str | None = None,
 ) -> None:
     """Records one ADP National Employment Change release's figures and gold spot's reaction --
-    same shape as insert_nfp_report(), see docs/fundamental-analyst-adp-log.md. Dollar/percentage
+    same shape as insert_nfp_report(), see docs/fundamental-analysts/fundamental-analyst-adp-log.md. Dollar/percentage
     deltas vs. gold_at_release aren't stored -- derive them from the raw prices when reading."""
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
@@ -690,7 +690,7 @@ def insert_oil_weekly_report(
     notes: str | None = None,
 ) -> None:
     """Records one API Crude Oil Stock Change release's figures and gold spot's reaction -- same
-    shape as insert_adp_report()/insert_nfp_report(), see docs/fundamental-analyst-oil-weekly-log.md.
+    shape as insert_adp_report()/insert_nfp_report(), see docs/fundamental-analysts/fundamental-analyst-oil-weekly-log.md.
     `week_ending` (not release_ts) is the natural per-release key here -- the report always covers a
     Friday-to-Friday week and releases the following Tuesday, so ON CONFLICT (week_ending) DO NOTHING
     makes a duplicate insert (e.g. oil_weekly_job.py firing twice for the same week, or a backfill

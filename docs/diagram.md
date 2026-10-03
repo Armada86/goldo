@@ -161,4 +161,4 @@ flowchart TD
     zones, a four-scenario plan, and a candle-graded review of the previous forecast) and writes it to
     `ta_forecasts`, then sends the same text to Telegram. Both Broker A (bias gate + entry filters) and
     Broker B (the four scenarios it trades) read this same table. See
-    `docs/technical-analyst-forecast-log.md`.
+    `docs/technical-analysts/technical-analyst-forecast-log.md`.

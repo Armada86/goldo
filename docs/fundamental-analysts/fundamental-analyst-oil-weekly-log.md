@@ -1,8 +1,8 @@
 # Fundamental analyst — API Weekly Crude Oil Stock description & usage
 
 Description and operational-usage reference for the API Crude Oil Stock Change report, a supporting doc
-for the `fundamental-analyst` subagent — the same role `docs/fundamental-analyst-nfp-log.md`/
-`docs/fundamental-analyst-adp-log.md` play for the employment reports. Unlike those two, this indicator
+for the `fundamental-analyst` subagent — the same role `docs/fundamental-analysts/fundamental-analyst-nfp-log.md`/
+`docs/fundamental-analysts/fundamental-analyst-adp-log.md` play for the employment reports. Unlike those two, this indicator
 is not FRED-sourced and not tracked in `config.FRED_SERIES` at all — see "Data source" below.
 
 ## Description

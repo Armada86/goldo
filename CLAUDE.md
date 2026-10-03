@@ -26,7 +26,7 @@ There is no test suite or linter configured in this repo. `frequency_test.py` is
 one — not a correctness test, but a historical backtest (see its docstring) against live Twelve Data
 1-minute bars (gold spot and the six gold ETFs) and yfinance 5-minute bars (dxy/us10y — see
 `docs/data-sources.md` for why those two stay coarser) for computing `INTRAHOUR_SWING_ALERT_THRESHOLD`
-(see `docs/technical-analyst-*-log.md` for what each indicator is and how it's used).
+(see `docs/technical-analysts/technical-analyst-*-log.md` for what each indicator is and how it's used).
 `INTRAHOUR_SWING_ALERT_THRESHOLD` itself lives in `intrahour_swing_thresholds.json`, not inline in
 `config.py`, specifically so `frequency_check_job.py` can rewrite it programmatically (see below)
 without touching hand-maintained source.
@@ -140,17 +140,17 @@ the value from two polls back instead of one).
   poll ago wasn't) so a sustained swing alerts once per window, not every 5 minutes for the rest of the
   window — so a single poll can produce up to one alert per window (up to 3 per indicator, 24 total
   across all eight indicators this mechanism covers). This is the mechanism for gld ($1.77/$1.18/$0.60
-  for 15/10/5 min, dollars, see `docs/technical-analyst-gld-log.md`), the two other physically-backed
-  gold ETFs iau (see `docs/technical-analyst-iau-log.md`) and gldm
-  (`docs/technical-analyst-gldm-log.md`), and the three gold-**mining** ETFs gdx
-  (`docs/technical-analyst-gdx-log.md`), gdxj (`docs/technical-analyst-gdxj-log.md`), and ring
-  (`docs/technical-analyst-ring-log.md`, holding mining-company shares rather than gold itself, so
+  for 15/10/5 min, dollars, see `docs/technical-analysts/technical-analyst-gld-log.md`), the two other physically-backed
+  gold ETFs iau (see `docs/technical-analysts/technical-analyst-iau-log.md`) and gldm
+  (`docs/technical-analysts/technical-analyst-gldm-log.md`), and the three gold-**mining** ETFs gdx
+  (`docs/technical-analysts/technical-analyst-gdx-log.md`), gdxj (`docs/technical-analysts/technical-analyst-gdxj-log.md`), and ring
+  (`docs/technical-analysts/technical-analyst-ring-log.md`, holding mining-company shares rather than gold itself, so
   leveraged/noisier than the physical ETFs) — all five added the same way, alerted/frequency-tested
   identically to gld, and — like gld — now also referenced by the Broker's paper-trading rules below
   (`Consensus5of7-buy`/`-sell`, requiring at least 5 of these seven indicators: the five just listed
   plus gld and dxy) — dxy (0.0445/0.0223/0.0147 index points, see
-  `docs/technical-analyst-dxy-log.md`), also part of the Broker's seven, and us10y
-  (0.0071/0.0035/0.0025 yield points, see `docs/technical-analyst-us10y-log.md`) — alerted and
+  `docs/technical-analysts/technical-analyst-dxy-log.md`), also part of the Broker's seven, and us10y
+  (0.0071/0.0035/0.0025 yield points, see `docs/technical-analysts/technical-analyst-us10y-log.md`) — alerted and
   frequency-tested identically to the other seven, but deliberately **excluded** from the Broker's
   paper-trading rules (dropped from `Consensus6of8` when it became `Consensus5of7`) — there is no
   single 60-min window anymore; it was replaced by these three shorter windows so each of these
@@ -600,7 +600,7 @@ value>"`) so Telegram starts pushing updates to the deployed Worker's URL. `npm 
 test runner, no extra framework) covers the pure parsing/formatting/P&L logic
 (`parseCommand()`/`formatTs()`/`pnl()`) without needing live Telegram/Postgres access.
 
-**NFP fundamental-analysis data (`nfp_reports` table)**: `docs/fundamental-analyst-nfp-log.md` used to
+**NFP fundamental-analysis data (`nfp_reports` table)**: `docs/fundamental-analysts/fundamental-analyst-nfp-log.md` used to
 hold a hand-maintained markdown table of Non-Farm Payrolls release data (previous/expected/actual
 figures plus gold spot's reaction at +5/10/30min/1h/2h) — that raw data now lives in Postgres instead,
 in a `nfp_reports` table (`release_ts`, `data_month`, `previous_value`/`expected_value`/`actual_value`,
@@ -626,9 +626,9 @@ column set (`release_ts`, `data_month`, `previous_value`/`expected_value`/`actua
 `gold_at_release`, `gold_5min`/`gold_10min`/`gold_30min`/`gold_1h`/`gold_2h`, `notes`), written/read via
 `storage.insert_adp_report()`/`get_adp_reports()`/`update_adp_report_reaction()`. `backfill_adp_reports.py`
 loaded the last 12 releases (Oct 2025 – Sep 2026 print dates) the same one-off-research way
-`backfill_nfp_reports.py` did; it no-ops if the table already has rows. `docs/fundamental-analyst-adp-log.md`
+`backfill_nfp_reports.py` did; it no-ops if the table already has rows. `docs/fundamental-analysts/fundamental-analyst-adp-log.md`
 holds the descriptive/methodology content and the retrospective analysis of those 12 releases, the same
-split `docs/fundamental-analyst-nfp-log.md` uses for NFP — see that doc for the finding worth noting
+split `docs/fundamental-analysts/fundamental-analyst-nfp-log.md` uses for NFP — see that doc for the finding worth noting
 here: ADP NEC's immediate (+5min) reaction tracks the beat/miss direction far more consistently than NFP's
 does (92% hit rate vs. NFP's roughly coin-flip record), but that edge decays to near-chance by +1h.
 
@@ -671,7 +671,7 @@ faster "the number just printed" alert on top of that unchanged pipeline.
 
 **API Weekly Crude Oil Stock data (`oil_weekly_reports` table)**: the first indicator in this project
 sourced from neither FRED/yfinance/Twelve Data nor the regular poll loop at all -- see
-`docs/fundamental-analyst-oil-weekly-log.md`. FRED has no matching series (checked directly; only the
+`docs/fundamental-analysts/fundamental-analyst-oil-weekly-log.md`. FRED has no matching series (checked directly; only the
 official EIA report exists there, not the API's, and this project doesn't track EIA's either), so this
 one is FMP-only (`/stable/economic-calendar`, same endpoint `release_watch_job.py` uses). Real-world
 release timing is Tuesday evenings but at a much less precise minute than ADP/NFP (observed anywhere
@@ -764,14 +764,14 @@ morning plan and the next morning's run grades the midday one. After
 saving the row, it sends the analysis text (not the diagram) to Telegram with the 🟡
 `rules.XAUUSD_ALERT_PREFIX`, split on line boundaries if it exceeds Telegram's length limit. The row is
 saved first, so a Telegram failure never loses the forecast. Full methodology, the reference
-analyses, and known gaps are in `docs/technical-analyst-forecast-log.md`.
+analyses, and known gaps are in `docs/technical-analysts/technical-analyst-forecast-log.md`.
 
 **Standing reference-analysis workflow**: the user periodically pastes a third-party XAU/USD technical
 analysis of their choosing, to steer `ta_forecast_job.py`. Don't search online for analyses
 yourself; the user picks the sources. For each one:
 1. Verify its levels and indicators against Twelve Data candles, and report what checks out and what
    doesn't (stale price, levels that can't be reproduced, contradictions).
-2. Add it, dated, to the "Reference analyses" section of `docs/technical-analyst-forecast-log.md`,
+2. Add it, dated, to the "Reference analyses" section of `docs/technical-analysts/technical-analyst-forecast-log.md`,
    with what checked out, its weak points, and what's worth taking from it.
 3. Propose the concrete generator changes it suggests (a new level source, a different stop or target
    rule, a new section), and only edit `ta_forecast_job.py` after the user approves. Where the
@@ -1012,10 +1012,10 @@ off for the user or a coding session to apply to both files together. It's invok
 `technical-analyst` and `broker`) for analyzing scheduled macro data releases (NFP, CPI, PPI, retail
 sales, jobless claims, etc.) and how they move gold. Unlike `technical-analyst`, it *is* meant to query
 Postgres — release-by-release data (e.g. the `nfp_reports` table) lives there, not in markdown, per the
-"NFP fundamental-analysis data" entry above. It reads `docs/fundamental-analyst-*.md` for
-context/methodology (`docs/fundamental-analyst-nfp-log.md`, `docs/fundamental-analyst-adp-log.md`, and
-`docs/fundamental-analyst-oil-weekly-log.md`; more will be added the same way as other releases get
-their own research), the same way `technical-analyst` reads `docs/technical-analyst-*-log.md`. It's
+"NFP fundamental-analysis data" entry above. It reads `docs/fundamental-analysts/fundamental-analyst-*.md` for
+context/methodology (`docs/fundamental-analysts/fundamental-analyst-nfp-log.md`, `docs/fundamental-analysts/fundamental-analyst-adp-log.md`, and
+`docs/fundamental-analysts/fundamental-analyst-oil-weekly-log.md`; more will be added the same way as other releases get
+their own research), the same way `technical-analyst` reads `docs/technical-analysts/technical-analyst-*-log.md`. It's
 read-only and plans-then-asks for everything **except** one pre-approved live action, scoped to
 `nfp_reports`/`adp_reports` only (not `oil_weekly_reports` — see "API Weekly Crude Oil Stock data"
 above for why that one's fully automated instead): when a release just printed, its "New-release

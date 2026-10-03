@@ -5,7 +5,7 @@ Description and running analysis log for Non-Farm Payrolls (NFP), a supporting d
 methodology notes — not full writeups (those stay in whatever conversation produced them) and not the
 raw per-release data (see below — that lives in Postgres, not markdown tables). Files starting with
 `fundamental-analyst-` (this one, and others to come for other scheduled releases) are what the
-`fundamental-analyst` subagent reads for context; see also `docs/technical-analyst-gld-log.md`/
+`fundamental-analyst` subagent reads for context; see also `docs/technical-analysts/technical-analyst-gld-log.md`/
 `-dxy-log.md`/`-us10y-log.md`, the equivalent supporting docs for the `technical-analyst` subagent.
 `nonfarm_payrolls` (FRED series `PAYEMS`) is tracked in `config.FRED_SERIES` and alerts via
 `VALUE_CHANGE_ALERT_NAMES` (any change from the previous poll) — see `docs/market.md` and `CLAUDE.md`'s

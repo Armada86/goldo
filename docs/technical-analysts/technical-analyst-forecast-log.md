@@ -2,7 +2,7 @@
 
 This doc explains the generated XAU/USD technical forecast: what style of analysis it copies, how each
 part is computed, where it's stored, and what it doesn't do yet. Like the other
-`docs/technical-analyst-*-log.md` files, it is a description/methodology reference, not a findings log.
+`docs/technical-analysts/technical-analyst-*-log.md` files, it is a description/methodology reference, not a findings log.
 
 ## Where it lives
 
