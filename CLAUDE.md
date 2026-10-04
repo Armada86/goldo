@@ -898,7 +898,7 @@ up/down color, computed from the sign of each change). The `$` unit shown on pri
 picked per-name (`DOLLAR_UNIT_NAMES`) the same way `rules.py` picks it for alert messages.
 
 **Broker B entry rules on the dashboard (4 Oct 2026)**: right under the forecast caption line (price · bias · score), `dashboard.py` shows a small
-"Broker B entry rules" block (`broker_b_entry_rules_html()`: DXY, ADX, RSI, ATR, thresholds read from `config`) for every forecast run whose ET date is
+"Broker B entry rules" block (`broker_b_entry_rules_html()`: DXY, ADX, RSI, ATR; values are the `block_rules` row in force at the run's time, `config` as fallback) for every forecast run whose ET date is
 on or after `BROKER_B_RULES_SHOWN_FROM` (Monday 5 Oct 2026) -- earlier sessions traded under different rules, so they show nothing.
 
 **Responsive laptop/desktop layout**: everything above is the mobile-first *default*, unconditional in
