@@ -999,6 +999,34 @@ def get_trailing_stop_override() -> tuple[float, float] | None:
     return (float(row[0]), float(row[1])) if row else None
 
 
+def set_stop_loss_override(value: float) -> None:
+    """Writes the stop-loss ($ per oz) to the one-row stop_loss_setting table -- the same row the Telegram
+    "make SL" command writes, so both brokers' exits pick it up on their next check. Used by the stop loss
+    analysis job to apply its advice automatically."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("CREATE TABLE IF NOT EXISTS stop_loss_setting (id INTEGER PRIMARY KEY CHECK (id = 1), stop_loss DOUBLE PRECISION NOT NULL)")
+        cur.execute(
+            "INSERT INTO stop_loss_setting (id, stop_loss) VALUES (1, %s) "
+            "ON CONFLICT (id) DO UPDATE SET stop_loss = EXCLUDED.stop_loss",
+            (float(value),),
+        )
+
+
+def set_trailing_stop_override(activation: float, distance: float) -> None:
+    """Writes the trailing stop (activation, distance in $ per oz) to the one-row trailing_stop_setting table,
+    the same row the Telegram "make trail" command writes. See set_stop_loss_override()."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE IF NOT EXISTS trailing_stop_setting (id INTEGER PRIMARY KEY CHECK (id = 1), "
+            "activation DOUBLE PRECISION NOT NULL, distance DOUBLE PRECISION NOT NULL)"
+        )
+        cur.execute(
+            "INSERT INTO trailing_stop_setting (id, activation, distance) VALUES (1, %s, %s) "
+            "ON CONFLICT (id) DO UPDATE SET activation = EXCLUDED.activation, distance = EXCLUDED.distance",
+            (float(activation), float(distance)),
+        )
+
+
 def get_closed_trades_for_analysis(since: datetime) -> list[dict]:
     """Every closed Broker A and Broker B trade opened at or after `since`, oldest first, for the
     stop loss analysis (stop_loss_analysis_job.py). Only the entry matters to the replay, so trades that

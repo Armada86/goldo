@@ -4,7 +4,9 @@ analysis" or "start SLA" on Telegram (the Worker dispatches the workflow, same a
 Reads every closed Broker A / Broker B trade from Postgres, fetches 1-minute gold bars covering them
 (FOREX.com bid/ask where they reach back ~2.8 days, Twelve Data mid for older trades), replays each trade
 against a grid of stop-loss / trailing-stop settings with stop_loss_analysis.py, and sends the advice to
-Telegram. It changes nothing: you apply the advice yourself with "make SL <n>" and "make trail <n> activate <m>".
+Telegram. When the advice is to change, it APPLIES it automatically (since 4 Oct 2026): the new stop loss and trailing stop
+are written to the stop_loss_setting / trailing_stop_setting tables, the same rows "make SL" / "make trail" write, so both
+brokers use them from their next check (open trades included). It also runs by itself on weekdays at 6:15 AM ET.
 
     python stop_loss_analysis_job.py             # analyse and send to Telegram
     python stop_loss_analysis_job.py --dry-run   # analyse and print only"""
@@ -22,7 +24,7 @@ import broker
 import stop_loss_analysis as sla
 from notifier import send_telegram_message
 from retry import with_retries
-from storage import get_closed_trades_for_analysis
+from storage import get_closed_trades_for_analysis, set_stop_loss_override, set_trailing_stop_override
 
 load_dotenv()
 
@@ -139,7 +141,17 @@ def run(dry_run: bool = False) -> None:
 
     activation, distance = broker.trailing_stop_params()
     result = sla.analyse(paths, broker.stop_loss_threshold(), activation, distance)
-    report = sla.format_report(result, first_open, now, n_bid_ask, n_mid, n_skipped)
+    applied = None  # None: nothing to apply, or a dry run
+    if result["change"] and not dry_run:
+        rec = result["recommended"]
+        try:
+            set_stop_loss_override(rec["stop_loss"])
+            set_trailing_stop_override(rec["activation"], rec["distance"])
+            applied = True
+        except Exception as e:
+            print(f"[sla] could not write the new stop settings: {e}")
+            applied = False
+    report = sla.format_report(result, first_open, now, n_bid_ask, n_mid, n_skipped, applied)
     print(report)
     if not dry_run:
         send_telegram_message(report)
