@@ -319,7 +319,7 @@ Telegram notice naming the level and the live reading. Broker A is unaffected. C
 is missing/empty/unreadable. The Telegram command `start block rules analysis` / `start BRA` dispatches `.github/workflows/block_rules_analysis.yml`
 -> `block_rules_analysis_job.py`, which replays every Broker B touch (closed trades plus touches blocked by these filters, from `broker_b_blocked`)
 against candidate values with `block_rules_analysis.py` (the real gate functions, the live exit rule, the current stop/trail settings), **applies
-the result by writing a new `block_rules` row** (every run writes one, changed or not) and sends a report. Unlike `start SLA` it applies its advice
+the result by writing a new `block_rules` row** (every run writes one, changed or not) and sends a report. Guards: each rule moves at most one grid step per run, and switching a block off needs twice the usual margin. Unlike `start SLA` it applies its advice
 itself; there is no `make` command for these values. `config.py`'s constants are the defaults/fallback and are never edited by BRA; the dashboard's
 entry-rules block shows the rules in force at each forecast run's time. Broker A keeps its own constants. Method/limits: `docs/block-rules-analysis.md`.
 

@@ -39,6 +39,9 @@ force when each forecast run was made.
    its neighbours (a plateau beats a lucky spike). The best change is applied only if it beats the current total by
    `max($10, 10%)` **and** still wins without the single event that gained the most; then it repeats from the new
    values until nothing qualifies.
+   Guards: a rule moves **at most one grid step per run** (so a block can't be switched off, or jump across its range, on one
+   run's evidence), and moving a rule to its off value needs **twice** that margin and the margin without its best event.
+   (Added after the first run switched both ADX blocks off from 40 events; the ADX values were restored by hand, table row 3.)
 6. **Result:** a new `block_rules` row is written (changed or not) and the report goes to Telegram. Under 12 events
    nothing changes.
 
