@@ -1,6 +1,6 @@
 # Block rules analysis (BRA)
 
-Tunes Broker B's four entry filters from history and applies the result. Triggered from Telegram with
+Tunes Broker B's four entry filters from history and applies the result. Runs by itself every weekday at 6:30 AM ET (cron-job.org) and can also be triggered from Telegram with
 `start block rules analysis` or `start BRA` (Worker -> `.github/workflows/block_rules_analysis.yml` ->
 `block_rules_analysis_job.py`). Code: `block_rules_analysis.py` (pure analysis), `block_rules.py` (the values).
 

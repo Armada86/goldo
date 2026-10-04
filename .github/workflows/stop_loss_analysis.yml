@@ -1,9 +1,9 @@
 name: Stop loss analysis
 
-# Triggered by the Telegram command "start stop loss analysis" / "start SLA": the Cloudflare Worker
-# (telegram_webhook/) calls this workflow's workflow_dispatch endpoint, the same way "run TA" does. It replays
-# every closed Broker A / Broker B trade against a grid of stop-loss and trailing-stop settings and sends the
-# advice to Telegram. It changes no setting; the user applies the advice with "make SL" / "make trail".
+# Triggered by cron-job.org every weekday at 6:15 AM ET (a workflow_dispatch call, the same pattern as poll.yml) and by
+# the Telegram command "start stop loss analysis" / "start SLA" (the Cloudflare Worker calls the same endpoint). It
+# replays every closed Broker A / Broker B trade against a grid of stop-loss and trailing-stop settings, sends the result
+# to Telegram and, when it advises a change, applies it automatically (stop_loss_setting / trailing_stop_setting).
 on:
   workflow_dispatch: {}
 

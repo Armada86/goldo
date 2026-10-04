@@ -29,7 +29,9 @@ Actions mechanism each scheduled job uses.
 | Frequency test — automatic (`frequency_check_job.py`) | 6:00 AM ET | Weekdays (Mon–Fri) | `.github/workflows/frequency_check.yml`, cron-job.org |
 | Frequency test lookback window | Rolling 30 days | Continuous | `config.FREQUENCY_TEST_LOOKBACK_DAYS` |
 | Common session window (frequency test gold-swing filter) | 9:30 AM–2:55 PM ET | Weekdays | `config.COMMON_SESSION_START_ET` / `COMMON_SESSION_END_ET` |
-| XAU/USD technical analysis forecast (`ta_forecast_job.py`) | 7:00 AM and 12:00 PM ET (two runs/day; also on-demand via `run TA` Telegram command) | Weekdays | `.github/workflows/ta_forecast.yml`, cron-job.org (two entries) |
+| Stop-loss analysis — automatic | 6:15 AM ET (applies its advice automatically; also on demand via `start SLA`) | Weekdays | `.github/workflows/stop_loss_analysis.yml`, cron-job.org |
+| Block rules analysis — automatic | 6:30 AM ET (writes a new `block_rules` row; also on demand via `start BRA`) | Weekdays | `.github/workflows/block_rules_analysis.yml`, cron-job.org |
+| XAU/USD technical analysis forecast (`ta_forecast_job.py`) | 6:45 AM and 12:00 PM ET (two runs/day; also on-demand via `run TA` Telegram command) | Weekdays | `.github/workflows/ta_forecast.yml`, cron-job.org (two entries) |
 | ADP release watch (`release_watch_job.py`) | Triggered 8:14 AM ET, burst-polls every 15s for up to 6 min | Weekdays | `.github/workflows/release_watch_adp.yml` |
 | NFP release watch (`release_watch_job.py`) | Triggered 8:29 AM ET, burst-polls every 15s for up to 6 min | Weekdays | `.github/workflows/release_watch_nfp.yml` |
 | Real-world ADP release time | ~8:15 AM ET | Monthly, weekday | `docs/market.md` |
@@ -38,7 +40,6 @@ Actions mechanism each scheduled job uses.
 | Real-world Weekly Crude Oil Stock release | Observed ~7:00 PM–10:00 PM UTC (3pm–6pm ET) | Tuesday evenings | `docs/fundamental-analysts/fundamental-analyst-oil-weekly-log.md` |
 | ADP/NFP Routine (live trigger via `routine_trigger.py`) | Fires within same ~5-min poll cycle when a fresh ADP/NFP alert fires | Whenever alert fires | `routine_trigger.py`, called from `main.poll_once()` |
 | ADP/NFP Routine (own fallback schedule) | Hourly recheck | Continuous | Claude Code Routine, outside this repo |
-| Stop-loss analysis job (`stop_loss_analysis_job.py`) | On-demand via `start SLA` / `start stop loss analysis` Telegram command | Any day, user-triggered | `.github/workflows/stop_loss_analysis.yml` |
 | Stop-loss analysis horizon per trade replay | Up to 5:00 PM ET | Per trade day | `stop_loss_analysis.py` |
 | Stop-loss analysis bar source cutover | FOREX.com bid/ask bars for last ~2.8 days, Twelve Data mid before that | N/A | `stop_loss_analysis_job.py` |
 | Telegram inbound webhook | Event-driven — acts the instant a message arrives, no schedule | Any time | `telegram_webhook/` (Cloudflare Worker) |

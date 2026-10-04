@@ -65,8 +65,9 @@
  *                                                          Applies to open trades too (trailing_stop_setting table, read by broker.py)
  *   "start stop loss analysis" / "start SLA"           -> dispatch the stop_loss_analysis.yml GitHub workflow: it replays every
  *                                                          closed trade against a grid of stop-loss / trailing-stop
- *                                                          settings and sends advice here (Needs GITHUB_DISPATCH_TOKEN,
- *                                                          like "run TA"). It changes nothing; apply it with make SL / make trail.
+ *                                                          settings and sends the result here (Needs GITHUB_DISPATCH_TOKEN,
+ *                                                          like "run TA"). When it advises a change it APPLIES it automatically
+ *                                                          (same rows as make SL / make trail). Also runs by itself at 6:15 AM ET.
  *   "start block rules analysis" / "start BRA"          -> dispatch the block_rules_analysis.yml GitHub workflow: it replays every
  *                                                          Broker B touch against DXY / ADX / RSI / ATR values, writes the
  *                                                          resulting rules to the block_rules table (read by broker_b.py) and
@@ -417,7 +418,7 @@ async function runSla(env) {
   if (error) return error;
   return (
     "\u{1F4CA} Stop loss analysis started. It replays every closed trade against different stop-loss and trailing-stop settings. " +
-    "The advice arrives here in a few minutes (it paces its price requests). Nothing changes until you send make SL / make trail."
+    "The result arrives here in a few minutes (it paces its price requests). If it advises a change, the new stop loss and trailing stop are applied automatically."
   );
 }
 

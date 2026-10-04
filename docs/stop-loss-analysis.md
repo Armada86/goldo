@@ -3,8 +3,10 @@
 Send `start stop loss analysis` or `start SLA` to the Telegram bot. It replays every closed Broker A and
 Broker B trade against a grid of stop-loss and trailing-stop settings and sends back advice: a stop loss
 (for example -$10 or -$15) and a trailing stop (how much profit switches it on, and how far behind the best
-price it follows). It changes nothing. You apply the advice yourself with `make SL <n>` and
-`make trail <activation> <distance>` (for example `make trail 3 10`).
+price it follows). **When it advises a change it applies it automatically** (from 4 Oct 2026): the new values go
+into the same tables `make SL <n>` and `make trail <activation> <distance>` write, so both brokers use them from their
+next check, open trades included. If the advice is to keep, nothing changes. It also runs by itself every weekday at
+6:15 AM ET (cron-job.org), as well as on demand.
 
 Code: `stop_loss_analysis.py` (the analysis), `stop_loss_analysis_job.py` (reads trades and prices, sends the
 message), `.github/workflows/stop_loss_analysis.yml` (the job, started by the Worker the same way as `run TA`).
@@ -40,8 +42,9 @@ The message is deliberately short (since 4 Oct 2026):
 - The advice (change, or keep) with the advised stop loss and trailing stop.
 - The replay total for the advised setting, for your current setting, and for the old fixed +$10 / -$10 rule, and by
   how much it beats the current one (also without its single best trade).
-- When the advice is to change, the two commands to apply it (`make SL ...` and `make trail <distance> activate
-  <activation>`).
+- When the advice is to change, a line saying the new settings were **applied automatically**. (If the database write
+  fails, the message says so and gives the two commands, `make SL ...` and `make trail <distance> activate
+  <activation>`, to apply them by hand.)
 
 The per-stop-loss table, the runner-up settings, the confidence note and the "edge of the tested range" warning
 used to be in the message; they are no longer sent (the analysis still computes them).

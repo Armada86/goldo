@@ -1,6 +1,7 @@
 name: Block rules analysis
 
-# Triggered by the Telegram command "start block rules analysis" / "start BRA": the Cloudflare Worker
+# Triggered by cron-job.org every weekday at 6:30 AM ET (a workflow_dispatch call, the same pattern as poll.yml) and by
+# the Telegram command "start block rules analysis" / "start BRA": the Cloudflare Worker
 # (telegram_webhook/) calls this workflow's workflow_dispatch endpoint, the same way "start SLA" does. It replays
 # every Broker B touch (trades that opened plus touches blocked by the DXY/ADX/RSI/ATR filters) against candidate
 # filter values, sends the report to Telegram, and writes the resulting rules as a new row in the block_rules table,

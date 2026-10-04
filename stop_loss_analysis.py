@@ -244,8 +244,9 @@ def at_grid_edge(rec: dict) -> bool:
             or rec["distance"] in (DISTANCE_GRID[0], DISTANCE_GRID[-1]))
 
 
-def format_report(result: dict, first_ts, last_ts, n_bid_ask: int, n_mid: int, n_skipped: int) -> str:
-    """The Telegram message."""
+def format_report(result: dict, first_ts, last_ts, n_bid_ask: int, n_mid: int, n_skipped: int, applied: bool | None = None) -> str:
+    """The Telegram message. `applied`: True when the job wrote the advised settings, False when that failed (the commands
+    to apply them by hand are shown), None for a dry run."""
     rec, cur = result["recommended"], result["current"]
     lines = [
         f"{SLA_PREFIX}STOP LOSS ANALYSIS",
@@ -269,10 +270,16 @@ def format_report(result: dict, first_ts, last_ts, n_bid_ask: int, n_mid: int, n
         f"Needs to beat the current by {_money(result['needed_gain'])} to advise a change; it beats it by {_money(result['gain'])} "
         f"({_money(rec['gain_without_best'])} without its single best trade, {rec['best_trade']}).",
     ]
-    if result["change"]:
+    if result["change"] and applied:
         lines += [
             "",
-            "To apply:",
+            "APPLIED AUTOMATICALLY (both brokers use it from their next check):",
+            f"Stop loss -${_num(rec['stop_loss'])}, trailing stop starts at +${_num(rec['activation'])} and follows ${_num(rec['distance'])} behind",
+        ]
+    elif result["change"]:
+        lines += [
+            "",
+            "COULD NOT APPLY (database error); to apply by hand:" if applied is False else "To apply:",
             f"make SL {_num(rec['stop_loss'])}",
             f"make trail {_num(rec['distance'])} activate {_num(rec['activation'])}",
         ]
