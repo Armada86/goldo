@@ -19,7 +19,9 @@ Choosing values: greedy coordinate search. Each of the eight values is swept ove
 held at their current setting; a grid point is scored by the mean total P/L of itself and its neighbours one step
 away (a plateau beats a lucky spike). The best change is applied only if it beats the current total by a real
 margin AND still wins without the single event that gained the most; then the sweep repeats from the new rules
-until nothing qualifies. With fewer than MIN_EVENTS events nothing changes.
+until nothing qualifies. Guards (added 4 Oct 2026, after a first run switched both ADX blocks off from 40 events): a rule
+moves at most one grid step per run, and moving one to its OFF value needs twice the margin and the margin without
+its best event. With fewer than MIN_EVENTS events nothing changes.
 
 Limits, stated in the report: the event pool only contains touches that were recorded (traded, or blocked by one of
 these filters), so a value that would have let in a touch no filter ever saw can't be judged; blocked touches are
@@ -38,6 +40,7 @@ BRA_PREFIX = "\U0001F6E1️ "  # shield -- distinct from the other Telegram pref
 MIN_EVENTS = 12  # below this the analysis changes nothing
 CHANGE_MIN_GAIN = 10.0  # $: a change must beat the current total by at least this ...
 CHANGE_MIN_GAIN_PCT = 0.10  # ... and by this share of the current total, whichever is larger
+OFF_MARGIN_FACTOR = 2.0  # switching a block fully off needs this multiple of that margin
 
 # Candidate values, ascending. dxy_threshold's grid is built from its current value (see grid_for()).
 GRIDS = {
@@ -140,14 +143,22 @@ def analyse(events: list[Event], current_rules: dict, stop_loss: float, activati
                 "new_total": start_total, "changed": False, "per_rule": {}}
 
     steps = []
+    moved = set()  # each rule moves at most once per run
     for _ in range(len(RULE_KEYS)):
         cur_total = float(sum(cur_pnls))
         needed = max(CHANGE_MIN_GAIN, CHANGE_MIN_GAIN_PCT * abs(cur_total))
         best = None
         for key in RULE_KEYS:
+            if key in moved:
+                continue
             grid = grid_for(key, rules)
             totals = [float(sum(event_pnls(events, {**rules, key: v}, stop_loss, activation, distance))) for v in grid]
-            pick = grid[int(np.argmax(_smooth(totals)))]
+            # Guard: a rule moves at most ONE grid step per run (so a block can never be switched off, or jump across
+            # its range, on one run's evidence), chosen among the current value and its two neighbours.
+            smooth = _smooth(totals)
+            cur_i = grid.index(rules[key])
+            near = range(max(0, cur_i - 1), min(len(grid), cur_i + 2))
+            pick = grid[max(near, key=lambda i: smooth[i])]
             if pick == rules[key]:
                 continue
             cand_pnls = event_pnls(events, {**rules, key: pick}, stop_loss, activation, distance)
@@ -155,13 +166,20 @@ def analyse(events: list[Event], current_rules: dict, stop_loss: float, activati
             gain = float(sum(diffs))
             best_i = int(np.argmax(diffs))
             gain_without_best = gain - diffs[best_i]
-            if gain >= needed and gain_without_best > 0 and (best is None or gain > best["gain"]):
+            # Removing a block altogether needs a bigger win: twice the margin, and still clearing the margin
+            # without its single best event.
+            if pick == OFF_VALUES[key]:
+                ok = gain >= OFF_MARGIN_FACTOR * needed and gain_without_best >= needed
+            else:
+                ok = gain >= needed and gain_without_best > 0
+            if ok and (best is None or gain > best["gain"]):
                 best = {"key": key, "old": rules[key], "new": pick, "gain": gain, "needed": needed,
                         "gain_without_best": float(gain_without_best), "best_event": events[best_i].label,
                         "pnls": cand_pnls}
         if best is None:
             break
         rules[best["key"]] = best["new"]
+        moved.add(best["key"])
         cur_pnls = best.pop("pnls")
         steps.append(best)
 
@@ -228,6 +246,6 @@ def format_report(result: dict, first_ts, last_ts, n_skipped: int = 0) -> str:
         f"Confidence: {confidence(result['n_events'])}.",
         "Every touch is replayed with the live exit rule and the stop settings above, one position at a time. Blocked touches are "
         "replayed from the level price at the recorded touch time (approximate). Each value is scored with its neighbours, and a "
-        "change needs to still win without its single best event. Touches no filter ever recorded can't be judged.",
+        "change needs to still win without its single best event. A rule moves at most one grid step per run, and switching a block off needs a bigger win. Touches no filter ever recorded can't be judged.",
     ]
     return "\n".join(lines)
