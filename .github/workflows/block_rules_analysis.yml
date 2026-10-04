@@ -1,0 +1,31 @@
+name: Block rules analysis
+
+# Triggered by the Telegram command "start block rules analysis" / "start BRA": the Cloudflare Worker
+# (telegram_webhook/) calls this workflow's workflow_dispatch endpoint, the same way "start SLA" does. It replays
+# every Broker B touch (trades that opened plus touches blocked by the DXY/ADX/RSI/ATR filters) against candidate
+# filter values, sends the report to Telegram, and writes the resulting rules as a new row in the block_rules table,
+# which Broker B reads on its next poll.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  block-rules-analysis:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -r requirements.txt
+
+      - run: python block_rules_analysis_job.py
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          FOREX_USERNAME: ${{ secrets.FOREX_USERNAME }}
+          FOREX_PASSWORD: ${{ secrets.FOREX_PASSWORD }}
+          FOREX_APP_KEY: ${{ secrets.FOREX_APP_KEY }}

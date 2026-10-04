@@ -18,18 +18,8 @@ if "DATABASE_URL" not in os.environ and "DATABASE_URL" in st.secrets:
     os.environ["DATABASE_URL"] = st.secrets["DATABASE_URL"]
 
 import broker_b
-from config import (
-    ADX_CHOP_THRESHOLD,
-    ADX_TRENDING_THRESHOLD,
-    ATR_HIGH_VOLATILITY_THRESHOLD,
-    DASHBOARD_INDICATOR_NAMES,
-    DOLLAR_UNIT_NAMES,
-    FADE_RSI_OVERBOUGHT_THRESHOLD,
-    FADE_RSI_OVERSOLD_THRESHOLD,
-    INTRAHOUR_SWING_ALERT_THRESHOLD,
-    RSI_OVERBOUGHT_THRESHOLD,
-    RSI_OVERSOLD_THRESHOLD,
-)
+from block_rules import OFF_VALUES, get_block_rules
+from config import DASHBOARD_INDICATOR_NAMES, DOLLAR_UNIT_NAMES
 from storage import get_connection
 from ta_forecast_job import render_diagram_svg
 
@@ -133,24 +123,30 @@ FORECAST_RUN_DATE_KEY = "forecast_run_picker_date"  # the date FORECAST_RUN_KEY 
 BROKER_B_RULES_SHOWN_FROM = date(2026, 10, 5)
 
 
-def broker_b_entry_rules_html() -> str:
-    """Compact summary of Broker B's DXY/ADX/RSI/ATR entry filters (see broker_b.py), thresholds read from
-    config so this can't drift from the code. Plain "$" is fine: it's one HTML block (see the LaTeX gotcha
-    note on the P&L line)."""
-    dxy = INTRAHOUR_SWING_ALERT_THRESHOLD["dxy"][15]
+def broker_b_entry_rules_html(as_of=None) -> str:
+    """Compact summary of Broker B's DXY/ADX/RSI/ATR entry filters (see broker_b.py). The values are the active
+    block_rules row (see block_rules.py -- what the block rules analysis last set), with config.py's values for
+    anything the table can't supply, so this shows what the bot is actually using. `as_of` (the forecast run's
+    time) shows the rules that were in force then, so a past session isn't relabelled by a later change. Plain "$" is fine: it's one
+    HTML block (see the LaTeX gotcha note on the P&L line)."""
+    rules = get_block_rules(as_of)
+
+    def v(key: str) -> str:
+        return "off" if rules[key] == OFF_VALUES[key] else f"{rules[key]:.4f}".rstrip("0").rstrip(".")
+
     rows = [
-        ("DXY", f"Skip a Buy if DXY rose, or a Sell if it fell, by &ge; {dxy:.4f} over the last 15 min."),
+        ("DXY", f"Skip a Buy if DXY rose, or a Sell if it fell, by &ge; {v('dxy_threshold')} over the last 15 min."),
         (
             "ADX(14)",
-            f"Fades blocked at ADX &ge; {ADX_TRENDING_THRESHOLD}; breakouts blocked at ADX &lt; {ADX_CHOP_THRESHOLD}.",
+            f"Fades blocked at ADX &ge; {v('adx_trending')}; breakouts blocked at ADX &lt; {v('adx_chop')}.",
         ),
         (
             "RSI(14)",
-            f"Breakout buy blocked at &ge; {RSI_OVERBOUGHT_THRESHOLD}, breakout sell at &le; {RSI_OVERSOLD_THRESHOLD}; "
-            f"fade sell blocked at &ge; {FADE_RSI_OVERBOUGHT_THRESHOLD}, fade buy at &le; {FADE_RSI_OVERSOLD_THRESHOLD}. "
-            f"Waived at ADX &ge; {ADX_TRENDING_THRESHOLD}.",
+            f"Breakout buy blocked at &ge; {v('rsi_overbought')}, breakout sell at &le; {v('rsi_oversold')}; "
+            f"fade sell blocked at &ge; {v('fade_rsi_overbought')}, fade buy at &le; {v('fade_rsi_oversold')}. "
+            f"Waived at ADX &ge; {v('adx_trending')}.",
         ),
-        ("ATR(14)", f"All rules blocked when 15-min ATR &ge; ${ATR_HIGH_VOLATILITY_THRESHOLD:.0f}."),
+        ("ATR(14)", f"All rules blocked when 15-min ATR &ge; ${v('atr_max')}."),
     ]
     body = "".join(f"<div><b>{name}</b> &mdash; {text}</div>" for name, text in rows)
     return (
@@ -438,7 +434,7 @@ if min_forecast_date is not None:
             )
         st.caption(caption)
         if forecast_local.date() >= BROKER_B_RULES_SHOWN_FROM:
-            st.markdown(broker_b_entry_rules_html(), unsafe_allow_html=True)
+            st.markdown(broker_b_entry_rules_html(forecast["ts"]), unsafe_allow_html=True)
         try:
             scenario_outcomes = load_broker_b_outcomes(forecast["id"]) if forecast.get("id") else {}
         except Exception as e:
