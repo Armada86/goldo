@@ -779,7 +779,7 @@ America/New_York — moved from midnight to 7am 25 Sep 2026, closer to trading h
 third daily run). The header labels each run Morning or Midday by its ET hour (`session_label()`, also
 stored as `levels.session`); each run grades whichever row came before it, so the midday run grades the
 morning plan and the next morning's run grades the midday one. After
-saving the row, it sends the analysis text (not the diagram) to Telegram with the 🟡
+saving the row, it sends a short version of the analysis text (`telegram_summary()`: the title line plus the SUMMARY, PLAN and CONTEXT sections only, from 4 Oct 2026; the full text stays in `ta_forecasts.analysis` and the dashboard; no diagram) to Telegram with the 🟡
 `rules.XAUUSD_ALERT_PREFIX`, split on line boundaries if it exceeds Telegram's length limit. The row is
 saved first, so a Telegram failure never loses the forecast. Full methodology, the reference
 analyses, and known gaps are in `docs/technical-analysts/technical-analyst-forecast-log.md`.
