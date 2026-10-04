@@ -33,14 +33,18 @@ message), `.github/workflows/stop_loss_analysis.yml` (the job, started by the Wo
 
 ## Reading the message
 
-- The advised stop loss and trailing stop, and the replay total for them, for your current setting, and for the
-  old fixed +$10 / -$10 rule.
-- The best result for each stop-loss size, so you can compare -$10 with -$15 directly.
-- A few other settings that also scored well.
-- Confidence by sample size (under 30 trades is low, under 100 medium), how many trades never hit the stop,
-  how many were skipped for the one-position rule, and a warning when the advised value is at the edge of the
-  tested range.
-- The two commands to apply it.
+The message is deliberately short (since 4 Oct 2026):
+
+- The title, how many closed trades it used and over which dates (and how many were priced on FOREX.com bid/ask
+  versus Twelve Data mid prices).
+- The advice (change, or keep) with the advised stop loss and trailing stop.
+- The replay total for the advised setting, for your current setting, and for the old fixed +$10 / -$10 rule, and by
+  how much it beats the current one (also without its single best trade).
+- When the advice is to change, the two commands to apply it (`make SL ...` and `make trail <distance> activate
+  <activation>`).
+
+The per-stop-loss table, the runner-up settings, the confidence note and the "edge of the tested range" warning
+used to be in the message; they are no longer sent (the analysis still computes them).
 
 ## Limits
 
