@@ -193,6 +193,18 @@ def init_db() -> None:
             )
         cur.execute(
             """
+            CREATE TABLE IF NOT EXISTS stop_settings_history (
+                id SERIAL PRIMARY KEY,
+                set_ts TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                source TEXT NOT NULL,
+                stop_loss DOUBLE PRECISION,
+                activation DOUBLE PRECISION,
+                distance DOUBLE PRECISION
+            )
+            """
+        )
+        cur.execute(
+            """
             CREATE TABLE IF NOT EXISTS trading_pauses (
                 id SERIAL PRIMARY KEY,
                 start_ts TIMESTAMPTZ NOT NULL,
@@ -997,6 +1009,39 @@ def get_trailing_stop_override() -> tuple[float, float] | None:
         cur.execute("SELECT activation, distance FROM trailing_stop_setting WHERE id = 1")
         row = cur.fetchone()
     return (float(row[0]), float(row[1])) if row else None
+
+
+def insert_stop_settings_history(source: str, stop_loss: float | None = None, activation: float | None = None,
+                                 distance: float | None = None) -> None:
+    """Appends a row to stop_settings_history, a display-only log of when the stop loss / trailing stop settings
+    changed (the brokers read the one-row stop_loss_setting / trailing_stop_setting tables, which only keep the
+    latest value). A NULL column means "not changed by this row". Written by the stop loss analysis job and by the
+    Telegram Worker's make SL / make trail; read by the dashboard (get_stop_settings_as_of())."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO stop_settings_history (source, stop_loss, activation, distance) VALUES (%s, %s, %s, %s)",
+            (source, stop_loss, activation, distance),
+        )
+
+
+def get_stop_settings_as_of(as_of: datetime) -> dict:
+    """{stop_loss, activation, distance} in force at `as_of`: for each, the newest non-NULL value in
+    stop_settings_history set at or before that time, or None if there is none (the caller falls back to the
+    broker.py defaults)."""
+    out = {"stop_loss": None, "activation": None, "distance": None}
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('stop_settings_history')")
+        if cur.fetchone()[0] is None:
+            return out
+        for col in out:
+            cur.execute(
+                f"SELECT {col} FROM stop_settings_history WHERE {col} IS NOT NULL AND set_ts <= %s "
+                "ORDER BY id DESC LIMIT 1",
+                (as_of,),
+            )
+            row = cur.fetchone()
+            out[col] = float(row[0]) if row else None
+    return out
 
 
 def set_stop_loss_override(value: float) -> None:

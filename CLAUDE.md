@@ -899,8 +899,12 @@ up/down color, computed from the sign of each change). The `$` unit shown on pri
 picked per-name (`DOLLAR_UNIT_NAMES`) the same way `rules.py` picks it for alert messages.
 
 **Broker B entry rules on the dashboard (4 Oct 2026)**: right under the forecast caption line (price · bias · score), `dashboard.py` shows a small
-"Broker B entry rules" block (`broker_b_entry_rules_html()`: DXY, ADX, RSI, ATR; values are the `block_rules` row in force at the run's time, `config` as fallback) for every forecast run whose ET date is
-on or after `BROKER_B_RULES_SHOWN_FROM` (Monday 5 Oct 2026) -- earlier sessions traded under different rules, so they show nothing.
+"Broker B rules in force" block (`broker_b_entry_rules_html()`): the DXY / ADX / RSI / ATR entry cutoffs (the `block_rules` row in force at the run's time, `config` as fallback)
+and an "Exits" line with the stop loss and trailing stop in force at that time. The exit numbers come from `stop_settings_history` (`storage.insert_stop_settings_history()` /
+`get_stop_settings_as_of()`): a display-only, append-only log (a NULL column = unchanged) written by the stop loss analysis job when it applies its advice and by the Worker's
+`make SL` / `make trail`, because the brokers' own `stop_loss_setting` / `trailing_stop_setting` tables only keep the latest value; `broker.py` defaults apply if nothing is logged yet.
+Both are looked up as of each forecast run's time, so with SLA (6:15) and BRA (6:30) running before the 6:45 TA run, every TA page of a date shows that morning's values. Shown for every forecast
+run whose ET date is on or after `BROKER_B_RULES_SHOWN_FROM` (Monday 5 Oct 2026) -- earlier sessions traded under different rules, so they show nothing.
 
 **Responsive laptop/desktop layout**: everything above is the mobile-first *default*, unconditional in
 the CSS -- so a phone viewer's experience is completely unchanged by what follows. A single

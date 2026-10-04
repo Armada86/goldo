@@ -17,10 +17,11 @@ load_dotenv()  # local runs: .env into os.environ. No-op on Streamlit Cloud (no 
 if "DATABASE_URL" not in os.environ and "DATABASE_URL" in st.secrets:
     os.environ["DATABASE_URL"] = st.secrets["DATABASE_URL"]
 
+import broker
 import broker_b
 from block_rules import OFF_VALUES, get_block_rules
 from config import DASHBOARD_INDICATOR_NAMES, DOLLAR_UNIT_NAMES
-from storage import get_connection
+from storage import get_connection, get_stop_settings_as_of
 from ta_forecast_job import render_diagram_svg
 
 st.set_page_config(page_title="Goldo", layout="wide")
@@ -124,12 +125,23 @@ BROKER_B_RULES_SHOWN_FROM = date(2026, 10, 5)
 
 
 def broker_b_entry_rules_html(as_of=None) -> str:
-    """Compact summary of Broker B's DXY/ADX/RSI/ATR entry filters (see broker_b.py). The values are the active
+    """Compact summary of Broker B's DXY/ADX/RSI/ATR entry filters (see broker_b.py), plus the stop loss and trailing stop
+    in force (stop_settings_history, set by the stop loss analysis / make SL / make trail; broker.py defaults if none). The values are the active
     block_rules row (see block_rules.py -- what the block rules analysis last set), with config.py's values for
     anything the table can't supply, so this shows what the bot is actually using. `as_of` (the forecast run's
     time) shows the rules that were in force then, so a past session isn't relabelled by a later change. Plain "$" is fine: it's one
     HTML block (see the LaTeX gotcha note on the P&L line)."""
     rules = get_block_rules(as_of)
+    try:
+        st = get_stop_settings_as_of(as_of) if as_of is not None else {}
+    except Exception:
+        st = {}
+    stop = st.get("stop_loss") or broker.STOP_LOSS_THRESHOLD
+    act = st.get("activation") or broker.TRAILING_STOP_ACTIVATION
+    dist = st.get("distance") or broker.TRAILING_STOP_DISTANCE
+    exit_text = (
+        f"Stop loss &minus;${stop:g}; trailing stop starts at +${act:g} profit and follows ${dist:g} behind the best price."
+    )
 
     def v(key: str) -> str:
         return "off" if rules[key] == OFF_VALUES[key] else f"{rules[key]:.4f}".rstrip("0").rstrip(".")
@@ -147,11 +159,12 @@ def broker_b_entry_rules_html(as_of=None) -> str:
             f"Waived at ADX &ge; {v('adx_trending')}.",
         ),
         ("ATR(14)", f"All rules blocked when 15-min ATR &ge; ${v('atr_max')}."),
+        ("Exits", exit_text),
     ]
     body = "".join(f"<div><b>{name}</b> &mdash; {text}</div>" for name, text in rows)
     return (
         "<div style='font-size:12px;color:#444;line-height:1.5;margin:0 0 0.5rem 0;'>"
-        "<div style='font-weight:600;'>Broker B entry rules</div>"
+        "<div style='font-weight:600;'>Broker B rules in force</div>"
         f"{body}</div>"
     )
 

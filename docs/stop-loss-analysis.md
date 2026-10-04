@@ -6,7 +6,8 @@ Broker B trade against a grid of stop-loss and trailing-stop settings and sends 
 price it follows). **When it advises a change it applies it automatically** (from 4 Oct 2026): the new values go
 into the same tables `make SL <n>` and `make trail <activation> <distance>` write, so both brokers use them from their
 next check, open trades included. If the advice is to keep, nothing changes. It also runs by itself every weekday at
-6:15 AM ET (cron-job.org), as well as on demand.
+6:15 AM ET (cron-job.org), as well as on demand. Each applied change is also logged in the `stop_settings_history` table (as are `make SL` / `make trail`), which the dashboard
+uses to show the stop loss and trailing stop that were in force on each forecast page.
 
 Code: `stop_loss_analysis.py` (the analysis), `stop_loss_analysis_job.py` (reads trades and prices, sends the
 message), `.github/workflows/stop_loss_analysis.yml` (the job, started by the Worker the same way as `run TA`).
