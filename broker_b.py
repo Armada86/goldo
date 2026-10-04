@@ -94,6 +94,11 @@ the round-trip back down, all inside the 9-11pm ET window, the market's thinnest
    Cutoffs are hand-picked from a 15-trade sample -- calibrate from `entry_context` (`rsi14`, `atr14`) / `start SLA`.
    Every block sends the normal deduplicated ⛔ Telegram notice.
 
+**The DXY/ADX/RSI/ATR thresholds are not read from config.py directly (4 Oct 2026)**: they come from the newest row of the Postgres
+`block_rules` table via `block_rules.get_block_rules()` (once per poll, passed to the four `_*_confirms()` gates as `rules`), which the Telegram
+`start BRA` analysis (`block_rules_analysis.py`) rewrites; config.py's values are the first seed and the per-value fallback. The numbers quoted
+in this docstring are those defaults.
+
 All filters fail open (no block) on a DB/API hiccup or missing data, the same convention as Broker A's
 filters -- a data problem should degrade Broker B toward its old
 unfiltered behavior, never toward refusing to trade at all. Applied per-candidate touch, earliest
@@ -135,18 +140,11 @@ from broker import (
 )
 from trading_control import trading_pause_reason
 from config import (
-    ADX_CHOP_THRESHOLD,
     ADX_PERIOD,
-    ADX_TRENDING_THRESHOLD,
-    ATR_HIGH_VOLATILITY_THRESHOLD,
     ATR_PERIOD,
-    FADE_RSI_OVERBOUGHT_THRESHOLD,
-    FADE_RSI_OVERSOLD_THRESHOLD,
-    INTRAHOUR_SWING_ALERT_THRESHOLD,
-    RSI_OVERBOUGHT_THRESHOLD,
-    RSI_OVERSOLD_THRESHOLD,
     RSI_PERIOD,
 )
+from block_rules import default_rules, get_block_rules
 from data_fetcher import fetch_gold_rsi_adx_atr
 from entry_context import build_entry_context, level_distances
 from price_bars import fetch_gold_bars
@@ -273,7 +271,9 @@ def _scan_zone_entry(
     return None
 
 
-def _dxy_confirms(trade_type: str, readings: list) -> tuple[bool, str | None, str | None]:
+def _dxy_confirms(
+    trade_type: str, readings: list, rules: dict | None = None
+) -> tuple[bool, str | None, str | None]:
     """(ok, category, detail) -- ok unless DXY has just made a real move against this trade, see
     module docstring's "DXY confirmation" entry; both set only when ok is False. `category` is a
     fixed string with no live numbers in it, safe to use as the blocked-entry dedup key (see
@@ -282,11 +282,12 @@ def _dxy_confirms(trade_type: str, readings: list) -> tuple[bool, str | None, st
     the Telegram text only. `readings` is the caller's single shared get_recent_readings("dxy",
     DXY_CONFIRM_WINDOW_MINUTES) fetch (a poll may check several touches; fetching once and passing it
     in avoids repeating that DB read per touch). Fails open (ok=True) on missing/insufficient data,
-    the same fail-open convention as the other filters."""
+    the same fail-open convention as the other filters. `rules` is the active block_rules dict (block_rules.py);
+    None means the config.py defaults."""
     if not readings or len(readings) < 2:
         return True, None, None
     try:
-        threshold = INTRAHOUR_SWING_ALERT_THRESHOLD["dxy"][DXY_CONFIRM_WINDOW_MINUTES]
+        threshold = (rules or default_rules())["dxy_threshold"]
     except Exception:
         return True, None, None
     change = readings[-1][1] - readings[0][1]
@@ -311,33 +312,37 @@ def _dxy_confirms(trade_type: str, readings: list) -> tuple[bool, str | None, st
     return True, None, None
 
 
-def _adx_confirms(scenario_name: str, adx_value: float | None) -> tuple[bool, str | None, str | None]:
+def _adx_confirms(
+    scenario_name: str, adx_value: float | None, rules: dict | None = None
+) -> tuple[bool, str | None, str | None]:
     """(ok, category, detail) -- ADX(14) as a regime switch: the two fade rules bet on a level holding,
     so they're blocked in a real trend (ADX >= ADX_TRENDING_THRESHOLD); the two breakout rules bet on
     a level breaking with follow-through, so they're blocked when there's no trend (ADX <
     ADX_CHOP_THRESHOLD). `category` has no live number (dedup key, see _dxy_confirms()); `detail`
-    carries the reading for the Telegram text only. None (couldn't compute) fails open."""
+    carries the reading for the Telegram text only. None (couldn't compute) fails open. `rules`: see _dxy_confirms()."""
     if adx_value is None:
         return True, None, None
+    rules = rules or default_rules()
+    adx_chop, adx_trending = rules["adx_chop"], rules["adx_trending"]
     if scenario_name in ("bull_breakout", "bear_breakdown"):
-        if adx_value >= ADX_CHOP_THRESHOLD:
+        if adx_value >= adx_chop:
             return True, None, None
         return (
             False,
-            f"ADX({ADX_PERIOD}) shows no trend for a breakout (threshold < {ADX_CHOP_THRESHOLD})",
-            f"ADX({ADX_PERIOD}) shows no trend for a breakout: {adx_value:.1f} (< {ADX_CHOP_THRESHOLD})",
+            f"ADX({ADX_PERIOD}) shows no trend for a breakout (threshold < {adx_chop:g})",
+            f"ADX({ADX_PERIOD}) shows no trend for a breakout: {adx_value:.1f} (< {adx_chop:g})",
         )
-    if adx_value < ADX_TRENDING_THRESHOLD:
+    if adx_value < adx_trending:
         return True, None, None
     return (
         False,
-        f"ADX({ADX_PERIOD}) shows a strong trend against a fade (threshold >= {ADX_TRENDING_THRESHOLD})",
-        f"ADX({ADX_PERIOD}) shows a strong trend against a fade: {adx_value:.1f} (>= {ADX_TRENDING_THRESHOLD})",
+        f"ADX({ADX_PERIOD}) shows a strong trend against a fade (threshold >= {adx_trending:g})",
+        f"ADX({ADX_PERIOD}) shows a strong trend against a fade: {adx_value:.1f} (>= {adx_trending:g})",
     )
 
 
 def _rsi_confirms(
-    scenario_name: str, rsi_value: float | None, adx_value: float | None = None
+    scenario_name: str, rsi_value: float | None, adx_value: float | None = None, rules: dict | None = None
 ) -> tuple[bool, str | None, str | None]:
     """(ok, category, detail) -- ok unless a breakout scenario would chase gold's RSI(14) already
     past the overbought/oversold threshold, see module docstring's "RSI exhaustion" entry; both set
@@ -347,18 +352,20 @@ def _rsi_confirms(
     tighter FADE_RSI_OVERBOUGHT/OVERSOLD_THRESHOLD (a sell fade into stretched upside momentum, or a buy
     fade into stretched downside, kept losing). `rsi_value` is the caller's single shared RSI(14)
     computation (see check_broker_b_trades) -- None if it couldn't be computed this poll, which fails
-    this open (ok=True). The block is waived in a strong trend (ADX >= ADX_TRENDING_THRESHOLD), where
-    an extreme RSI is continuation rather than exhaustion; an unknown ADX keeps it on."""
-    if adx_value is not None and adx_value >= ADX_TRENDING_THRESHOLD:
+    this open (ok=True). The block is waived in a strong trend (ADX >= the adx_trending rule), where
+    an extreme RSI is continuation rather than exhaustion; an unknown ADX keeps it on. `rules`: see
+    _dxy_confirms()."""
+    rules = rules or default_rules()
+    if adx_value is not None and adx_value >= rules["adx_trending"]:
         return True, None, None
     if scenario_name == "bull_breakout":
-        threshold, over = RSI_OVERBOUGHT_THRESHOLD, True
+        threshold, over = rules["rsi_overbought"], True
     elif scenario_name == "bear_breakdown":
-        threshold, over = RSI_OVERSOLD_THRESHOLD, False
+        threshold, over = rules["rsi_oversold"], False
     elif scenario_name == "sell_resistance":
-        threshold, over = FADE_RSI_OVERBOUGHT_THRESHOLD, True
+        threshold, over = rules["fade_rsi_overbought"], True
     elif scenario_name == "buy_support":
-        threshold, over = FADE_RSI_OVERSOLD_THRESHOLD, False
+        threshold, over = rules["fade_rsi_oversold"], False
     else:
         return True, None, None
     if rsi_value is None:
@@ -369,24 +376,25 @@ def _rsi_confirms(
     word, cmp = ("overbought", ">=") if over else ("oversold", "<=")
     return (
         False,
-        f"RSI(14) already {word} (threshold {cmp} {threshold})",
-        f"RSI(14) already {word}: {rsi_value:.1f} ({cmp} {threshold})",
+        f"RSI(14) already {word} (threshold {cmp} {threshold:g})",
+        f"RSI(14) already {word}: {rsi_value:.1f} ({cmp} {threshold:g})",
     )
 
 
-def _atr_confirms(atr_value: float | None) -> tuple[bool, str | None, str | None]:
+def _atr_confirms(atr_value: float | None, rules: dict | None = None) -> tuple[bool, str | None, str | None]:
     """(ok, category, detail) -- blocks every rule when gold's ATR(14) on 15-min candles is at/above
-    ATR_HIGH_VOLATILITY_THRESHOLD: the $10 initial stop is then about one ATR wide, inside normal noise
+    the atr_max rule: the $10 initial stop is then about one ATR wide, inside normal noise
     (Friday 2 Oct 2026: ATR $11-13, four of five trades stopped out). `category` has no live number
     (dedup key, see _dxy_confirms()); `detail` carries the reading for the Telegram text only. None
-    (couldn't compute) fails open."""
-    if atr_value is None or atr_value < ATR_HIGH_VOLATILITY_THRESHOLD:
+    (couldn't compute) fails open. `rules`: see _dxy_confirms()."""
+    atr_max = (rules or default_rules())["atr_max"]
+    if atr_value is None or atr_value < atr_max:
         return True, None, None
     return (
         False,
-        f"volatility too high for the stop (ATR({ATR_PERIOD}) threshold >= ${ATR_HIGH_VOLATILITY_THRESHOLD:.0f})",
+        f"volatility too high for the stop (ATR({ATR_PERIOD}) threshold >= ${atr_max:g})",
         f"volatility too high for the stop: ATR({ATR_PERIOD}) ${atr_value:.2f} "
-        f"(>= ${ATR_HIGH_VOLATILITY_THRESHOLD:.0f})",
+        f"(>= ${atr_max:g})",
     )
 
 
@@ -644,6 +652,8 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
         dxy_readings = None
     # One candle fetch supplies both RSI (breakout rules) and ADX (all four rules).
     rsi_value, adx_value, atr_value = fetch_gold_rsi_adx_atr(RSI_PERIOD, ADX_PERIOD, ATR_PERIOD)
+    # The active block rules (block_rules table, newest row; config.py values for anything it can't supply).
+    rules = get_block_rules()
 
     # Earliest touch first; a touch that fails a confirmation gate gets a blocked-entry notice and is
     # skipped in favor of the next-earliest one (a different rule) rather than giving up the whole
@@ -671,10 +681,10 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
                 touch_ts=consumed_through,
             )
             continue
-        dxy_ok, dxy_category, dxy_detail = _dxy_confirms(trade_type, dxy_readings)
-        rsi_ok, rsi_category, rsi_detail = _rsi_confirms(scenario_name, rsi_value, adx_value)
-        adx_ok, adx_category, adx_detail = _adx_confirms(scenario_name, adx_value)
-        atr_ok, atr_category, atr_detail = _atr_confirms(atr_value)
+        dxy_ok, dxy_category, dxy_detail = _dxy_confirms(trade_type, dxy_readings, rules)
+        rsi_ok, rsi_category, rsi_detail = _rsi_confirms(scenario_name, rsi_value, adx_value, rules)
+        adx_ok, adx_category, adx_detail = _adx_confirms(scenario_name, adx_value, rules)
+        atr_ok, atr_category, atr_detail = _atr_confirms(atr_value, rules)
         if dxy_ok and rsi_ok and adx_ok and atr_ok:
             selected = (trigger_ts, trigger_price, trade_type, rule_name, scenario_name)
             break

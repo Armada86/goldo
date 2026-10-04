@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { REARM_RE, RUN_TA_RE, SLA_RE, parseStopLoss, parseTrail, parseCommand, parseControlCommand, etToUtc, formatTs, pnl } from "../src/index.js";
+import { REARM_RE, RUN_TA_RE, SLA_RE, BRA_RE, parseStopLoss, parseTrail, parseCommand, parseControlCommand, etToUtc, formatTs, pnl } from "../src/index.js";
 
 test("parseCommand: open commands, various phrasing", () => {
   assert.deepEqual(parseCommand("sell broker A"), { action: "open", tradeType: "Sell", brokerLetter: "A" });
@@ -166,4 +166,14 @@ test("start SLA: matches its phrasings only", () => {
   assert.ok(!SLA_RE.test("stop trading"));
   assert.ok(!SLA_RE.test("make SL 15"));
   assert.ok(!SLA_RE.test("start trading"));
+});
+
+test("start BRA: matches its phrasings only", () => {
+  assert.ok(BRA_RE.test("start BRA"));
+  assert.ok(BRA_RE.test("Start block rules analysis"));
+  assert.ok(BRA_RE.test("run the block-rules analysis"));
+  assert.ok(!BRA_RE.test("BRA"));
+  assert.ok(!BRA_RE.test("start SLA"));
+  assert.ok(!BRA_RE.test("stop trading"));
+  assert.ok(!BRA_RE.test("start trading"));
 });

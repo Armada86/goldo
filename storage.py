@@ -162,6 +162,37 @@ def init_db() -> None:
         )
         cur.execute(
             """
+            CREATE TABLE IF NOT EXISTS block_rules (
+                id SERIAL PRIMARY KEY,
+                set_ts TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                source TEXT NOT NULL,
+                changed BOOLEAN NOT NULL DEFAULT FALSE,
+                n_events INTEGER,
+                note TEXT,
+                dxy_threshold DOUBLE PRECISION NOT NULL,
+                adx_trending DOUBLE PRECISION NOT NULL,
+                adx_chop DOUBLE PRECISION NOT NULL,
+                rsi_overbought DOUBLE PRECISION NOT NULL,
+                rsi_oversold DOUBLE PRECISION NOT NULL,
+                fade_rsi_overbought DOUBLE PRECISION NOT NULL,
+                fade_rsi_oversold DOUBLE PRECISION NOT NULL,
+                atr_max DOUBLE PRECISION NOT NULL
+            )
+            """
+        )
+        # First run only: seed the table with the rules currently in config.py (see block_rules.py).
+        cur.execute("SELECT 1 FROM block_rules LIMIT 1")
+        if cur.fetchone() is None:
+            from block_rules import RULE_KEYS, default_rules
+
+            defaults = default_rules()
+            cur.execute(
+                f"INSERT INTO block_rules (source, changed, note, {', '.join(RULE_KEYS)}) "
+                f"VALUES ('seed', FALSE, 'Rules from config.py', {', '.join(['%s'] * len(RULE_KEYS))})",
+                [defaults[k] for k in RULE_KEYS],
+            )
+        cur.execute(
+            """
             CREATE TABLE IF NOT EXISTS trading_pauses (
                 id SERIAL PRIMARY KEY,
                 start_ts TIMESTAMPTZ NOT NULL,
@@ -985,6 +1016,57 @@ def get_closed_trades_for_analysis(since: datetime) -> list[dict]:
                              "entry_price": float(entry_price), "open_ts": open_ts})
     rows.sort(key=lambda r: r["open_ts"])
     return rows
+
+
+def get_block_rules_row(as_of: datetime | None = None) -> dict | None:
+    """The newest row of the block_rules table (the active Broker B entry-filter thresholds, see
+    block_rules.py) as {rule_key: value}, or None if the table is missing or empty. With `as_of`, the newest
+    row set at or before that time (None if there isn't one)."""
+    from block_rules import RULE_KEYS
+
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('block_rules')")
+        if cur.fetchone()[0] is None:
+            return None
+        where, params = ("WHERE set_ts <= %s", (as_of,)) if as_of is not None else ("", ())
+        cur.execute(f"SELECT {', '.join(RULE_KEYS)} FROM block_rules {where} ORDER BY id DESC LIMIT 1", params)
+        row = cur.fetchone()
+    return {k: float(v) for k, v in zip(RULE_KEYS, row)} if row else None
+
+
+def insert_block_rules_row(rules: dict, source: str, changed: bool, n_events: int | None, note: str | None) -> int:
+    """Appends a block_rules row (history is kept; the newest row is the active one). Returns its id."""
+    from block_rules import RULE_KEYS
+
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            f"INSERT INTO block_rules (source, changed, n_events, note, {', '.join(RULE_KEYS)}) "
+            f"VALUES (%s, %s, %s, %s, {', '.join(['%s'] * len(RULE_KEYS))}) RETURNING id",
+            [source, changed, n_events, note] + [float(rules[k]) for k in RULE_KEYS],
+        )
+        return cur.fetchone()[0]
+
+
+def get_broker_b_blocked_touches(since: datetime) -> list[dict]:
+    """Broker B touches that were blocked by one of the four BRA-tunable filters (DXY / RSI / ADX /
+    volatility) since `since`, oldest first, for the block rules analysis. Timing blocks and
+    "touch too old" notices are left out: no threshold here would have changed them."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT rule_name, trigger_price, reasons, touch_ts FROM broker_b_blocked "
+            "WHERE touch_ts IS NOT NULL AND touch_ts >= %s AND (reasons ILIKE '%%DXY%%' OR reasons ILIKE '%%RSI(14)%%' "
+            "OR reasons ILIKE '%%ADX(14)%%' OR reasons ILIKE '%%volatility%%') ORDER BY touch_ts",
+            (since,),
+        )
+        rows = cur.fetchall()
+    return [{"rule_name": r[0], "trigger_price": float(r[1]), "reasons": r[2], "touch_ts": r[3]} for r in rows]
+
+
+def get_readings_since(name: str, since: datetime) -> list[tuple[datetime, float]]:
+    """(ts, price) rows for `name` at or after `since`, oldest first."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT ts, price FROM readings WHERE name = %s AND ts >= %s ORDER BY ts", (name, since))
+        return [(ts, float(price)) for ts, price in cur.fetchall()]
 
 
 def get_stop_loss_override() -> float | None:

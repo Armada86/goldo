@@ -313,6 +313,16 @@ supplies RSI/ADX/ATR (`data_fetcher.fetch_gold_rsi_adx_atr()`; Broker A still us
 Telegram notice naming the level and the live reading. Broker A is unaffected. Cutoffs are hand-picked from 15 trades -- calibrate from
 `entry_context` (`rsi14`, `atr14`) or `start SLA`.
 
+**Block rules analysis (BRA, 4 Oct 2026, Broker B)**: the DXY / ADX / RSI / ATR entry-filter values now live in a Postgres `block_rules` table
+(`block_rules.py`; append-only, newest row = active; `init_db()` creates it and seeds the first row, `source = 'seed'`, from `config.py`), and
+`broker_b.check_broker_b_trades()` reads it once per poll (`block_rules.get_block_rules()`), falling back to `config.py` per value if the table
+is missing/empty/unreadable. The Telegram command `start block rules analysis` / `start BRA` dispatches `.github/workflows/block_rules_analysis.yml`
+-> `block_rules_analysis_job.py`, which replays every Broker B touch (closed trades plus touches blocked by these filters, from `broker_b_blocked`)
+against candidate values with `block_rules_analysis.py` (the real gate functions, the live exit rule, the current stop/trail settings), **applies
+the result by writing a new `block_rules` row** (every run writes one, changed or not) and sends a report. Unlike `start SLA` it applies its advice
+itself; there is no `make` command for these values. `config.py`'s constants are the defaults/fallback and are never edited by BRA; the dashboard's
+entry-rules block shows the rules in force at each forecast run's time. Broker A keeps its own constants. Method/limits: `docs/block-rules-analysis.md`.
+
 **Entry context on every trade (`entry_context.py`, added 30 Sep 2026)**: each Broker A / Broker B trade now stores a
 JSONB snapshot of the conditions at entry (`trades.entry_context` / `broker_b_trades.entry_context`, added by
 `init_db()`): ET hour/minute/weekday, RSI(14), DXY's net 15-min change and its threshold, the latest forecast's

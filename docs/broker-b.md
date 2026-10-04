@@ -42,7 +42,9 @@ flowchart TD
 
 ## Entry filters
 
-All of these gate **new entries only**, never exits. Each one fails open (no block) if its data is unavailable.
+All of these gate **new entries only**, never exits. Each one fails open (no block) if its data is unavailable. The
+DXY / ADX / RSI / ATR values below are the defaults from `config.py`; the live values are the newest row of the
+`block_rules` table, which `start BRA` updates (see `docs/block-rules-analysis.md`).
 
 1. **Trading hours** — 7am–5pm ET, weekdays.
 2. **DXY** — skip a Buy if DXY rose, or a Sell if DXY fell, by its own 15-min threshold (a fresh headwind).

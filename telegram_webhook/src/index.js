@@ -67,6 +67,10 @@
  *                                                          closed trade against a grid of stop-loss / trailing-stop
  *                                                          settings and sends advice here (Needs GITHUB_DISPATCH_TOKEN,
  *                                                          like "run TA"). It changes nothing; apply it with make SL / make trail.
+ *   "start block rules analysis" / "start BRA"          -> dispatch the block_rules_analysis.yml GitHub workflow: it replays every
+ *                                                          Broker B touch against DXY / ADX / RSI / ATR values, writes the
+ *                                                          resulting rules to the block_rules table (read by broker_b.py) and
+ *                                                          sends its report here (Needs GITHUB_DISPATCH_TOKEN, like "start SLA").
  * Anything else is silently ignored -- no reply -- so the chat doesn't become a bot that talks
  * back to every unrelated message.
  *
@@ -417,6 +421,19 @@ async function runSla(env) {
   );
 }
 
+const BRA_RE = /\b(?:start|run)\s+(?:the\s+)?(?:bra|block[\s-]?rules?\s+analysis)\b/i;
+
+/** Triggers block_rules_analysis.yml; the job writes the new rules to the block_rules table and sends its report to this chat. */
+async function runBra(env) {
+  const error = await dispatchWorkflow(env, "block_rules_analysis.yml", "the block rules analysis");
+  if (error) return error;
+  return (
+    "\u{1F6E1}\uFE0F Block rules analysis started. It replays every Broker B touch (trades and blocked touches) against different " +
+    "DXY / ADX / RSI / ATR values. The report arrives here in a few minutes, and the resulting rules are written to the block_rules table, " +
+    "which Broker B reads on its next poll."
+  );
+}
+
 async function fetchGoldPrice(apiKey) {
   const res = await fetch(`https://api.twelvedata.com/price?symbol=XAU%2FUSD&apikey=${apiKey}`);
   const data = await res.json();
@@ -566,6 +583,11 @@ export default {
       return new Response("OK", { status: 200 }); // unauthorized chat -- silently ignore
     }
 
+    if (BRA_RE.test(message.text)) {
+      await sendTelegram(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, await runBra(env));
+      return new Response("OK", { status: 200 });
+    }
+
     if (SLA_RE.test(message.text)) {
       await sendTelegram(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, await runSla(env));
       return new Response("OK", { status: 200 });
@@ -631,4 +653,4 @@ export default {
   },
 };
 
-export { REARM_RE, RUN_TA_RE, SLA_RE, parseStopLoss, parseTrail, parseCommand, parseControlCommand, etToUtc, formatTs, pnl }; // exported for the test file only
+export { REARM_RE, RUN_TA_RE, SLA_RE, BRA_RE, parseStopLoss, parseTrail, parseCommand, parseControlCommand, etToUtc, formatTs, pnl }; // exported for the test file only
