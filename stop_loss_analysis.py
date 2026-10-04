@@ -264,39 +264,16 @@ def format_report(result: dict, first_ts, last_ts, n_bid_ask: int, n_mid: int, n
         f"- Stop loss: -${_num(rec['stop_loss'])}",
         f"- Trailing stop: starts at +${_num(rec['activation'])}, follows ${_num(rec['distance'])} behind the best price",
         f"Replay result: {_money(rec['total'])} for this setting vs {_money(cur['total'])} for your current "
-        f"(-${_num(cur['stop_loss'])}, trail from +{_num(cur['activation'])}, {_num(cur['distance'])} behind). "
+        f"(-${_num(cur['stop_loss'])}, trail {_num(cur['activation'])}/{_num(cur['distance'])}). "
         f"The old fixed +$10 / -$10 rule: {_money(result['old_rule_total'])}.",
         f"Needs to beat the current by {_money(result['needed_gain'])} to advise a change; it beats it by {_money(result['gain'])} "
         f"({_money(rec['gain_without_best'])} without its single best trade, {rec['best_trade']}).",
-        "",
-        "Best result for each stop loss (with its best trailing stop):",
     ]
-    for row in result["per_stop_loss"]:
-        mark = "  <- advised" if row["stop_loss"] == rec["stop_loss"] else ""
-        lines.append(
-            f"-${_num(row['stop_loss'])}: {_money(row['total'])}  (trail from +{_num(row['activation'])}, {_num(row['distance'])} behind){mark}"
-        )
-    if result["alternatives"]:
-        lines += ["", "Other settings that also scored well:"]
-        for alt in result["alternatives"]:
-            lines.append(
-                f"-${_num(alt['stop_loss'])}, trail from +{_num(alt['activation'])}, {_num(alt['distance'])} behind: {_money(alt['total'])}"
-            )
-    lines += [
-        "",
-        f"Confidence: {confidence(result['n'])}.",
-        "Each trade is replayed from its entry until its stop is hit or 5 PM ET that day, ignoring how it really closed. "
-        f"{rec['unresolved']} of {result['n']} trades never hit the advised stop and are counted at the 5 PM price. "
-        f"Each broker holds one position at a time, so {rec['skipped']} trade(s) are skipped because an earlier one would still have been open. "
-        "Each setting is scored together with its neighbours, so a lucky spike is not advised.",
-    ]
-    if at_grid_edge(rec):
-        lines.append(GRID_EDGE_NOTE)
     if result["change"]:
         lines += [
             "",
             "To apply:",
             f"make SL {_num(rec['stop_loss'])}",
-            f"make trail {_num(rec['activation'])} {_num(rec['distance'])}",
+            f"make trail {_num(rec['distance'])} activate {_num(rec['activation'])}",
         ]
     return "\n".join(lines)
