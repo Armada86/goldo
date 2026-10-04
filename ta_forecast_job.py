@@ -946,8 +946,30 @@ def main(dry_run: bool) -> None:
     insert_ta_forecast(now, now.astimezone(DISPLAY_TZ).date(), analysis, levels, diagram_svg)
     print("[ta_forecast_job] Saved to ta_forecasts")
     # Saved first, so a Telegram hiccup can't lose the forecast (or its grading of the next one).
-    for chunk in _telegram_chunks(XAUUSD_ALERT_PREFIX + analysis):
+    for chunk in _telegram_chunks(XAUUSD_ALERT_PREFIX + telegram_summary(analysis)):
         send_telegram_message(chunk)
+
+
+TELEGRAM_SECTIONS = ("SUMMARY", "PLAN", "CONTEXT")  # the only sections of the analysis text that go to Telegram
+_SECTION_HEADERS = ("SUMMARY", "BIG PICTURE", "KEY LEVELS", "INDICATORS", "PLAN", "CONTEXT", "REVIEW")
+
+
+def telegram_summary(analysis: str) -> str:
+    """The Telegram version of a forecast: the title line plus the SUMMARY, PLAN and CONTEXT sections only (the
+    price line, big picture, key levels, indicators and review stay in the saved text and on the dashboard). A
+    section runs from its header line to the next header line; headers are the fixed words render() writes."""
+    lines = analysis.split("\n")
+    out = [lines[0]]
+    keep = False
+    for line in lines[1:]:
+        header = next((h for h in _SECTION_HEADERS if line == h or line.startswith((h + ":", h + " ("))), None)
+        if header:
+            keep = header in TELEGRAM_SECTIONS
+            if keep:
+                out += ["", line]
+        elif keep and line.strip():
+            out.append(line)
+    return "\n".join(out)
 
 
 def _telegram_chunks(text: str) -> list[str]:
