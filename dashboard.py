@@ -1,7 +1,7 @@
 """Streamlit dashboard reading the same Postgres DB that the poll job populates."""
 
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -18,7 +18,18 @@ if "DATABASE_URL" not in os.environ and "DATABASE_URL" in st.secrets:
     os.environ["DATABASE_URL"] = st.secrets["DATABASE_URL"]
 
 import broker_b
-from config import DASHBOARD_INDICATOR_NAMES, DOLLAR_UNIT_NAMES
+from config import (
+    ADX_CHOP_THRESHOLD,
+    ADX_TRENDING_THRESHOLD,
+    ATR_HIGH_VOLATILITY_THRESHOLD,
+    DASHBOARD_INDICATOR_NAMES,
+    DOLLAR_UNIT_NAMES,
+    FADE_RSI_OVERBOUGHT_THRESHOLD,
+    FADE_RSI_OVERSOLD_THRESHOLD,
+    INTRAHOUR_SWING_ALERT_THRESHOLD,
+    RSI_OVERBOUGHT_THRESHOLD,
+    RSI_OVERSOLD_THRESHOLD,
+)
 from storage import get_connection
 from ta_forecast_job import render_diagram_svg
 
@@ -114,6 +125,39 @@ st.caption(f"Page refreshes every 5 min · last loaded {now_local.strftime('%Y-%
 FORECAST_DATE_KEY = "forecast_date_picker"
 FORECAST_RUN_KEY = "forecast_run_picker"  # 1-based run number within the selected date (TA1, TA2, ...)
 FORECAST_RUN_DATE_KEY = "forecast_run_picker_date"  # the date FORECAST_RUN_KEY was last reset for
+
+
+# First ET date whose forecast runs show the Broker B entry-rules block. The DXY/ADX/RSI/ATR gates were all in
+# place from the Monday 5 Oct 2026 session on; earlier sessions traded under different rules, so showing the
+# current rules under them would misdescribe what Broker B actually did.
+BROKER_B_RULES_SHOWN_FROM = date(2026, 10, 5)
+
+
+def broker_b_entry_rules_html() -> str:
+    """Compact summary of Broker B's DXY/ADX/RSI/ATR entry filters (see broker_b.py), thresholds read from
+    config so this can't drift from the code. Plain "$" is fine: it's one HTML block (see the LaTeX gotcha
+    note on the P&L line)."""
+    dxy = INTRAHOUR_SWING_ALERT_THRESHOLD["dxy"][15]
+    rows = [
+        ("DXY", f"Skip a Buy if DXY rose, or a Sell if it fell, by &ge; {dxy:.4f} over the last 15 min."),
+        (
+            "ADX(14)",
+            f"Fades blocked at ADX &ge; {ADX_TRENDING_THRESHOLD}; breakouts blocked at ADX &lt; {ADX_CHOP_THRESHOLD}.",
+        ),
+        (
+            "RSI(14)",
+            f"Breakout buy blocked at &ge; {RSI_OVERBOUGHT_THRESHOLD}, breakout sell at &le; {RSI_OVERSOLD_THRESHOLD}; "
+            f"fade sell blocked at &ge; {FADE_RSI_OVERBOUGHT_THRESHOLD}, fade buy at &le; {FADE_RSI_OVERSOLD_THRESHOLD}. "
+            f"Waived at ADX &ge; {ADX_TRENDING_THRESHOLD}.",
+        ),
+        ("ATR(14)", f"All rules blocked when 15-min ATR &ge; ${ATR_HIGH_VOLATILITY_THRESHOLD:.0f}."),
+    ]
+    body = "".join(f"<div><b>{name}</b> &mdash; {text}</div>" for name, text in rows)
+    return (
+        "<div style='font-size:12px;color:#444;line-height:1.5;margin:0 0 0.5rem 0;'>"
+        "<div style='font-weight:600;'>Broker B entry rules</div>"
+        f"{body}</div>"
+    )
 
 
 def load_forecast_runs_for_date(d) -> list[dict]:
@@ -393,6 +437,8 @@ if min_forecast_date is not None:
                 f"L \\${candle['low']:,.2f} C \\${candle['close']:,.2f}"
             )
         st.caption(caption)
+        if forecast_local.date() >= BROKER_B_RULES_SHOWN_FROM:
+            st.markdown(broker_b_entry_rules_html(), unsafe_allow_html=True)
         try:
             scenario_outcomes = load_broker_b_outcomes(forecast["id"]) if forecast.get("id") else {}
         except Exception as e:
