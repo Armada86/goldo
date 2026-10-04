@@ -354,12 +354,23 @@ function parseTrail(text) {
   return { activation, distance };
 }
 
+/** Display-only log of stop-setting changes (stop_settings_history, read by the dashboard); a NULL column = not changed. Never throws. */
+async function logStopSettings(sql, stopLoss, activation, distance) {
+  try {
+    await sql`CREATE TABLE IF NOT EXISTS stop_settings_history (id SERIAL PRIMARY KEY, set_ts TIMESTAMPTZ NOT NULL DEFAULT NOW(), source TEXT NOT NULL, stop_loss DOUBLE PRECISION, activation DOUBLE PRECISION, distance DOUBLE PRECISION)`;
+    await sql`INSERT INTO stop_settings_history (source, stop_loss, activation, distance) VALUES ('telegram', ${stopLoss}, ${activation}, ${distance})`;
+  } catch (e) {
+    console.error("stop_settings_history log failed", e);
+  }
+}
+
 async function setTrail(sql, activation, distance) {
   await sql`CREATE TABLE IF NOT EXISTS trailing_stop_setting (id INTEGER PRIMARY KEY CHECK (id = 1), activation DOUBLE PRECISION NOT NULL, distance DOUBLE PRECISION NOT NULL)`;
   await sql`
     INSERT INTO trailing_stop_setting (id, activation, distance) VALUES (1, ${activation}, ${distance})
     ON CONFLICT (id) DO UPDATE SET activation = EXCLUDED.activation, distance = EXCLUDED.distance
   `;
+  await logStopSettings(sql, null, activation, distance);
   return (
     `\u{1F4C8} Trailing stop set for Broker A and Broker B: it starts trailing once a trade is $${activation.toFixed(2)} in profit ` +
     `and then follows $${distance.toFixed(2)} behind the best price. It applies to open trades too, and it stays until you change it.`
@@ -372,6 +383,7 @@ async function setStopLoss(sql, value) {
     INSERT INTO stop_loss_setting (id, stop_loss) VALUES (1, ${value})
     ON CONFLICT (id) DO UPDATE SET stop_loss = EXCLUDED.stop_loss
   `;
+  await logStopSettings(sql, value, null, null);
   return (
     `\u{1F6D1} Stop-loss set to $${value.toFixed(2)} for Broker A and Broker B. ` +
     `It stays at $${value.toFixed(2)} until you change it, and applies to open trades too (no fixed take-profit: once a trade is $${TRAILING_STOP_ACTIVATION.toFixed(0)} up, the stop trails $${TRAILING_STOP_DISTANCE.toFixed(0)} behind its best price).`

@@ -24,7 +24,12 @@ import broker
 import stop_loss_analysis as sla
 from notifier import send_telegram_message
 from retry import with_retries
-from storage import get_closed_trades_for_analysis, set_stop_loss_override, set_trailing_stop_override
+from storage import (
+    get_closed_trades_for_analysis,
+    insert_stop_settings_history,
+    set_stop_loss_override,
+    set_trailing_stop_override,
+)
 
 load_dotenv()
 
@@ -148,6 +153,10 @@ def run(dry_run: bool = False) -> None:
             set_stop_loss_override(rec["stop_loss"])
             set_trailing_stop_override(rec["activation"], rec["distance"])
             applied = True
+            try:  # display-only log for the dashboard; a failure here must not undo or hide the applied settings
+                insert_stop_settings_history("SLA", rec["stop_loss"], rec["activation"], rec["distance"])
+            except Exception as e:
+                print(f"[sla] could not log the stop settings history: {e}")
         except Exception as e:
             print(f"[sla] could not write the new stop settings: {e}")
             applied = False
