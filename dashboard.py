@@ -54,8 +54,6 @@ st.markdown(
     .goldo-table th {{ font-size: 8px; color: #888; font-weight: 600; }}
     .goldo-table td.symbol {{ font-weight: 700; font-size: 10px; }}
     .goldo-table td.price {{ font-weight: 700; font-size: 9.5px; }}
-    .goldo-table td.change span {{ display: block; }}
-    .goldo-table td.change span.pct {{ font-size: 8px; opacity: 0.85; }}
     /* Streamlit's st.columns() puts every column on its own line below a container-width breakpoint
        (each gets min-width: calc(100% - 24px), which wraps them via flex-wrap once they can't all
        fit) -- that's what stacked the forecast date navigator's ◀/date/▶ row on a phone screen. The
@@ -82,11 +80,6 @@ st.markdown(
         .goldo-table th {{ font-size: 12px; }}
         .goldo-table td.symbol {{ font-size: 15px; }}
         .goldo-table td.price {{ font-size: 14.5px; }}
-        /* Stacked delta/pct (two lines) was a phone-width space-saver; there's room to put them on
-           one line here, which also shortens every row so more of the table still fits above the
-           fold despite the bigger fonts. */
-        .goldo-table td.change span {{ display: inline; }}
-        .goldo-table td.change span.pct {{ font-size: 11px; margin-left: 6px; }}
         /* render_diagram_svg()'s SVG is `width:100%;height:auto`, so it fills whatever contains it --
            on a wide screen that means stretching (and, since the viewBox aspect ratio is preserved,
            growing just as tall as it is wide), which looks oversized next to the single-column table
@@ -465,26 +458,15 @@ if min_forecast_date is not None:
     elif selected_date != today_et:
         st.caption(f"No forecast recorded for {selected_date:%Y-%m-%d} (weekend, holiday, or a day the job didn't run).")
 
-# (name, minutes) columns shown next to each symbol's current price.
-CHANGE_WINDOWS = [("5m", 5), ("10m", 10), ("15m", 15), ("30m", 30), ("1h", 60)]
-
-
-# Each symbol's own latest reading minus this many minutes is all the table needs (the longest change window is 60 min,
-# plus one poll interval of slack so a reading at or before it always exists).
-READINGS_LOOKBACK_MINUTES = max(m for _, m in CHANGE_WINDOWS) + 10
-
-
 def load_readings() -> pd.DataFrame:
-    """Only what the symbols table shows: for each dashboard symbol, its latest reading and the
-    READINGS_LOOKBACK_MINUTES before it. This used to be `SELECT ... FROM readings` (the whole table, ~4 MB and
-    growing ~2.5k rows a day) on every page run and 5-minute auto-refresh -- the main source of Neon network transfer."""
+    """Each dashboard symbol's latest reading only. This used to read the whole `readings` table (~4 MB and growing
+    ~2.5k rows a day) on every page run and 5-minute auto-refresh -- the main source of Neon network transfer."""
     with get_connection() as conn:
         return pd.read_sql(
-            "SELECT r.ts, r.name, r.price FROM readings r "
-            "JOIN (SELECT name, MAX(ts) AS latest FROM readings WHERE name = ANY(%s) GROUP BY name) l "
-            "ON r.name = l.name AND r.ts >= l.latest - make_interval(mins => %s) ORDER BY r.ts",
+            "SELECT DISTINCT ON (name) ts, name, price FROM readings WHERE name = ANY(%s) "
+            "ORDER BY name, ts DESC",
             conn,
-            params=(list(DASHBOARD_INDICATOR_NAMES), READINGS_LOOKBACK_MINUTES),
+            params=(list(DASHBOARD_INDICATOR_NAMES),),
             parse_dates=["ts"],
         )
 
@@ -523,32 +505,6 @@ def to_display_str(ts: pd.Series) -> pd.Series:
     return ts.dt.tz_convert(DISPLAY_TZ).dt.strftime("%Y-%m-%d %H:%M:%S %Z")
 
 
-def change_over(series: pd.DataFrame, minutes: int) -> tuple[float, float] | None:
-    """(delta, pct) between the latest reading and the last reading at or
-    before `minutes` ago, or None if there's no reading that far back yet."""
-    latest_ts = series["ts"].iloc[-1]
-    latest_price = series["price"].iloc[-1]
-    past = series[series["ts"] <= latest_ts - pd.Timedelta(minutes=minutes)]
-    if past.empty:
-        return None
-    past_price = past["price"].iloc[-1]
-    if past_price == 0:
-        return None
-    delta = latest_price - past_price
-    return delta, delta / past_price * 100
-
-
-def format_change_cell(change: tuple[float, float] | None, unit: str) -> str:
-    if change is None:
-        return '<td class="change">—</td>'
-    delta, pct = change
-    color = "#1a7f37" if delta > 0 else ("#cf222e" if delta < 0 else "#888")
-    return (
-        f'<td class="change" style="color:{color}">'
-        f'<span>{unit}{delta:+.2f}</span><span class="pct">{pct:+.1f}%</span></td>'
-    )
-
-
 try:
     readings = load_readings()
 except Exception as e:
@@ -558,30 +514,21 @@ except Exception as e:
 if readings.empty:
     st.info("No data yet — start main.py to begin polling.")
 else:
-    header_cells = "".join(f"<th>{label}</th>" for label, _ in CHANGE_WINDOWS)
     rows_html = []
     for name in DASHBOARD_INDICATOR_NAMES:
-        series = readings[readings["name"] == name].sort_values("ts")
+        series = readings[readings["name"] == name]
         if series.empty:
             continue
         unit = "$" if name in DOLLAR_UNIT_NAMES else ""
         latest = series["price"].iloc[-1]
-        cells = "".join(
-            format_change_cell(change_over(series, minutes), unit) for _, minutes in CHANGE_WINDOWS
-        )
         rows_html.append(
-            f'<tr><td class="symbol">{name.upper()}</td>'
-            f'<td class="price">{unit}{latest:,.2f}</td>{cells}</tr>'
+            f'<tr><td class="symbol">{name.upper()}</td><td class="price">{unit}{latest:,.2f}</td></tr>'
         )
 
-    colgroup = (
-        '<colgroup><col style="width:15%"><col style="width:17%">'
-        + '<col style="width:13.6%">' * len(CHANGE_WINDOWS)
-        + '</colgroup>'
-    )
+    colgroup = '<colgroup><col style="width:50%"><col style="width:50%"></colgroup>'
     table_html = (
-        f'<table class="goldo-table">{colgroup}<thead><tr><th>Symbol</th><th>Price</th>'
-        f'{header_cells}</tr></thead><tbody>{"".join(rows_html)}</tbody></table>'
+        f'<table class="goldo-table">{colgroup}<thead><tr><th>Symbol</th><th>Price</th></tr></thead>'
+        f'<tbody>{"".join(rows_html)}</tbody></table>'
     )
     st.markdown(table_html, unsafe_allow_html=True)
 

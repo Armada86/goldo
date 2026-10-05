@@ -880,8 +880,7 @@ or before the Midday run of the day) shows a "No forecast recorded" caption inst
 than an error. Directly below the two navigator rows, `load_broker_pnl_for_date()` sums Broker A's
 (`trades`) and Broker B's (`broker_b_trades`) `pnl` for trades that *closed* within the selected ET
 calendar day (a trade opened the day before but closed that day counts as that day's), shown as one line
--- Broker A's total, Broker B's total, and the combined total (green/red by sign, same convention as the
-change-window cells below) -- tied to the same selected date as the forecast navigator, not fixed to
+-- Broker A's total, Broker B's total, and the combined total (green/red by sign) -- tied to the same selected date as the forecast navigator, not fixed to
 "today," so browsing to a past date shows that day's P&L too. **Gotcha:** every dollar
 amount shown via `st.caption()`/`st.markdown()` as *plain text* (not inside the HTML/SVG blocks, which
 CommonMark passes through verbatim and are therefore unaffected) must escape its `$` as `\$` --
@@ -897,15 +896,11 @@ dashboard by design (see "XAU/USD technical forecast" for why it isn't the old P
 below it is still deliberately chart-free — the symbols table is a single compact HTML table (built
 by hand and rendered via `st.markdown(..., unsafe_allow_html=True)`, not `st.dataframe`/`st.metric`, for
 tight control over font size and column widths) with one row per `DASHBOARD_INDICATOR_NAMES` entry and
-a column each for the current price and the price/percentage change over five trailing windows —
-5/10/15/30/60 min (`CHANGE_WINDOWS`) — computed from the same `readings` rows the poll job writes
-(`change_over()`: latest reading vs. the last reading at or before N minutes ago; `None`/`—` if that
-much history doesn't exist yet, e.g. right after a fresh deploy). Deliberately sized for a phone screen
+just two columns, symbol and its latest price (the 5/10/15/30/60-minute change columns were removed 5 Oct 2026 at the user's request -- only the current reading is wanted). `load_readings()` fetches only each symbol's latest reading (`DISTINCT ON (name)`), not the whole `readings` table: the old full-table read (~4 MB, growing ~2.5k rows/day, once per page run and 5-minute auto-refresh) was the main driver of Neon network transfer (~1 GB in the first 5 days of the Oct 2026 billing period against the Free plan's 5 GB). Deliberately sized for a phone screen
 (tuned against a Samsung S24 Ultra viewport) so every row is visible without scrolling — small fonts, a
 fixed `<colgroup>` so columns can't overflow the viewport width, kept in the CSS block at the top of the
-file rather than per-element `style=` (the per-cell `style=` that remains is just the red/green
-up/down color, computed from the sign of each change). The `$` unit shown on price/change cells is
-picked per-name (`DOLLAR_UNIT_NAMES`) the same way `rules.py` picks it for alert messages. `load_readings()` fetches only each symbol's latest reading plus the 70 minutes before it (`READINGS_LOOKBACK_MINUTES`), not the whole `readings` table -- the full-table read (~4 MB, growing ~2.5k rows/day, once per page run and 5-minute auto-refresh) was the main driver of Neon network transfer (~1 GB in the first 5 days of the Oct 2026 billing period against the Free plan's 5 GB).
+file rather than per-element `style=`. The `$` unit shown on price cells is
+picked per-name (`DOLLAR_UNIT_NAMES`) the same way `rules.py` picks it for alert messages.
 
 **Broker B entry rules on the dashboard (4 Oct 2026)**: right under the forecast caption line (price · bias · score), `dashboard.py` shows a small
 "Broker B rules in force" block (`broker_b_entry_rules_html()`): the DXY / ADX / RSI / ATR entry cutoffs (the `block_rules` row in force at the run's time, `config` as fallback)
@@ -924,9 +919,7 @@ correct way to do this on the web: one URL, one page, no separate mobile/desktop
 change at that breakpoint: (1) `.block-container` gets a `max-width: 1000px; margin: 0 auto`, so
 `layout="wide"`'s available width is capped and centered instead of stretching a single-column page
 edge-to-edge on an ultra-wide monitor; (2) the symbols table's fonts/padding scale up (9px→14px,
-2px→7-10px), and the $/% change cells switch from stacked (two lines, a phone-width space-saver) to
-inline (one line, `display:inline` + a small left margin on the `.pct` span) -- shorter rows more than
-offset the bigger fonts, so the table still isn't taller overall; (3) the forecast diagram's SVG, which
+2px→7-10px); (3) the forecast diagram's SVG, which
 is `width:100%;height:auto` and therefore fills whatever contains it (and, since its viewBox aspect
 ratio is preserved, grows just as tall as it grows wide), gets capped at `max-width: 640px` and centered
 via a `.goldo-diagram-wrap` div `dashboard.py` wraps it in specifically for this -- otherwise it would
@@ -956,9 +949,8 @@ below it. `readings`/
 regardless of where the poll job or dashboard happen to run — the "last loaded" caption and the Recent
 Trades/Recent Alerts tables are the only places that convert to a human timezone for display, all
 through the shared `to_display_str()` helper, to `DISPLAY_TZ` (`America/New_York`, matching the
-project's existing scheduling convention — see "Scheduling" below). The `readings` timestamps behind
-the change-window table stay in UTC internally; that's fine since `change_over()` only ever compares
-two of them to each other, never renders one directly.
+project's existing scheduling convention — see "Scheduling" below). The `readings` timestamps
+behind the symbols table are never rendered (only the latest price is shown).
 
 **Storage is Postgres (Neon), not SQLite** — despite `market_data.db` and `streamlit.log` still sitting
 in the repo root (gitignored, unused leftovers from an earlier local-SQLite version). `storage.py` and
