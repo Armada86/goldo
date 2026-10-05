@@ -7,9 +7,19 @@ name: Poll indicators
 on:
   workflow_dispatch: {}
 
+# At most one poll running and one waiting: when GitHub is slow to hand out a runner (observed 5 Oct 2026: runs sat
+# unstarted for 15+ minutes), a newer waiting run replaces the older ones instead of every queued poll firing in a
+# burst of stale polls once runners come back. A running poll is never cancelled.
+concurrency:
+  group: poll
+  cancel-in-progress: false
+
 jobs:
   poll:
     runs-on: ubuntu-latest
+    # A normal poll takes ~1-2 minutes; this stops a hung one from holding the single running slot (and so
+    # blocking every later poll) for GitHub's 6-hour default.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 

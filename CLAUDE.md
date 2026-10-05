@@ -998,7 +998,7 @@ requiring reviews or passing checks, that merge step simply fails and the PR sit
 merge instead of silently forcing it through. Whether the default `GITHUB_TOKEN` is allowed to
 create/merge PRs at all, and whether this workflow's runs are exempted from `main`'s review
 requirement, are repository settings the owner configures directly in GitHub — not something this
-workflow file controls, same as the cron-job.org scheduling setup above. `poll.yml` itself never
+workflow file controls, same as the cron-job.org scheduling setup above. `poll.yml` has a `concurrency` group (one running + one waiting, `cancel-in-progress: false`) and a 10-minute job timeout, added 5 Oct 2026 after GitHub-hosted runners went unassigned for ~45 minutes (7 runs cancelled unstarted, readings gaps of 10-45 min, Broker B touches noticed 9-20 min late); the cron-job.org triggers themselves fired on time. `poll.yml` itself never
 commits anything back to the repo — `check_broker_trades()`'s trades go straight to the `trades` table
 in Postgres, not to a file, so `poll.yml` only needs the read/query secrets it already had
 (`DATABASE_URL` etc.), not repo write access.
