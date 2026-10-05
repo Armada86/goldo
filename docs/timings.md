@@ -43,7 +43,6 @@ Actions mechanism each scheduled job uses.
 | Stop-loss analysis horizon per trade replay | Up to 5:00 PM ET | Per trade day | `stop_loss_analysis.py` |
 | Stop-loss analysis bar source cutover | FOREX.com bid/ask bars for last ~2.8 days, Twelve Data mid before that | N/A | `stop_loss_analysis_job.py` |
 | Telegram inbound webhook | Event-driven — acts the instant a message arrives, no schedule | Any time | `telegram_webhook/` (Cloudflare Worker) |
-| Dashboard price-change windows | 5 / 10 / 15 / 30 / 60 min trailing | Continuous | `config.CHANGE_WINDOWS`, `dashboard.py` |
 | Responsive layout breakpoint | N/A (viewport width, not time) — listed for completeness | N/A | `dashboard.py` (`LAPTOP_BREAKPOINT_PX`, 700px) |
 
 ## Notes on overlaps
