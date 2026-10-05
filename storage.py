@@ -105,6 +105,9 @@ def init_db() -> None:
         # touch_ts: when the blocked touch actually happened (30 Sep 2026) -- see
         # get_last_blocked_touch_ts_b(). Added after the table already existed, hence the ALTER.
         cur.execute("ALTER TABLE broker_b_blocked ADD COLUMN IF NOT EXISTS touch_ts TIMESTAMPTZ")
+        # last_notified_ts: when the Telegram notice for this row last went out (5 Oct 2026) -- a repeat touch of the
+        # same level re-notifies after BLOCKED_RENOTIFY_MINUTES; NULL = only the original notice (detected_ts).
+        cur.execute("ALTER TABLE broker_b_blocked ADD COLUMN IF NOT EXISTS last_notified_ts TIMESTAMPTZ")
         # entry_context: descriptive snapshot of the conditions at entry (30 Sep 2026) -- see
         # entry_context.py. Nullable; older rows and Telegram-opened trades simply have none.
         cur.execute("ALTER TABLE trades ADD COLUMN IF NOT EXISTS entry_context JSONB")
@@ -1171,14 +1174,19 @@ def get_last_close_ts_b() -> datetime | None:
         return cur.fetchone()[0]
 
 
+BLOCKED_RENOTIFY_MINUTES = 30
+
+
 def record_broker_b_blocked_if_new(
     ta_forecast_id: int, rule_name: str, trigger_price: float, reasons: str, touch_ts: datetime | None = None
 ) -> bool:
-    """Records one Broker B blocked-entry notice and returns True if it's newly recorded (i.e. the
-    caller should send a Telegram message), False if this exact (forecast, rule, reasons) combination
-    was already recorded -- the dedup that stops a level sitting past its trigger for hours (outside
-    trading hours, or DXY/RSI still against it) from sending the same notice every 5-minute poll. See
-    broker_b.py's _notify_timing_block()/_notify_gate_block().
+    """Records one Broker B blocked-entry notice and returns True if the caller should send a Telegram message:
+    the first time this (forecast, rule, reasons) combination is recorded, or -- when `touch_ts` is given -- a
+    genuinely newer touch of the same level at least BLOCKED_RENOTIFY_MINUTES after the last notice (changed 5 Oct
+    2026: a second ADX-blocked touch of TA3's 4139.78 an hour after the first sent nothing). Without `touch_ts`
+    (timing blocks, "crossed while a trade was open") it stays one notice per combination, which stops a level
+    sitting past its trigger for hours from sending the same notice every 5-minute poll. See broker_b.py's
+    _notify_timing_block()/_notify_gate_block().
 
     `touch_ts`, when given, is when the blocked touch happened; it's stored (kept at the latest value
     even when the notice itself is a duplicate) so get_last_blocked_touch_ts_b() can stop a later poll
@@ -1190,14 +1198,27 @@ def record_broker_b_blocked_if_new(
             "RETURNING id",
             (ta_forecast_id, rule_name, trigger_price, reasons, touch_ts),
         )
-        inserted = cur.fetchone() is not None
-        if not inserted and touch_ts is not None:
-            cur.execute(
-                "UPDATE broker_b_blocked SET touch_ts = GREATEST(touch_ts, %s) "
-                "WHERE ta_forecast_id = %s AND rule_name = %s AND reasons = %s",
-                (touch_ts, ta_forecast_id, rule_name, reasons),
-            )
-        return inserted
+        if cur.fetchone() is not None:
+            return True
+        if touch_ts is None:
+            return False
+        cur.execute(
+            "SELECT touch_ts, COALESCE(last_notified_ts, detected_ts) FROM broker_b_blocked "
+            "WHERE ta_forecast_id = %s AND rule_name = %s AND reasons = %s",
+            (ta_forecast_id, rule_name, reasons),
+        )
+        prev_touch, last_notified = cur.fetchone()
+        now = datetime.now(timezone.utc)
+        renotify = (prev_touch is None or touch_ts > prev_touch) and (
+            (now - last_notified).total_seconds() >= BLOCKED_RENOTIFY_MINUTES * 60
+        )
+        cur.execute(
+            "UPDATE broker_b_blocked SET touch_ts = GREATEST(touch_ts, %s), "
+            "last_notified_ts = CASE WHEN %s THEN NOW() ELSE last_notified_ts END "
+            "WHERE ta_forecast_id = %s AND rule_name = %s AND reasons = %s",
+            (touch_ts, renotify, ta_forecast_id, rule_name, reasons),
+        )
+        return renotify
 
 
 def get_last_blocked_touch_ts_b(ta_forecast_id: int) -> dict[str, datetime]:

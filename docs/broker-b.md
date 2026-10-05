@@ -71,6 +71,7 @@ in the trade's favour is ignored).
 
 ## Good to know
 
+- **Blocked-touch notices repeat on a fresh touch** of the same level, at most one per 30 minutes per level and reason (a level that stays past its trigger doesn't spam every poll).
 - **One position at a time**, across all four rules. If another level is touched while a trade is open, a ⛔ Telegram notice says so at the next poll (the touch is not filled later).
 - **Telegram commands** (`docs/telegram-commands.md`) can open or close a Broker B trade by hand, pause trading, or
   `rearm levels` to let every level trade again.

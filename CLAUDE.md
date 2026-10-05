@@ -415,7 +415,7 @@ cheap point check against the poll's already-fetched spot price rather than a re
 ~16 off-hours polls a day don't each burn a Twelve Data 1-minute-candle call (~190/day) purely to
 report a block that was never going to trade anyway. Both paths are deduplicated in Postgres
 (`broker_b_blocked` table, `storage.record_broker_b_blocked_if_new()`, keyed on `(ta_forecast_id,
-rule_name, reasons)`) so a level sitting past its trigger for hours sends one notice, not one per poll.
+rule_name, reasons)`) so a level sitting past its trigger for hours sends one notice, not one per poll. **Re-notify on a fresh touch (5 Oct 2026)**: a touch-based block (DXY/RSI/ADX/ATR, too-old touch) whose *newer* touch of the same level arrives at least `storage.BLOCKED_RENOTIFY_MINUTES` (30) after the last notice sends the notice again (`broker_b_blocked.last_notified_ts`); observed live: TA3's 4139.78 sell was ADX-blocked at 2:06 PM ET and again at 3:10 PM ET, and only the first sent a message. Notices without a touch time (timing blocks, "crossed while a trade was open") stay one per combination.
 The stored `reasons` string is a fixed **dedup category** with no poll-varying number in it (e.g. "DXY
 rose against the Buy (fresh headwind)", not the live delta) — `_dxy_confirms()`/`_rsi_confirms()` return
 `(ok, category, detail)` and `_notify_timing_block()` builds its own category/detail pair the same way,
