@@ -599,6 +599,8 @@ if not trades.empty:
         "open_ts": "Opened", "triggering_alerts": "Trigger", "exit_price": "Exit",
         "close_ts": "Closed", "pnl": "P&L", "status": "Status",
     })
+    # P&L third, Opened fourth (counting the "#" column as first).
+    trades = trades[["#", "Broker", "P&L", "Opened", "Rule", "Type", "Entry", "Trigger", "Exit", "Closed", "Status"]]
 
 if trades.empty:
     st.write("No trades recorded yet.")
