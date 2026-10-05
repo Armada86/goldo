@@ -588,7 +588,7 @@ distance; `broker.trailing_stop_params()` reads it once per `_find_exit()` and f
 
 **Fade profit lock at the opposite fade level (5 Oct 2026, Broker B fade rules only)**: for `TA-Zone-sell` / `TA-Zone-buy` trades, the exit scan
 (`broker._scan_exit_crossing()`'s `lock_level`, fed by `broker_b._fade_lock_level()`) knows the trade's *opposite* fade level -- the entry price of the
-other fade scenario in the forecast row the trade came from (a sell fade's `buy_support`, a buy fade's `sell_resistance`; e.g. 4150 for a sell opened at
+other fade scenario in the **latest** forecast row (changed 5 Oct 2026 -- B #44 bought TA2's support, then TA3 moved the resistance from 4150 to 4139.78 and price reached it without the lock firing; falls back to the trade's own forecast if the latest can't be read, and a level not beyond the entry in the trade's favour is ignored) (a sell fade's `buy_support`, a buy fade's `sell_resistance`; e.g. 4150 for a sell opened at
 4164.37). Once a 1-minute bar reaches it, from the next bar on the stop is at least that level (that profit is locked) and trails `broker.FADE_LOCK_TRAIL_DISTANCE`
 ($5) behind the best price, whichever is better for the trade; price coming back through the level closes the trade at the level. It replaces the ordinary
 trail only after that touch (the ordinary stop/trail, set by `make SL` / `make trail`, applies before it); breakouts and Telegram-opened trades never lock. It is
