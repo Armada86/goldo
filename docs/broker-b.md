@@ -65,6 +65,8 @@ level (a sell reaching the buy fade support, a buy reaching the sell fade resist
 profit, and then trails $5 behind the best price. If price comes back through the level, the trade closes there. For example, a sell
 from 4164.37 that reaches the 4150 support has 4150 as its stop (+$14.37), then 5 above each new low. Breakout trades keep the
 ordinary trail.
+The opposite level is read from the **latest** forecast, so if a newer TA run moves it the lock follows (a level not beyond the entry
+in the trade's favour is ignored).
 
 
 ## Good to know

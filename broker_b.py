@@ -406,16 +406,38 @@ FADE_OPPOSITE_SCENARIO = {"TA-Zone-sell": "buy_support", "TA-Zone-buy": "sell_re
 
 def _fade_lock_level(trade: dict) -> float | None:
     """The price at which an open fade trade locks its profit (see FADE_OPPOSITE_SCENARIO), or None for any other trade
-    (breakouts, Telegram-opened) or if the forecast row can't be read -- those simply keep the ordinary trailing stop."""
+    (breakouts, Telegram-opened) or if no forecast can be read -- those simply keep the ordinary trailing stop.
+
+    Uses the LATEST forecast's opposite fade level, not the one from the forecast the trade opened under (changed 5 Oct
+    2026: B #44 bought TA2's support, TA3 then moved the resistance from 4150 to 4139.78 and price reached it without the
+    lock firing). Falls back to the trade's own forecast if the latest can't be read. A level that is not beyond the entry
+    in the trade's favour is ignored, so a moved level can never turn the lock into a tighter-than-initial stop."""
     scenario_name = FADE_OPPOSITE_SCENARIO.get(trade.get("rule_name"))
-    if scenario_name is None or not trade.get("ta_forecast_id"):
+    if scenario_name is None:
         return None
+    entry = float(trade["entry_price"])
+    sources = []
     try:
-        levels = get_ta_forecast_levels(trade["ta_forecast_id"]) or {}
-        scenario = next(sc for sc in levels.get("scenarios", []) if sc.get("name") == scenario_name)
-        return float(_entry_price_and_invalidation(scenario_name, scenario)[0])
+        latest = get_latest_ta_forecast()
+        if latest and latest.get("levels"):
+            sources.append(latest["levels"])
     except Exception:
-        return None
+        pass
+    if trade.get("ta_forecast_id"):
+        try:
+            sources.append(get_ta_forecast_levels(trade["ta_forecast_id"]) or {})
+        except Exception:
+            pass
+    for levels in sources:
+        try:
+            scenario = next(sc for sc in levels.get("scenarios", []) if sc.get("name") == scenario_name)
+            level = float(_entry_price_and_invalidation(scenario_name, scenario)[0])
+        except Exception:
+            continue
+        favourable = level - entry if trade["trade_type"] == "Buy" else entry - level
+        if favourable > 0:
+            return level
+    return None
 
 
 def _blocked_message(rule_name: str, price: float, message_reasons: str) -> str:
