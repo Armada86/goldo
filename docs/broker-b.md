@@ -69,7 +69,7 @@ ordinary trail.
 
 ## Good to know
 
-- **One position at a time**, across all four rules.
+- **One position at a time**, across all four rules. If another level is touched while a trade is open, a ⛔ Telegram notice says so at the next poll (the touch is not filled later).
 - **Telegram commands** (`docs/telegram-commands.md`) can open or close a Broker B trade by hand, pause trading, or
   `rearm levels` to let every level trade again.
 - Every trade stores an `entry_context` snapshot (RSI, ADX, ATR, DXY move, spread, …) in `broker_b_trades`, used to
