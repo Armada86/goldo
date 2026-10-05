@@ -154,6 +154,7 @@ from storage import (
     get_latest_ta_forecast,
     get_last_close_ts_b,
     get_open_trade_b,
+    get_ta_forecast_levels,
     get_recent_readings,
     insert_trade_b,
     get_last_blocked_touch_ts_b,
@@ -398,6 +399,25 @@ def _atr_confirms(atr_value: float | None, rules: dict | None = None) -> tuple[b
     )
 
 
+# A fade trade's lock level is the entry price of the OPPOSITE fade scenario in the forecast row it came from: a TA-Zone-sell locks
+# at the buy_support level, a TA-Zone-buy at the sell_resistance level (see broker._scan_exit_crossing()).
+FADE_OPPOSITE_SCENARIO = {"TA-Zone-sell": "buy_support", "TA-Zone-buy": "sell_resistance"}
+
+
+def _fade_lock_level(trade: dict) -> float | None:
+    """The price at which an open fade trade locks its profit (see FADE_OPPOSITE_SCENARIO), or None for any other trade
+    (breakouts, Telegram-opened) or if the forecast row can't be read -- those simply keep the ordinary trailing stop."""
+    scenario_name = FADE_OPPOSITE_SCENARIO.get(trade.get("rule_name"))
+    if scenario_name is None or not trade.get("ta_forecast_id"):
+        return None
+    try:
+        levels = get_ta_forecast_levels(trade["ta_forecast_id"]) or {}
+        scenario = next(sc for sc in levels.get("scenarios", []) if sc.get("name") == scenario_name)
+        return float(_entry_price_and_invalidation(scenario_name, scenario)[0])
+    except Exception:
+        return None
+
+
 def _blocked_message(rule_name: str, price: float, message_reasons: str) -> str:
     return (
         f"{TRADE_ALERT_PREFIX.rstrip()}{BLOCKED_MARKER}BROKER B: {rule_name} level ${price:.2f} "
@@ -554,7 +574,7 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
         return
 
     if open_trade is not None:
-        exit_result = _find_exit(open_trade, gold_price, now)
+        exit_result = _find_exit(open_trade, gold_price, now, _fade_lock_level(open_trade))
         if exit_result is not None:
             exit_price, exit_ts, pnl = exit_result
             close_trade_row_b(open_trade["id"], exit_price, exit_ts, pnl)

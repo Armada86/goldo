@@ -53,6 +53,8 @@ used to be in the message; they are no longer sent (the analysis still computes 
 
 ## Limits
 
+- The replay uses the ordinary stop and trailing stop only. It does not yet model Broker B's fade profit lock at the opposite
+  fade level (5 Oct 2026), so for fade trades that reach that level the live exit can differ from the replay.
 - With dozens of trades the advice is a lean, not proof. A different market (gold has been trending down
   through this period) can reverse it.
 - Trades that were blocked at the time cannot be replayed; only the trades that really happened are known.

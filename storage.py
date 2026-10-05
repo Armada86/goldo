@@ -902,6 +902,14 @@ def count_ta_forecasts_for_date(forecast_date: date) -> int:
         return cur.fetchone()[0]
 
 
+def get_ta_forecast_levels(forecast_id: int) -> dict | None:
+    """The `levels` JSON of one ta_forecasts row (Broker B looks up the forecast an open trade came from), or None."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT levels FROM ta_forecasts WHERE id = %s", (forecast_id,))
+        row = cur.fetchone()
+    return row[0] if row else None
+
+
 def get_latest_ta_forecast() -> dict | None:
     """Most recent ta_forecasts row, or None if the table is empty. `diagram_svg` is None on rows
     written before that column existed."""

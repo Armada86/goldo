@@ -105,6 +105,10 @@ TRAILING_STOP_DISTANCE = 7.0
 # How many minutes of 1-min candles the exit check pulls each poll -- comfortably more than one
 # 5-min poll interval, so a slightly late-firing poll still has full coverage back to the last
 # check. See _scan_exit_crossing() / module docstring.
+# Broker B fade trades only (5 Oct 2026): once price reaches the OPPOSITE fade level (a TA-Zone-sell reaching the forecast's first
+# support, a TA-Zone-buy reaching its first resistance), the stop jumps to that level (locking that profit) and then trails this
+# many $ behind the best price, so it is never worse than the level; price coming back through the level closes the trade there.
+FADE_LOCK_TRAIL_DISTANCE = 5.0
 EXIT_CANDLE_LOOKBACK_MINUTES = 20
 EXIT_CANDLE_MAX_BARS = 3000  # the trailing stop needs every bar since entry, so a long-held trade fetches more
 
@@ -364,6 +368,7 @@ def _scan_exit_crossing(
     stop_loss_distance: float | None = None,
     activation: float | None = None,
     distance: float | None = None,
+    lock_level: float | None = None,
 ) -> tuple[float, datetime] | None:
     """Replays 1-min OHLC candles (all of them since the trade opened, in order) against this trade's
     trailing stop -- see the module docstring for why a candle scan beats a point-in-time price. There
@@ -371,7 +376,9 @@ def _scan_exit_crossing(
     -stop_loss_distance and then trails behind the best price (_exit_stop_offset()). Returns
     (stop_price, bar_time) for the first bar that touched the stop, or None. Each bar is checked
     against the stop as it stood BEFORE that bar's own high/low can raise the peak, the conservative
-    ordering when a single bar spans both."""
+    ordering when a single bar spans both. `lock_level` (Broker B fade trades, see FADE_LOCK_TRAIL_DISTANCE): once a bar has
+    reached that price (the opposite fade level), from the NEXT bar on the stop is at least that level and trails
+    FADE_LOCK_TRAIL_DISTANCE behind the best price, whichever is better for the trade."""
     if stop_loss_distance is None:
         stop_loss_distance = stop_loss_threshold()
     if activation is None or distance is None:
@@ -379,14 +386,24 @@ def _scan_exit_crossing(
     is_buy = trade["trade_type"] == "Buy"
     entry = float(trade["entry_price"])
     peak = 0.0  # best profit reached so far, $ per oz
+    lock_profit = None  # profit (in $) at the opposite fade level; None = no lock for this trade
+    if lock_level is not None:
+        lock_profit = (float(lock_level) - entry) if is_buy else (entry - float(lock_level))
+        if lock_profit <= 0:
+            lock_profit = None  # the level is not in the trade's favour: nothing to lock
+    locked = False
     for _, bar in candles.iterrows():
         offset = _exit_stop_offset(peak, stop_loss_distance, activation, distance)
+        if locked:
+            offset = max(offset, lock_profit, peak - FADE_LOCK_TRAIL_DISTANCE)
         stop_price = entry + offset if is_buy else entry - offset
         hit = bar["low"] <= stop_price if is_buy else bar["high"] >= stop_price
         if hit:
             return stop_price, bar["datetime"].to_pydatetime()
         favourable = bar["high"] - entry if is_buy else entry - bar["low"]
         peak = max(peak, favourable)
+        if lock_profit is not None and not locked and favourable >= lock_profit:
+            locked = True  # applies from the next bar (the bar that touched the level can't also be stopped by it)
     return None
 
 
@@ -398,7 +415,9 @@ def _exit_bar_count(trade: dict, now: datetime) -> int:
     return max(EXIT_CANDLE_LOOKBACK_MINUTES, min(minutes, EXIT_CANDLE_MAX_BARS))
 
 
-def _find_exit(trade: dict, fallback_price: float, fallback_ts: datetime) -> tuple[float, datetime, float] | None:
+def _find_exit(
+    trade: dict, fallback_price: float, fallback_ts: datetime, lock_level: float | None = None
+) -> tuple[float, datetime, float] | None:
     """(exit_price, exit_ts, pnl) if this trade should close now, else None. Tries the real
     intrabar candle path first; falls back to the plain point-price check (the original behavior)
     if the candle fetch fails or turns up no crossing, so a Twelve Data hiccup never blocks a
@@ -415,7 +434,7 @@ def _find_exit(trade: dict, fallback_price: float, fallback_ts: datetime) -> tup
         # entry technically happened) -- scanning it for an exit crossing can otherwise close a
         # trade in the same minute it opened, at a P/L it never actually had a chance to earn.
         candles = candles[candles["datetime"] > trade["open_ts"]]
-        crossing = _scan_exit_crossing(trade, candles, stop_loss_distance, trail_activation, trail_distance)
+        crossing = _scan_exit_crossing(trade, candles, stop_loss_distance, trail_activation, trail_distance, lock_level)
     except Exception:
         crossing = None  # best-effort accuracy improvement -- fall back below, don't block on it
 

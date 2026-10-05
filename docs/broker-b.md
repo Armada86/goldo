@@ -60,6 +60,13 @@ There is no take-profit. The stop starts at **$10 below entry** (`make SL <n>` c
 found by replaying every 1-minute bar since entry, so a spike that touched the stop between polls still closes at the
 true level. Prices are side-correct: a Buy enters on the ask and exits on the bid, a Sell the opposite.
 
+**Fade profit lock (from 5 Oct 2026, fade rules only):** when a `TA-Zone-sell` / `TA-Zone-buy` trade reaches the *opposite* fade
+level (a sell reaching the buy fade support, a buy reaching the sell fade resistance), the stop jumps to that level, locking that
+profit, and then trails $5 behind the best price. If price comes back through the level, the trade closes there. For example, a sell
+from 4164.37 that reaches the 4150 support has 4150 as its stop (+$14.37), then 5 above each new low. Breakout trades keep the
+ordinary trail.
+
+
 ## Good to know
 
 - **One position at a time**, across all four rules.
