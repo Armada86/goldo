@@ -495,14 +495,17 @@ def _close_message(trade: dict, exit_price: float, exit_ts: datetime, pnl: float
     )
 
 
-def _notify_crossed_during_trade(trade: dict, exit_price: float, exit_ts: datetime) -> None:
+def _notify_crossed_during_trade(
+    trade: dict, exit_price: float | None, exit_ts: datetime, still_open: bool = False
+) -> None:
     """Best-effort notice, sent right after a trade closes, for any *other* still-armed level of the
     latest forecast that price crossed while `trade` held Broker B's single position slot. Such a
     level is deliberately never filled retroactively (its trigger price is already stale, and a fresh
     entry needs a new approach from the correct side -- see _scan_zone_entry()), so this only makes the
     skip visible. Deduplicated per (forecast, rule, this trade) via _notify_blocked(); one extra 1-min
-    candle fetch, only on the poll a trade closes. Never raises -- a failure here must not affect the
-    close that already happened."""
+    candle fetch. Called on every poll while the trade is still open (`still_open=True`, `exit_ts` = now) so the
+    notice arrives when the level is crossed, and once more when the trade closes; both use the same dedup key,
+    so only the first one is sent. Never raises -- a failure here must not affect the trade or the close."""
     try:
         forecast = get_latest_ta_forecast()
         if forecast is None or not forecast.get("levels"):
@@ -535,11 +538,16 @@ def _notify_crossed_during_trade(trade: dict, exit_price: float, exit_ts: dateti
             else:
                 crossed = candles["low"].min() <= trigger_price
             if crossed:
-                reason = (
-                    f"crossed while {trade['rule_name']} trade #{trade['id']} was open "
-                    f"(closed @ ${exit_price:.2f}); not filled retroactively"
-                )
-                _notify_blocked(forecast, rule_name, trigger_price, reason)
+                # One fixed dedup string for the "still open" and "closed" notices (the live numbers only go in the text).
+                dedup_reason = f"crossed while {trade['rule_name']} trade #{trade['id']} was open; not filled retroactively"
+                if still_open:
+                    message = f"crossed while {trade['rule_name']} trade #{trade['id']} is open; not filled retroactively"
+                else:
+                    message = (
+                        f"crossed while {trade['rule_name']} trade #{trade['id']} was open "
+                        f"(closed @ ${exit_price:.2f}); not filled retroactively"
+                    )
+                _notify_blocked(forecast, rule_name, trigger_price, dedup_reason, message)
     except Exception:
         return
 
@@ -583,6 +591,8 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
             open_trade = None
 
     if open_trade is not None:
+        # Still open: if another still-armed level was crossed meanwhile, say so now rather than only when the trade closes.
+        _notify_crossed_during_trade(open_trade, None, now, still_open=True)
         return  # still open -- only one Broker B position at a time, across all four rules
 
     try:

@@ -406,7 +406,7 @@ RSI(14) (same computation as `rules.check_rsi_alerts()`) is already >= `RSI_OVER
 `TA-Breakout-sell` skipped if already <= `RSI_OVERSOLD_THRESHOLD` (30); the two fade rules aren't RSI-gated.
 All three fail open (no block) on missing data, same fail-open convention as Broker A's filters.
 
-**Blocked-entry Telegram notice** (also sent, via `_notify_crossed_during_trade()`, for another still-armed level crossed while a trade held the slot -- never filled retroactively, notice only): whenever a level is reached but one of the three filters above
+**Blocked-entry Telegram notice** (also sent, via `_notify_crossed_during_trade()`, for another still-armed level crossed while a trade held the slot -- never filled retroactively, notice only; since 5 Oct 2026 it is checked on every poll while the trade is open, so the notice arrives when the level is crossed, not only when the trade closes -- the open and closed variants share one dedup key, so it is sent once): whenever a level is reached but one of the three filters above
 stops the trade, one message names the level and reason(s), e.g. `🟦⛔ BROKER B: TA-Zone-sell level
 $4283.21 reached but blocked -- DXY fell -0.0900 in 15 min (fresh tailwind, threshold 0.0532).`
 (`broker_b.BLOCKED_MARKER`, a no-entry sign, tells it apart from a real open/close). DXY/RSI blocks use
