@@ -191,6 +191,13 @@ def fetch_gold_rsi_adx_atr(
         candles = fetch_gold_candles()
     except Exception:
         return None, None, None
+    return gold_rsi_adx_atr_from_candles(candles, rsi_period, adx_period, atr_period)
+
+
+def gold_rsi_adx_atr_from_candles(
+    candles: pd.DataFrame, rsi_period: int = 14, adx_period: int = 14, atr_period: int = 14
+) -> tuple[float | None, float | None, float | None]:
+    """(RSI, ADX, ATR) of the latest candle in an already-fetched frame; each None if it can't be computed."""
     try:
         rsi = float(compute_rsi(candles["close"], period=rsi_period).dropna().iloc[-1])
     except Exception:

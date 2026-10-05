@@ -2,6 +2,7 @@
 
 import os
 from datetime import date, datetime, timedelta, timezone
+from itertools import zip_longest
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -20,7 +21,7 @@ if "DATABASE_URL" not in os.environ and "DATABASE_URL" in st.secrets:
 import broker
 import broker_b
 from block_rules import OFF_VALUES, get_block_rules
-from config import DASHBOARD_INDICATOR_NAMES, DOLLAR_UNIT_NAMES
+from config import DASHBOARD_INDICATOR_NAMES, DOLLAR_UNIT_NAMES, TECHNICAL_READING_NAMES
 from storage import get_connection, get_stop_settings_as_of
 from ta_forecast_job import render_diagram_svg
 
@@ -50,7 +51,9 @@ st.markdown(
     .goldo-table th, .goldo-table td {{
         padding: 2px 1px; text-align: right; overflow-wrap: break-word; line-height: 1.15;
     }}
-    .goldo-table th:first-child, .goldo-table td:first-child {{ text-align: left; }}
+    .goldo-table th:first-child, .goldo-table td:first-child,
+    .goldo-table th:nth-child(3), .goldo-table td:nth-child(3) {{ text-align: left; }}
+    .goldo-table th:nth-child(3), .goldo-table td:nth-child(3) {{ padding-left: 8px; }}
     .goldo-table th {{ font-size: 8px; color: #888; font-weight: 600; }}
     .goldo-table td.symbol {{ font-weight: 700; font-size: 10px; }}
     .goldo-table td.price {{ font-weight: 700; font-size: 9.5px; }}
@@ -458,15 +461,21 @@ if min_forecast_date is not None:
     elif selected_date != today_et:
         st.caption(f"No forecast recorded for {selected_date:%Y-%m-%d} (weekend, holiday, or a day the job didn't run).")
 
+# Symbols table layout: gold and its technical readings plus the two macro drivers on the left, every other
+# dashboard symbol on the right (rows pair up left/right).
+LEFT_TABLE_NAMES = ["gold", *TECHNICAL_READING_NAMES, "dxy", "us10y"]
+RIGHT_TABLE_NAMES = [n for n in DASHBOARD_INDICATOR_NAMES if n not in LEFT_TABLE_NAMES]
+
+
 def load_readings() -> pd.DataFrame:
-    """Each dashboard symbol's latest reading only. This used to read the whole `readings` table (~4 MB and growing
+    """Each shown symbol's latest reading only. This used to read the whole `readings` table (~4 MB and growing
     ~2.5k rows a day) on every page run and 5-minute auto-refresh -- the main source of Neon network transfer."""
     with get_connection() as conn:
         return pd.read_sql(
             "SELECT DISTINCT ON (name) ts, name, price FROM readings WHERE name = ANY(%s) "
             "ORDER BY name, ts DESC",
             conn,
-            params=(list(DASHBOARD_INDICATOR_NAMES),),
+            params=(list({*LEFT_TABLE_NAMES, *RIGHT_TABLE_NAMES}),),
             parse_dates=["ts"],
         )
 
@@ -514,21 +523,28 @@ except Exception as e:
 if readings.empty:
     st.info("No data yet — start main.py to begin polling.")
 else:
-    rows_html = []
-    for name in DASHBOARD_INDICATOR_NAMES:
-        series = readings[readings["name"] == name]
-        if series.empty:
-            continue
-        unit = "$" if name in DOLLAR_UNIT_NAMES else ""
-        latest = series["price"].iloc[-1]
-        rows_html.append(
-            f'<tr><td class="symbol">{name.upper()}</td><td class="price">{unit}{latest:,.2f}</td></tr>'
-        )
+    latest = {row["name"]: row["price"] for _, row in readings.iterrows()}
 
-    colgroup = '<colgroup><col style="width:50%"><col style="width:50%"></colgroup>'
+    def cells(name: str | None) -> str:
+        if name is None:
+            return '<td class="symbol"></td><td class="price"></td>'
+        if name not in latest:
+            price_text = "—"
+        elif name in TECHNICAL_READING_NAMES and name != "atr":
+            price_text = f"{latest[name]:,.1f}"  # RSI / ADX: 0-100 scale, no unit
+        else:
+            unit = "$" if name in DOLLAR_UNIT_NAMES or name == "atr" else ""
+            price_text = f"{unit}{latest[name]:,.2f}"
+        return f'<td class="symbol">{name.upper()}</td><td class="price">{price_text}</td>'
+
+    rows_html = [
+        f"<tr>{cells(left)}{cells(right)}</tr>"
+        for left, right in zip_longest(LEFT_TABLE_NAMES, RIGHT_TABLE_NAMES)
+    ]
+    colgroup = '<colgroup><col style="width:17%"><col style="width:33%"><col style="width:17%"><col style="width:33%"></colgroup>'
     table_html = (
-        f'<table class="goldo-table">{colgroup}<thead><tr><th>Symbol</th><th>Price</th></tr></thead>'
-        f'<tbody>{"".join(rows_html)}</tbody></table>'
+        f'<table class="goldo-table">{colgroup}<thead><tr><th>Symbol</th><th>Price</th>'
+        f'<th>Symbol</th><th>Price</th></tr></thead><tbody>{"".join(rows_html)}</tbody></table>'
     )
     st.markdown(table_html, unsafe_allow_html=True)
 
