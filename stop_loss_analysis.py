@@ -261,10 +261,14 @@ def format_report(result: dict, first_ts, last_ts, n_bid_ask: int, n_mid: int, n
         lines.append(f"ADVICE: KEEP CURRENT SETTINGS (the best setting only wins because of one trade, {rec['best_trade']})")
     else:
         lines.append("ADVICE: KEEP CURRENT SETTINGS (no setting beats them by a clear margin)")
+    if result["change"]:
+        shown, tag, label = rec, "", "this setting"
+    else:  # keep: the bullets show what is still in force, not the better-looking setting that was not applied
+        shown, tag, label = cur, " (current)", f"the best setting tried (-${_num(rec['stop_loss'])}, trail {_num(rec['activation'])}/{_num(rec['distance'])})"
     lines += [
-        f"- Stop loss: -${_num(rec['stop_loss'])}",
-        f"- Trailing stop: starts at +${_num(rec['activation'])}, follows ${_num(rec['distance'])} behind the best price",
-        f"Replay result: {_money(rec['total'])} for this setting vs {_money(cur['total'])} for your current "
+        f"- Stop loss: -${_num(shown['stop_loss'])}{tag}",
+        f"- Trailing stop: starts at +${_num(shown['activation'])}, follows ${_num(shown['distance'])} behind the best price{tag}",
+        f"Replay result: {_money(rec['total'])} for {label} vs {_money(cur['total'])} for your current "
         f"(-${_num(cur['stop_loss'])}, trail {_num(cur['activation'])}/{_num(cur['distance'])}). "
         f"The old fixed +$10 / -$10 rule: {_money(result['old_rule_total'])}.",
         f"Needs to beat the current by {_money(result['needed_gain'])} to advise a change; it beats it by {_money(result['gain'])} "
