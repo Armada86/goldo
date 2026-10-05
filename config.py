@@ -68,6 +68,10 @@ ALL_INDICATOR_NAMES = list(INDICATORS) + list(FRED_SERIES)
 # intraday prices.
 DASHBOARD_EXCLUDED_NAMES = ["inflation", "financial_stress", "interest_rate"]
 
+# Gold technical readings the poll computes from the 15-min candles it already fetches for the RSI alert and stores in
+# `readings` (not in INDICATORS -- they aren't fetched from a data source); the dashboard shows their latest values.
+TECHNICAL_READING_NAMES = ["rsi", "adx", "atr"]
+
 # Indicators shown on the dashboard (tiles + chart).
 DASHBOARD_INDICATOR_NAMES = [
     name for name in ALL_INDICATOR_NAMES

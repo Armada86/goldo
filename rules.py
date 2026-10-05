@@ -158,12 +158,14 @@ def check_sma_crossover() -> list[str]:
     return []
 
 
-def check_rsi_alerts() -> list[str]:
+def check_rsi_alerts(candles=None) -> list[str]:
     """RSI(14) on gold spot only (15-min candles from Twelve Data). Like
     check_sma_crossover, this is a crossing check — it compares the two most
     recent RSI values so it fires once when RSI crosses into overbought/
-    oversold territory, not on every poll spent past the threshold."""
-    candles = fetch_gold_candles()
+    oversold territory, not on every poll spent past the threshold. `candles` lets the poll
+    share one Twelve Data fetch with the dashboard-indicator save; fetched here if not given."""
+    if candles is None:
+        candles = fetch_gold_candles()
     rsi = compute_rsi(candles["close"], period=RSI_PERIOD).dropna()
     if len(rsi) < 2:
         return []

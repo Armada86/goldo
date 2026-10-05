@@ -135,6 +135,10 @@ Full methodology and reference-analysis notes for the technical forecast that co
   means the alert fires within one poll cycle of the report actually printing, not that the number
   itself is any fresher.
 
+## Derived gold readings (not indicators)
+
+`rsi`, `adx` and `atr` (RSI(14), ADX(14) and ATR(14) of gold spot's 15-minute candles) are computed by the poll from the candles it already fetches for the RSI alert and saved to `readings` each cycle, only so the dashboard can show their latest values. They are not fetched from a data source, have no alert of their own (the RSI crossing alert is unchanged) and are not in `INDICATORS`, so they have no row in the table above.
+
 ## Alert mechanisms in play
 
 Not every indicator uses the same alert logic — see `rules.py` / `CLAUDE.md` for details:

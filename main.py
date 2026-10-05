@@ -6,8 +6,15 @@ from apscheduler.schedulers.blocking import BlockingScheduler   #runs in the for
 
 from broker import check_broker_trades
 from broker_b import check_broker_b_trades
-from config import INTRAHOUR_SWING_SEND_TELEGRAM, POLL_INTERVAL_MINUTES #goes to config page and gets the value of POLL_INTERVAL_MINUTES
-from data_fetcher import fetch_latest_prices
+from config import (
+    ATR_PERIOD,
+    ADX_PERIOD,
+    INTRAHOUR_SWING_SEND_TELEGRAM,
+    POLL_INTERVAL_MINUTES,
+    RSI_PERIOD,
+    TECHNICAL_READING_NAMES,
+) #goes to config page and gets the value of POLL_INTERVAL_MINUTES
+from data_fetcher import fetch_gold_candles, fetch_latest_prices, gold_rsi_adx_atr_from_candles
 from forex_broker import check_forex_closes
 from market_hours import check_market_hours_alert, is_market_closed
 from notifier import send_telegram_message
@@ -53,7 +60,26 @@ def poll_once() -> None:
     alerts += check_abs_change_alerts(prices)
     alerts += check_value_change_alerts(prices)
     # SMA crossover alerts are disabled at the user's request (they repeated every poll in Telegram).
-    alerts += check_rsi_alerts()
+    # One 15-min candle fetch feeds both the RSI alert and the dashboard's RSI/ADX/ATR readings (saved to
+    # `readings` under TECHNICAL_READING_NAMES). A failed fetch skips both for this cycle instead of
+    # taking down the rest of the poll.
+    try:
+        candles = fetch_gold_candles()
+    except Exception:
+        log.exception("Gold candle fetch failed -- skipping RSI alert and technical readings this cycle")
+        candles = None
+    if candles is not None:
+        alerts += check_rsi_alerts(candles)
+        technical = dict(zip(
+            TECHNICAL_READING_NAMES,
+            gold_rsi_adx_atr_from_candles(candles, RSI_PERIOD, ADX_PERIOD, ATR_PERIOD),
+        ))
+        technical = {name: value for name, value in technical.items() if value is not None}
+        if technical:
+            try:
+                save_readings(technical)
+            except Exception:
+                log.exception("Could not save technical readings")
     swing_alerts = check_intrahour_swing_alerts(prices)
 
     log.info("Prices: %s", prices)
