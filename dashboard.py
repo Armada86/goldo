@@ -469,10 +469,23 @@ if min_forecast_date is not None:
 CHANGE_WINDOWS = [("5m", 5), ("10m", 10), ("15m", 15), ("30m", 30), ("1h", 60)]
 
 
+# Each symbol's own latest reading minus this many minutes is all the table needs (the longest change window is 60 min,
+# plus one poll interval of slack so a reading at or before it always exists).
+READINGS_LOOKBACK_MINUTES = max(m for _, m in CHANGE_WINDOWS) + 10
+
+
 def load_readings() -> pd.DataFrame:
+    """Only what the symbols table shows: for each dashboard symbol, its latest reading and the
+    READINGS_LOOKBACK_MINUTES before it. This used to be `SELECT ... FROM readings` (the whole table, ~4 MB and
+    growing ~2.5k rows a day) on every page run and 5-minute auto-refresh -- the main source of Neon network transfer."""
     with get_connection() as conn:
         return pd.read_sql(
-            "SELECT ts, name, price FROM readings ORDER BY ts", conn, parse_dates=["ts"]
+            "SELECT r.ts, r.name, r.price FROM readings r "
+            "JOIN (SELECT name, MAX(ts) AS latest FROM readings WHERE name = ANY(%s) GROUP BY name) l "
+            "ON r.name = l.name AND r.ts >= l.latest - make_interval(mins => %s) ORDER BY r.ts",
+            conn,
+            params=(list(DASHBOARD_INDICATOR_NAMES), READINGS_LOOKBACK_MINUTES),
+            parse_dates=["ts"],
         )
 
 

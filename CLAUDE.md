@@ -905,7 +905,7 @@ much history doesn't exist yet, e.g. right after a fresh deploy). Deliberately s
 fixed `<colgroup>` so columns can't overflow the viewport width, kept in the CSS block at the top of the
 file rather than per-element `style=` (the per-cell `style=` that remains is just the red/green
 up/down color, computed from the sign of each change). The `$` unit shown on price/change cells is
-picked per-name (`DOLLAR_UNIT_NAMES`) the same way `rules.py` picks it for alert messages.
+picked per-name (`DOLLAR_UNIT_NAMES`) the same way `rules.py` picks it for alert messages. `load_readings()` fetches only each symbol's latest reading plus the 70 minutes before it (`READINGS_LOOKBACK_MINUTES`), not the whole `readings` table -- the full-table read (~4 MB, growing ~2.5k rows/day, once per page run and 5-minute auto-refresh) was the main driver of Neon network transfer (~1 GB in the first 5 days of the Oct 2026 billing period against the Free plan's 5 GB).
 
 **Broker B entry rules on the dashboard (4 Oct 2026)**: right under the forecast caption line (price · bias · score), `dashboard.py` shows a small
 "Broker B rules in force" block (`broker_b_entry_rules_html()`): the DXY / ADX / RSI / ATR entry cutoffs (the `block_rules` row in force at the run's time, `config` as fallback)
