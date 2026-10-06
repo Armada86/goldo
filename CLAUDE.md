@@ -581,7 +581,7 @@ better and only moves in the trade's favour; a trade that peaks at +$15 can't cl
 the peak (conservative). The peak is recomputed from the bars every poll, so no extra state is stored; if the candle fetch fails
 the point-price fallback can only judge the initial stop, and the next good scan closes the trade retroactively at the true level.
 Chosen after a backtest of 28 trades (+$42.46 vs +$40 for fixed $10/$10; tighter trails and early breakeven locks lost money --
-see the Stop Loss Analysis artifact). Broker B treats a close at breakeven or better as a win for its re-arm rule (stop-out = pnl < 0).
+see the Stop Loss Analysis artifact). Broker B treats a close of at least `broker_b.REARM_MIN_WIN_PNL` ($5, 6 Oct 2026; before that any pnl >= 0) as a win for its re-arm rule -- a smaller close retires the level like a stop-out (B #46 trailed out at +$1.13 and re-armed #47, which lost the full $15).
 `forex_broker.py` keeps its platform TP/SL at `EXIT_THRESHOLD`. The Telegram `make trail <activation> <distance>` command (activation first; one number sets both; `make trail 10 activate 3` also works) overrides the two constants
 for both brokers (`trailing_stop_setting` one-row table, created by the Worker on first use and by `init_db()`; 1-100 each, activation defaults to the
 distance; `broker.trailing_stop_params()` reads it once per `_find_exit()` and falls back to the constants on unset/DB error), open trades included.

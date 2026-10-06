@@ -7,7 +7,7 @@ can't supply (table missing or empty, database unreachable): broker_b.py behaves
 
     DXY   dxy_threshold          skip a Buy if DXY rose / a Sell if it fell by at least this over 15 min, on 3 polls in a row
     ADX   adx_trending           fades (TA-Zone-*) blocked at ADX >= this while ADX is still rising
-          adx_chop               breakouts (TA-Breakout-*) blocked at ADX < this
+          adx_chop               breakouts (TA-Breakout-*) blocked at ADX < this (never below config.ADX_CHOP_FLOOR, 20)
     RSI   rsi_overbought         TA-Breakout-buy blocked at RSI >= this
           rsi_oversold           TA-Breakout-sell blocked at RSI <= this
           fade_rsi_overbought    TA-Zone-sell blocked at RSI >= this
@@ -19,6 +19,7 @@ A value of 99 / 0 / 101 (see OFF_VALUES below) effectively switches a block off.
 import logging
 
 from config import (
+    ADX_CHOP_FLOOR,
     ADX_CHOP_THRESHOLD,
     ADX_TRENDING_THRESHOLD,
     ATR_HIGH_VOLATILITY_THRESHOLD,
@@ -86,4 +87,6 @@ def get_block_rules(as_of=None) -> dict[str, float]:
         return rules
     if row:
         rules.update({k: v for k, v in row.items() if k in RULE_KEYS and v is not None})
+    if as_of is None:  # live gate only: a past run's display shows what was really in force then
+        rules["adx_chop"] = max(rules["adx_chop"], float(ADX_CHOP_FLOOR))
     return rules

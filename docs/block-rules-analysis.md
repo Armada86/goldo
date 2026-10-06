@@ -14,7 +14,7 @@ table can't supply (table missing or empty, database unreachable), so Broker B n
 |---|---|---|
 | `dxy_threshold` | skip a Buy if DXY rose / a Sell if it fell by at least this over 15 min, on 3 polls in a row | 0.0649 |
 | `adx_trending` | fades blocked at ADX >= this while ADX is still rising (vs the previous 15-min candle) | 25 |
-| `adx_chop` | breakouts blocked at ADX < this | 20 |
+| `adx_chop` | breakouts blocked at ADX < this; never below `config.ADX_CHOP_FLOOR` (20): BRA's grid is 20/22/25 and `get_block_rules()` clamps the live value (6 Oct 2026, after B #48 passed at ADX 18.54 with the cutoff at 18) | 20 |
 | `rsi_overbought` / `rsi_oversold` | breakout buy blocked at RSI >= / breakout sell at RSI <= | 70 / 30 |
 | `fade_rsi_overbought` / `fade_rsi_oversold` | fade sell blocked at RSI >= / fade buy at RSI <= | 68 / 32 |
 | `atr_max` | everything blocked when 15-min ATR(14) >= this ($) | 12 |

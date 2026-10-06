@@ -33,6 +33,7 @@ import numpy as np
 
 import stop_loss_analysis as sla
 from block_rules import OFF_VALUES, RULE_KEYS
+from config import ADX_CHOP_FLOOR
 from broker_b import _adx_confirms, _atr_confirms, _dxy_confirms_changes, _rsi_confirms
 
 BRA_PREFIX = "\U0001F6E1️ "  # shield -- distinct from the other Telegram prefixes
@@ -46,7 +47,7 @@ OFF_MARGIN_FACTOR = 2.0  # switching a block fully off needs this multiple of th
 GRIDS = {
     "atr_max": [8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 16.0, 20.0, 99.0],
     "adx_trending": [20.0, 22.0, 25.0, 28.0, 30.0, 35.0, 99.0],
-    "adx_chop": [0.0, 10.0, 15.0, 18.0, 20.0, 22.0, 25.0],
+    "adx_chop": [float(ADX_CHOP_FLOOR), 22.0, 25.0],  # never below the floor (6 Oct 2026), so it can no longer be switched off
     "rsi_overbought": [65.0, 70.0, 75.0, 80.0, 101.0],
     "rsi_oversold": [0.0, 20.0, 25.0, 30.0, 35.0],
     "fade_rsi_overbought": [60.0, 64.0, 66.0, 68.0, 70.0, 72.0, 101.0],

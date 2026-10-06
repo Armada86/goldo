@@ -993,11 +993,13 @@ def close_trade_row_b(trade_id: int, exit_price: float, close_ts: datetime, pnl:
         )
 
 
-def trade_b_level_history(ta_forecast_id: int, rule_name: str) -> dict:
+def trade_b_level_history(ta_forecast_id: int, rule_name: str, min_win_pnl: float = 0.0) -> dict:
     """What Broker B has already done at one (forecast, rule) level -- the re-arm check in
     broker_b.py: how many trades it has opened there, whether any of them was stopped out (a loss
     means the level broke, so it's never re-traded off this forecast), and when the latest one
-    closed (a re-entry only counts touches after that, never the touch that opened the last trade)."""
+    closed (a re-entry only counts touches after that, never the touch that opened the last trade).
+    `stopped_out` is true for any trade that closed below `min_win_pnl` (a loss, or a win too small to count as one --
+    broker_b.REARM_MIN_WIN_PNL, 6 Oct 2026); the default 0 keeps the old loss-only meaning."""
     with get_connection() as conn, conn.cursor() as cur:
         # Telegram "rearm levels" (see telegram_webhook/): trades opened at or before the rearm time no
         # longer count, neither their number nor any stop-out -- every level gets a fresh budget.
@@ -1008,10 +1010,10 @@ def trade_b_level_history(ta_forecast_id: int, rule_name: str) -> dict:
             row = cur.fetchone()
             rearm_ts = row[0] if row else None
         query = (
-            "SELECT COUNT(*), COALESCE(BOOL_OR(pnl < 0), FALSE), MAX(close_ts) FROM broker_b_trades "
+            "SELECT COUNT(*), COALESCE(BOOL_OR(pnl < %s), FALSE), MAX(close_ts) FROM broker_b_trades "
             "WHERE ta_forecast_id = %s AND rule_name = %s"
         )
-        params: tuple = (ta_forecast_id, rule_name)
+        params: tuple = (min_win_pnl, ta_forecast_id, rule_name)
         if rearm_ts is not None:
             query += " AND open_ts > %s"
             params += (rearm_ts,)

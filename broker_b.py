@@ -17,7 +17,7 @@ zone" scenarios (`sell_resistance`/`buy_support`) *and* their mirrored breakout 
 mapping. Only one trade open at a time, across all four rules, same as Broker A -- a fresh entry is
 never opened while a Broker B position is already open, no matter which of the four levels it is.
 **Each level re-arms after a win**: up to MAX_TRADES_PER_LEVEL (2) trades per (forecast, level), but
-the first stop-out at a level retires it for that forecast (trade_b_level_history()); a later forecast row of the same ET day that keeps the same level inherits that history (_carried_level_history(), 6 Oct 2026). A re-arm only
+the first stop-out (or win under REARM_MIN_WIN_PNL, $5) at a level retires it for that forecast (trade_b_level_history()); a later forecast row of the same ET day that keeps the same level inherits that history (_carried_level_history(), 6 Oct 2026). A re-arm only
 fires on a genuine fresh touch -- price must be observed back on the away side of the trigger at
 some point after the previous trade closed before the next touch counts (see
 _scan_zone_entry()'s approach-side check). Without this, a level that broke out and kept running
@@ -192,6 +192,12 @@ ENTRY_CANDLE_LOOKBACK_MINUTES = 20
 # price still above the level).
 MAX_TRADES_PER_LEVEL = 2
 
+# A closed trade only counts as a win for the re-arm rule if it made at least this much ($ per oz); anything smaller (a
+# loss, breakeven, or a trail that locked a sliver) retires the level for the forecast like a stop-out. 6 Oct 2026: B #46
+# sold TA1's 4165.68 resistance, trailed out at +$1.13, and that 'win' re-armed the level for B #47, which lost the full
+# $15. Hand-picked from that one trade (about half the default $10 stop) -- revisit with more history.
+REARM_MIN_WIN_PNL = 5.0
+
 # A touch is only filled if the poll noticing it is at most this old (poll interval + slack for a slow
 # run) -- a touch older than that was missed or blocked on an earlier poll, and filling it now means a
 # stale price at a stale timestamp. Observed live 30 Sep 2026: TA-Breakout-buy filled at 9:04 ET a
@@ -250,7 +256,7 @@ def _carried_level_history(forecast: dict, scenario_name: str, rule_name: str, s
     kept the SAME trigger price for this scenario, walking back until a row changes it (6 Oct 2026): a new TA run that
     reproduces a level must not give it a fresh trade budget, so a level retired by a stop-out stays retired and the
     two-trades cap isn't reset by a run that changed nothing. `prior` is storage.get_prior_ta_forecasts(), newest first."""
-    history = dict(trade_b_level_history(forecast["id"], rule_name))
+    history = dict(trade_b_level_history(forecast["id"], rule_name, REARM_MIN_WIN_PNL))
     try:
         trigger = round(float(_entry_price_and_invalidation(scenario_name, scenario)[0]), 2)
     except Exception:
@@ -260,7 +266,7 @@ def _carried_level_history(forecast: dict, scenario_name: str, rule_name: str, s
         try:
             if earlier is None or round(float(_entry_price_and_invalidation(scenario_name, earlier)[0]), 2) != trigger:
                 break
-            past = trade_b_level_history(row["id"], rule_name)
+            past = trade_b_level_history(row["id"], rule_name, REARM_MIN_WIN_PNL)
         except Exception:
             break
         history["count"] += past["count"]

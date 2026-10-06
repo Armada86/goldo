@@ -169,6 +169,9 @@ RSI_OVERSOLD_THRESHOLD = 30
 ADX_PERIOD = 14
 ADX_TRENDING_THRESHOLD = 25  # at/above: a real trend -- fades are blocked (RSI blocks are never waived)
 ADX_CHOP_THRESHOLD = 20  # below: no trend -- breakouts and Broker A's momentum consensus are blocked
+# Broker B's breakout ADX cutoff (block_rules.adx_chop) is never allowed below this, even if the block_rules table says so
+# (6 Oct 2026: BRA had lowered it to 18 and B #48 bought a breakout at ADX 18.54 and lost the full stop). BRA's grid starts here too.
+ADX_CHOP_FLOOR = 20
 
 # Broker B entry gates added 3 Oct 2026 after Friday 2 Oct's review (4 of 5 trades stopped out). Both are
 # hand-picked from a 15-trade sample (see broker_b.py); validate with a backtest/`start SLA` before tightening.
