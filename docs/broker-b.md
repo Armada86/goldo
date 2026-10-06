@@ -48,7 +48,7 @@ DXY / ADX / RSI / ATR values below are the defaults from `config.py`; the live v
 
 1. **Trading hours** — 7am–5pm ET, weekdays.
 2. **DXY** — skip a Buy if DXY rose, or a Sell if DXY fell, by its own 15-min threshold (a fresh headwind).
-3. **ADX** — fades are blocked when ADX ≥ 25 and the trend (+DI vs −DI) is against the fade — a sell fade only in an up-trend, a buy fade only in a down-trend; breakouts are blocked when ADX < 20 (no trend).
+3. **ADX** — fades are blocked when ADX ≥ 25 and still rising (a strong but fading ADX lets them through); breakouts are blocked when ADX < 20 (no trend).
 4. **RSI exhaustion** — breakouts blocked when RSI is already past 70/30; fades blocked at RSI ≥ 68 (sell) / ≤ 32 (buy).
    Waived when ADX ≥ 25.
 5. **Volatility** — every rule is blocked when 15-min ATR(14) ≥ $12 (the $10 stop would be inside normal noise).

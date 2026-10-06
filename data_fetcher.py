@@ -167,8 +167,8 @@ def compute_atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
     return _true_range(df).ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
 
 
-def compute_di(df: pd.DataFrame, period: int = 14) -> tuple[pd.Series, pd.Series]:
-    """Wilder's (+DI, -DI): the directional halves of ADX. +DI above -DI = upward pressure. `df` needs high/low/close."""
+def compute_adx(df: pd.DataFrame, period: int = 14) -> pd.Series:
+    """Wilder's ADX (trend strength, 0-100, direction-blind). `df` needs high/low/close."""
     up = df["high"].diff()
     down = -df["low"].diff()
     plus_dm = up.where((up > down) & (up > 0), 0.0)
@@ -177,27 +177,18 @@ def compute_di(df: pd.DataFrame, period: int = 14) -> tuple[pd.Series, pd.Series
     atr = _true_range(df).ewm(alpha=alpha, min_periods=period, adjust=False).mean()
     plus_di = 100 * plus_dm.ewm(alpha=alpha, min_periods=period, adjust=False).mean() / atr
     minus_di = 100 * minus_dm.ewm(alpha=alpha, min_periods=period, adjust=False).mean() / atr
-    return plus_di, minus_di
-
-
-def compute_adx(df: pd.DataFrame, period: int = 14) -> pd.Series:
-    """Wilder's ADX (trend strength, 0-100, direction-blind -- see compute_di() for direction). `df` needs high/low/close."""
-    alpha = 1 / period
-    plus_di, minus_di = compute_di(df, period)
     dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di)
     return dx.ewm(alpha=alpha, min_periods=period, adjust=False).mean()
 
 
-def gold_trend_direction_from_candles(candles: pd.DataFrame, period: int = 14) -> int | None:
-    """+1 if +DI > -DI on the latest candle (trend/pressure up), -1 if -DI > +DI, None if tied or not computable."""
+def gold_adx_rising_from_candles(candles: pd.DataFrame, period: int = 14) -> bool | None:
+    """True if ADX on the latest candle is above the previous candle's (the trend is gathering strength), False if
+    equal or lower (fading), None if not computable. The latest candle may still be forming."""
     try:
-        plus_di, minus_di = compute_di(candles, period)
-        diff = float(plus_di.iloc[-1] - minus_di.iloc[-1])
+        adx = compute_adx(candles, period=period).dropna()
+        return bool(adx.iloc[-1] > adx.iloc[-2])
     except Exception:
         return None
-    if diff != diff or diff == 0:  # NaN or tie
-        return None
-    return 1 if diff > 0 else -1
 
 
 def fetch_gold_rsi_adx_atr(
