@@ -31,7 +31,7 @@ Actions mechanism each scheduled job uses.
 | Common session window (frequency test gold-swing filter) | 9:30 AM–2:55 PM ET | Weekdays | `config.COMMON_SESSION_START_ET` / `COMMON_SESSION_END_ET` |
 | Stop-loss analysis — automatic | 6:15 AM ET (applies its advice automatically; also on demand via `start SLA`) | Weekdays | `.github/workflows/stop_loss_analysis.yml`, cron-job.org |
 | Block rules analysis — automatic | 6:30 AM ET (writes a new `block_rules` row; also on demand via `start BRA`) | Weekdays | `.github/workflows/block_rules_analysis.yml`, cron-job.org |
-| XAU/USD technical analysis forecast (`ta_forecast_job.py`) | 6:45 AM and 11:45 AM ET (two runs/day; also on-demand via `run TA` Telegram command) | Weekdays | `.github/workflows/ta_forecast.yml`, cron-job.org (two entries) |
+| XAU/USD technical analysis forecast (`ta_forecast_job.py`) | 6:55 AM, 9:55 AM and 1:55 PM ET (three runs/day; also on-demand via `run TA` Telegram command) | Weekdays | `.github/workflows/ta_forecast.yml`, cron-job.org (three entries) |
 | ADP release watch (`release_watch_job.py`) | Triggered 8:14 AM ET, burst-polls every 15s for up to 6 min | Weekdays | `.github/workflows/release_watch_adp.yml` |
 | NFP release watch (`release_watch_job.py`) | Triggered 8:29 AM ET, burst-polls every 15s for up to 6 min | Weekdays | `.github/workflows/release_watch_nfp.yml` |
 | Real-world ADP release time | ~8:15 AM ET | Monthly, weekday | `docs/market.md` |
