@@ -69,6 +69,9 @@ the round-trip back down, all inside the 9-11pm ET window, the market's thinnest
    calibrated 15-minute swing threshold (`config.INTRAHOUR_SWING_ALERT_THRESHOLD["dxy"][15]`, from
    `intrahour_swing_thresholds.json` -- reusing the project's existing calibration rather than a new
    arbitrary number) over the trailing 15 minutes; a Sell is skipped if DXY has *fallen* by that much.
+   Since 6 Oct 2026 this must hold on `DXY_CONFIRM_POLLS` (3) polls IN A ROW (the trailing-15-min move is
+   taken at each of the last three 5-minute polls) -- one or two polls over the line, or a move that has
+   already faded, no longer blocks; too little DXY history fails open.
    Gold and DXY move inversely, so this blocks a fade into a real, live macro headwind/tailwind --
    exactly what let the incident's short get run over (DXY was already easing before that Sell fired).
 3. **RSI exhaustion, breakout rules only** (`_rsi_confirms()`): `TA-Breakout-buy` is skipped if gold's
@@ -125,7 +128,7 @@ notice, not one every 5-minute poll; a *different* reasons string (DXY blocks it
 still gets its own notice, since that's genuinely new information.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from broker import (
@@ -174,6 +177,8 @@ DISPLAY_TZ = ZoneInfo("America/New_York")
 # docstring's "DXY confirmation" entry. Matches the fastest calibrated companion-swing window
 # (INTRAHOUR_SWING_WINDOWS_MINUTES' shortest longer tier) rather than a made-up number.
 DXY_CONFIRM_WINDOW_MINUTES = 15
+DXY_CONFIRM_POLLS = 3  # the DXY gate only blocks after this many polls IN A ROW each showed a clear adverse 15-min move
+DXY_READINGS_MINUTES = DXY_CONFIRM_WINDOW_MINUTES + 5 * (DXY_CONFIRM_POLLS - 1) + 5  # history fetched per poll (5-min polls + slack)
 
 # How many minutes of 1-min candles the entry scan pulls each poll -- same value/reasoning as
 # broker.py's EXIT_CANDLE_LOOKBACK_MINUTES: comfortably more than one 5-min poll interval, so a
@@ -275,45 +280,80 @@ def _scan_zone_entry(
     return None
 
 
-def _dxy_confirms(
-    trade_type: str, readings: list, rules: dict | None = None
+def _trailing_readings(readings: list | None, minutes: int) -> list | None:
+    """The (ts, price) readings within `minutes` of the newest one (entry_context wants the plain 15-min window)."""
+    if not readings:
+        return readings
+    cutoff = readings[-1][0] - timedelta(minutes=minutes + 1)
+    return [r for r in readings if r[0] >= cutoff]
+
+
+def _dxy_changes(readings: list, polls: int = DXY_CONFIRM_POLLS) -> list[float] | None:
+    """DXY's trailing-15-min net move as of each of the last `polls` readings, oldest first, or None if there is not
+    enough history to evaluate all of them. `readings` is (ts, price) rows, oldest first, covering at least
+    DXY_READINGS_MINUTES; each move is that reading minus the first reading within the 15 minutes (plus a minute of
+    jitter slack) up to it -- the same measure the gate always used, taken once per poll."""
+    if not readings or len(readings) < polls + 1:
+        return None
+    changes = []
+    for k in range(polls, 0, -1):
+        end_ts = readings[-k][0]
+        window = [p for t, p in readings if end_ts - timedelta(minutes=DXY_CONFIRM_WINDOW_MINUTES + 1) <= t <= end_ts]
+        if len(window) < 2:
+            return None
+        changes.append(window[-1] - window[0])
+    return changes
+
+
+def _dxy_confirms_changes(
+    trade_type: str, changes: list[float] | None, rules: dict | None = None
 ) -> tuple[bool, str | None, str | None]:
-    """(ok, category, detail) -- ok unless DXY has just made a real move against this trade, see
-    module docstring's "DXY confirmation" entry; both set only when ok is False. `category` is a
-    fixed string with no live numbers in it, safe to use as the blocked-entry dedup key (see
-    _notify_blocked() -- a reason string that changes every poll, e.g. by embedding the live DXY
-    delta, would defeat that dedup and re-send every poll); `detail` carries the actual numbers, for
-    the Telegram text only. `readings` is the caller's single shared get_recent_readings("dxy",
-    DXY_CONFIRM_WINDOW_MINUTES) fetch (a poll may check several touches; fetching once and passing it
-    in avoids repeating that DB read per touch). Fails open (ok=True) on missing/insufficient data,
-    the same fail-open convention as the other filters. `rules` is the active block_rules dict (block_rules.py);
-    None means the config.py defaults."""
-    if not readings or len(readings) < 2:
+    """The DXY gate on already-computed per-poll moves (see _dxy_changes()); shared by the live gate and the BRA replay.
+    Blocks only if DXY moved clearly against the trade -- at least the dxy_threshold rule, in the unfavourable
+    direction -- on EVERY one of the last DXY_CONFIRM_POLLS polls in a row (3 since 6 Oct 2026; a single or two-poll
+    blip, or a move that has already faded, no longer blocks). Fails open on missing/insufficient data."""
+    if not changes or len(changes) < DXY_CONFIRM_POLLS:
         return True, None, None
     try:
         threshold = (rules or default_rules())["dxy_threshold"]
     except Exception:
         return True, None, None
-    change = readings[-1][1] - readings[0][1]
+    last = changes[-DXY_CONFIRM_POLLS:]
+    series = ", ".join(f"{c:+.4f}" for c in last)
     # Gold and DXY move inversely: a Buy wants DXY not rising (no fresh headwind), a Sell wants DXY
     # not falling (no fresh tailwind).
     if trade_type == "Buy":
-        if change >= threshold:
+        if all(c >= threshold for c in last):
             return (
                 False,
-                "DXY rose against the Buy (fresh headwind)",
-                f"DXY rose {change:+.4f} in {DXY_CONFIRM_WINDOW_MINUTES} min "
-                f"(fresh headwind, threshold {threshold:.4f})",
+                f"DXY rose against the Buy (fresh headwind, {DXY_CONFIRM_POLLS} polls in a row)",
+                f"DXY rose against the Buy {DXY_CONFIRM_POLLS} polls in a row: {series} in {DXY_CONFIRM_WINDOW_MINUTES} min "
+                f"each (fresh headwind, threshold {threshold:.4f})",
             )
         return True, None, None
-    if change <= -threshold:
+    if all(c <= -threshold for c in last):
         return (
             False,
-            "DXY fell against the Sell (fresh tailwind)",
-            f"DXY fell {change:+.4f} in {DXY_CONFIRM_WINDOW_MINUTES} min "
-            f"(fresh tailwind, threshold {threshold:.4f})",
+            f"DXY fell against the Sell (fresh tailwind, {DXY_CONFIRM_POLLS} polls in a row)",
+            f"DXY fell against the Sell {DXY_CONFIRM_POLLS} polls in a row: {series} in {DXY_CONFIRM_WINDOW_MINUTES} min "
+            f"each (fresh tailwind, threshold {threshold:.4f})",
         )
     return True, None, None
+
+
+def _dxy_confirms(
+    trade_type: str, readings: list, rules: dict | None = None
+) -> tuple[bool, str | None, str | None]:
+    """(ok, category, detail) -- ok unless DXY has made a real, sustained move against this trade, see module
+    docstring's "DXY confirmation" entry; both set only when ok is False. `category` is a fixed string with no live
+    numbers in it, safe to use as the blocked-entry dedup key (see _notify_blocked() -- a reason string that changes
+    every poll, e.g. by embedding the live DXY delta, would defeat that dedup and re-send every poll); `detail`
+    carries the actual numbers, for the Telegram text only. `readings` is the caller's single shared
+    get_recent_readings("dxy", DXY_READINGS_MINUTES) fetch (a poll may check several touches; fetching once and
+    passing it in avoids repeating that DB read per touch). Fails open (ok=True) on missing/insufficient data,
+    the same fail-open convention as the other filters. `rules` is the active block_rules dict (block_rules.py);
+    None means the config.py defaults."""
+    return _dxy_confirms_changes(trade_type, _dxy_changes(readings), rules)
 
 
 def _adx_confirms(
@@ -706,7 +746,7 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
     # DXY readings and gold's RSI are each fetched at most once per poll, however many touches there
     # are to check, rather than once per touch.
     try:
-        dxy_readings = get_recent_readings("dxy", DXY_CONFIRM_WINDOW_MINUTES)
+        dxy_readings = get_recent_readings("dxy", DXY_READINGS_MINUTES)
     except Exception:
         dxy_readings = None
     # One candle fetch supplies both RSI (breakout rules) and ADX (all four rules).
@@ -769,7 +809,7 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
     context = build_entry_context(
         now,
         rsi_value=rsi_value,
-        dxy_readings=dxy_readings,
+        dxy_readings=_trailing_readings(dxy_readings, DXY_CONFIRM_WINDOW_MINUTES),
         forecast=forecast,
         extra={
             "scenario": scenario_name,

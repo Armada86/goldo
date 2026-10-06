@@ -47,7 +47,7 @@ DXY / ADX / RSI / ATR values below are the defaults from `config.py`; the live v
 `block_rules` table, which `start BRA` updates (see `docs/block-rules-analysis.md`).
 
 1. **Trading hours** — 7am–5pm ET, weekdays.
-2. **DXY** — skip a Buy if DXY rose, or a Sell if DXY fell, by its own 15-min threshold (a fresh headwind).
+2. **DXY** — skip a Buy if DXY rose, or a Sell if DXY fell, by its own 15-min threshold (a fresh headwind), on **three polls in a row** (since 6 Oct 2026; a one- or two-poll blip does not block).
 3. **ADX** — fades are blocked when ADX ≥ 25 and still rising (a strong but fading ADX lets them through); breakouts are blocked when ADX < 20 (no trend).
 4. **RSI exhaustion** — breakouts blocked when RSI is already past 70/30; fades blocked at RSI ≥ 68 (sell) / ≤ 32 (buy).
    Waived when ADX ≥ 25.

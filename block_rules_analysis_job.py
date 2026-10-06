@@ -18,7 +18,7 @@ import block_rules_analysis as bra
 import broker
 import stop_loss_analysis_job as sla_job
 from block_rules import get_block_rules
-from broker_b import ZONE_SCENARIOS
+from broker_b import DXY_READINGS_MINUTES, ZONE_SCENARIOS, _dxy_changes
 from data_fetcher import GOLD_SPOT_SYMBOL, compute_adx, compute_atr, compute_rsi, fetch_candles
 from notifier import send_telegram_message
 from storage import (
@@ -68,6 +68,11 @@ def dxy_change_at(readings: list, ts) -> float | None:
     return window[-1] - window[0] if len(window) >= 2 else None
 
 
+def dxy_changes_at(readings: list, ts) -> list | None:
+    """DXY's trailing-15-min move at each of the last 3 polls up to ts (what the live 3-in-a-row gate sees), or None."""
+    return _dxy_changes([r for r in readings if r[0] <= ts])
+
+
 def dedupe_blocked(touches: list[dict]) -> list[dict]:
     """One touch per (level, close-together run of notices): the same touch is stored once per distinct reason."""
     kept, last_seen = [], {}
@@ -102,7 +107,7 @@ def build_events(trades: list[dict], blocked: list[dict], first_ts, now) -> tupl
     forex = sla_job.fetch_forex_bars()
     td = sla_job.fetch_twelve_data_bars(raw[0]["open_ts"] - timedelta(minutes=5), now)
     frame = indicator_frame()
-    dxy = get_readings_since("dxy", raw[0]["open_ts"] - timedelta(minutes=DXY_WINDOW_MINUTES + 5))
+    dxy = get_readings_since("dxy", raw[0]["open_ts"] - timedelta(minutes=DXY_READINGS_MINUTES + 5))
 
     events, n_skipped = [], 0
     for r in raw:
@@ -115,7 +120,7 @@ def build_events(trades: list[dict], blocked: list[dict], first_ts, now) -> tupl
         rsi, adx, atr = indicators_at(frame, r["open_ts"])
         scenario = RULE_TO_SCENARIO[r["rule_name"]][0]
         events.append(bra.Event(r["label"], scenario, r["trade_type"], r["was_trade"], rsi, adx, atr,
-                                dxy_change_at(dxy, r["open_ts"]), path, adx_rising_at(frame, r["open_ts"])))
+                                dxy_change_at(dxy, r["open_ts"]), path, dxy_changes_at(dxy, r["open_ts"]), adx_rising_at(frame, r["open_ts"])))
     return events, n_skipped
 
 
