@@ -29,7 +29,8 @@ force when each forecast run was made.
 1. **Events:** every Broker B touch we know of in the last 45 days: the closed trades, plus the touches blocked by
    DXY / ADX / RSI / ATR (`broker_b_blocked`; timing blocks and too-old touches are left out because no value here would
    change them).
-2. **Conditions:** for each event, RSI/ADX/ATR(14) on 15-min candles at that moment and DXY's 15-min move.
+2. **Conditions:** for each event, RSI/ADX/ATR(14) on 15-min candles at that moment, whether ADX was rising (above the previous
+   candle's, `Event.adx_rising`, used by the fade gate) and DXY's 15-min move.
 3. **Replay:** each event is replayed from its entry (a blocked touch from the level price at the recorded touch time)
    with the live exit rule and the stop / trailing settings currently in force, using the same price data and replay as
    `start SLA`.
@@ -44,6 +45,14 @@ force when each forecast run was made.
    (Added after the first run switched both ADX blocks off from 40 events; the ADX values were restored by hand, table row 3.)
 6. **Result:** a new `block_rules` row is written (changed or not) and the report goes to Telegram. Under 12 events
    nothing changes.
+
+## Gate changes
+
+- **6 Oct 2026, RSI never waived:** `broker_b._rsi_confirms()` no longer skips its block at ADX >= `adx_trending`.
+- **6 Oct 2026, ADX fade block only while rising:** `_adx_confirms()` blocks a fade at ADX >= `adx_trending` only if ADX is above the
+  previous 15-min candle's; a strong but fading ADX lets it through. A +DI/-DI direction version was tried and dropped the same day
+  (a fade enters after price ran into the level, so it nearly always read as against the trend). `block_rules` rows 1-5 were scored
+  before this, so the next run will read the `adx_trending` cutoff differently.
 
 ## Limits
 
