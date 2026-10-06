@@ -151,8 +151,7 @@ def broker_b_entry_rules_html(as_of=None) -> str:
         (
             "RSI(14)",
             f"Breakout buy blocked at &ge; {v('rsi_overbought')}, breakout sell at &le; {v('rsi_oversold')}; "
-            f"fade sell blocked at &ge; {v('fade_rsi_overbought')}, fade buy at &le; {v('fade_rsi_oversold')}. "
-            f"Waived at ADX &ge; {v('adx_trending')}.",
+            f"fade sell blocked at &ge; {v('fade_rsi_overbought')}, fade buy at &le; {v('fade_rsi_oversold')}.",
         ),
         ("ATR(14)", f"All rules blocked when 15-min ATR &ge; ${v('atr_max')}."),
         ("Exits", exit_text),

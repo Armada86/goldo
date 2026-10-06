@@ -31,9 +31,8 @@ a trade at all.
 (`data_fetcher.fetch_gold_rsi_adx()`, one candle fetch for both), thresholds in `config.py`
 (`ADX_TRENDING_THRESHOLD` 25, `ADX_CHOP_THRESHOLD` 20; textbook values, to be calibrated from the `adx14`
 logged in `entry_context`). Broker A: `_adx_confirms()` blocks a Consensus5of7 entry when ADX < 20 (no trend
-for a momentum consensus to ride), and `_rsi_confirms()` waives its RSI block when ADX >= 25 (in a strong
-trend an extreme RSI is continuation, not exhaustion). Unknown ADX fails open for the ADX gate and keeps
-the RSI block on. Blocks use the normal deduplicated Telegram notice.
+for a momentum consensus to ride), and `_rsi_confirms()` no longer waives its RSI block at any ADX (waiver removed 6 Oct 2026: Broker B #45
+bought a breakout at RSI 80 / ADX 34 and was closed by hand as overbought). Unknown ADX fails open for the ADX gate. Blocks use the normal deduplicated Telegram notice.
 
 **Two entry filters, added 26 Sep 2026 after analyzing a live loss** (Consensus5of7-sell sold $4,264.94
 at 14:06:57 UTC on 25 Sep, the exact poll gold dropped $12.04 in five minutes and RSI(14) alerted
@@ -65,7 +64,6 @@ from zoneinfo import ZoneInfo
 from config import (
     ADX_CHOP_THRESHOLD,
     ADX_PERIOD,
-    ADX_TRENDING_THRESHOLD,
     INTRAHOUR_SWING_ALERT_THRESHOLD,
     RSI_OVERBOUGHT_THRESHOLD,
     RSI_OVERSOLD_THRESHOLD,
@@ -191,12 +189,10 @@ def _rsi_confirms(
     breakout rules. `category` is a fixed string with no live number (safe as the blocked-entry dedup
     key -- see _notify_blocked()); `detail` carries the actual reading, for the Telegram text only.
     `rsi_value` is the caller's single RSI(14) computation for this poll -- None if it couldn't be
-    computed, which fails this open (ok=True). In a strong trend (ADX >= ADX_TRENDING_THRESHOLD) RSI
-    can stay stretched for a long time and an extreme reading is continuation, not exhaustion, so the
-    block is waived; an unknown ADX keeps the RSI block on."""
+    computed, which fails this open (ok=True). There is no ADX waiver (removed 6 Oct 2026): an
+    overbought RSI blocks a Buy and an oversold RSI blocks a Sell however strong the trend. `adx_value`
+    is accepted but unused."""
     if rsi_value is None:
-        return True, None, None
-    if adx_value is not None and adx_value >= ADX_TRENDING_THRESHOLD:
         return True, None, None
     if trade_type == "Sell":
         if rsi_value <= RSI_OVERSOLD_THRESHOLD:

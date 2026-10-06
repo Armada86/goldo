@@ -300,15 +300,15 @@ trade never requires a repo commit; `poll.yml` doesn't need write access to the 
 with RSI, `data_fetcher.fetch_gold_rsi_adx()`; `config.ADX_TRENDING_THRESHOLD` 25, `ADX_CHOP_THRESHOLD` 20 --
 textbook cutoffs, to be calibrated from the `adx14` in `entry_context`). Broker A: `_adx_confirms()` blocks a
 Consensus5of7 entry when ADX < 20. Broker B: `_adx_confirms()` blocks the fade rules (`TA-Zone-*`) when ADX >= 25
-and the breakout rules (`TA-Breakout-*`) when ADX < 20. Both brokers' `_rsi_confirms()` now waive their RSI
-exhaustion block when ADX >= 25. Each block goes through the existing deduplicated blocked-entry Telegram notice
+and the breakout rules (`TA-Breakout-*`) when ADX < 20. Both brokers' `_rsi_confirms()` used to waive their RSI
+exhaustion block when ADX >= 25; **that waiver was removed 6 Oct 2026** (Broker B #45 bought a breakout at RSI 80 / ADX 34, closed by hand) -- an overbought RSI always blocks a Buy, oversold a Sell. Each block goes through the existing deduplicated blocked-entry Telegram notice
 (Broker A `_notify_blocked()`, Broker B `_notify_blocked()`), with a fixed dedup category and the live ADX only in
 the message text; unknown ADX fails open (RSI block stays on). Blocked touches/signals are consumed as before.
 
 **Volatility + fade-RSI gates (Broker B, added 3 Oct 2026)**: after Friday 2 Oct's end-of-day review (5 trades, 1 win, -$30; ATR(14) was $11-13
 on all five, both fade-sells at RSI >= ~69 lost), `broker_b._atr_confirms()` blocks all four rules when ATR(14) on gold's 15-min candles is >=
 `config.ATR_HIGH_VOLATILITY_THRESHOLD` ($12), and `_rsi_confirms()` now also blocks `TA-Zone-sell` at RSI >= `FADE_RSI_OVERBOUGHT_THRESHOLD` (68) /
-`TA-Zone-buy` at RSI <= `FADE_RSI_OVERSOLD_THRESHOLD` (32) (waived at ADX >= 25, where the ADX gate already blocks fades). One candle fetch now
+`TA-Zone-buy` at RSI <= `FADE_RSI_OVERSOLD_THRESHOLD` (32) (no ADX waiver). One candle fetch now
 supplies RSI/ADX/ATR (`data_fetcher.fetch_gold_rsi_adx_atr()`; Broker A still uses the RSI/ADX wrapper). Every block sends the usual deduplicated ⛔
 Telegram notice naming the level and the live reading. Broker A is unaffected. Cutoffs are hand-picked from 15 trades -- calibrate from
 `entry_context` (`rsi14`, `atr14`) or `start SLA`.

@@ -83,13 +83,12 @@ the round-trip back down, all inside the 9-11pm ET window, the market's thinnest
    candles as RSI (`data_fetcher.fetch_gold_rsi_adx()`; `config.ADX_TRENDING_THRESHOLD` 25 /
    `ADX_CHOP_THRESHOLD` 20). The two fade rules are skipped when ADX >= 25 (fading a level in a real
    trend gets run over); the two breakout rules are skipped when ADX < 20 (no trend to follow through).
-   Also, the RSI exhaustion gate above is waived when ADX >= 25 (extreme RSI in a strong trend is
-   continuation). Blocks send the normal deduplicated Telegram notice.
+   The RSI exhaustion gate above is NOT waived by ADX (waiver removed 6 Oct 2026, after #45). Blocks send the normal deduplicated Telegram notice.
 
 5. **RSI exhaustion on the fades + high-volatility (ATR) gate** (3 Oct 2026, after Friday 2 Oct's review: 4 of 5
    trades stopped out, all with ATR(14) $11-13; both fade-sells taken at RSI >= ~69 lost). `_rsi_confirms()` now
    also blocks `TA-Zone-sell` at RSI >= `FADE_RSI_OVERBOUGHT_THRESHOLD` (68) and `TA-Zone-buy` at RSI <=
-   `FADE_RSI_OVERSOLD_THRESHOLD` (32) (still waived at ADX >= 25, where the ADX gate already blocks fades);
+   `FADE_RSI_OVERSOLD_THRESHOLD` (32) (no ADX waiver);
    `_atr_confirms()` blocks all four rules when 15-min ATR(14) >= `ATR_HIGH_VOLATILITY_THRESHOLD` ($12).
    Cutoffs are hand-picked from a 15-trade sample -- calibrate from `entry_context` (`rsi14`, `atr14`) / `start SLA`.
    Every block sends the normal deduplicated ⛔ Telegram notice.
@@ -353,12 +352,9 @@ def _rsi_confirms(
     tighter FADE_RSI_OVERBOUGHT/OVERSOLD_THRESHOLD (a sell fade into stretched upside momentum, or a buy
     fade into stretched downside, kept losing). `rsi_value` is the caller's single shared RSI(14)
     computation (see check_broker_b_trades) -- None if it couldn't be computed this poll, which fails
-    this open (ok=True). The block is waived in a strong trend (ADX >= the adx_trending rule), where
-    an extreme RSI is continuation rather than exhaustion; an unknown ADX keeps it on. `rules`: see
+    this open (ok=True). There is no ADX waiver (removed 6 Oct 2026); `adx_value` is accepted but unused. `rules`: see
     _dxy_confirms()."""
     rules = rules or default_rules()
-    if adx_value is not None and adx_value >= rules["adx_trending"]:
-        return True, None, None
     if scenario_name == "bull_breakout":
         threshold, over = rules["rsi_overbought"], True
     elif scenario_name == "bear_breakdown":
