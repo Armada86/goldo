@@ -312,6 +312,11 @@ on all five, both fade-sells at RSI >= ~69 lost), `broker_b._atr_confirms()` blo
 supplies RSI/ADX/ATR (`data_fetcher.fetch_gold_rsi_adx_atr()`; Broker A still uses the RSI/ADX wrapper). Every block sends the usual deduplicated ⛔
 Telegram notice naming the level and the live reading. Broker A is unaffected. Cutoffs are hand-picked from 15 trades -- calibrate from
 `entry_context` (`rsi14`, `atr14`) or `start SLA`.
+**Spike gate (6 Oct 2026, replay-only, Broker B)**: `broker_b._spike_confirms()` (`config.SPIKE_RANGE_ATR_MULTIPLE`, 1.75) would block an entry when the last 15 one-minute
+bars' entry-side range (`entry_context.range_15m_bid/ask`) is >= that multiple of ATR(14) -- ATR lags a sudden spike (B #48: range 12.5 vs ATR 6.08). It is **not called by
+`check_broker_b_trades()`**, so it blocks nothing live; `python spike_gate_replay.py` replays it over every closed Broker A/B trade with a logged range and ATR and prints what each
+multiple would have blocked. First replay (23 trades): 1.75x blocks 8 (-$11.06, 3 of them winning fades), 2.0x blocks 5 (-$31.14, 1 win) -- a sharp cliff, so the cutoff is
+unreliable; fades want a spike (mean reversion), so a breakout-only gate (blocks B #48 and #37, no winners) is the likelier version. Wire it in only after more history.
 
 **Block rules analysis (BRA, 4 Oct 2026, Broker B)**: the DXY / ADX / RSI / ATR entry-filter values now live in a Postgres `block_rules` table
 (`block_rules.py`; append-only, newest row = active; `init_db()` creates it and seeds the first row, `source = 'seed'`, from `config.py`), and

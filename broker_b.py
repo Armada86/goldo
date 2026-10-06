@@ -145,6 +145,7 @@ from config import (
     ADX_PERIOD,
     ATR_PERIOD,
     RSI_PERIOD,
+    SPIKE_RANGE_ATR_MULTIPLE,
 )
 from block_rules import default_rules, get_block_rules
 from data_fetcher import (
@@ -483,6 +484,25 @@ def _atr_confirms(atr_value: float | None, rules: dict | None = None) -> tuple[b
         f"volatility too high for the stop (ATR({ATR_PERIOD}) threshold >= ${atr_max:g})",
         f"volatility too high for the stop: ATR({ATR_PERIOD}) ${atr_value:.2f} "
         f"(>= ${atr_max:g})",
+    )
+
+
+def _spike_confirms(
+    range_15m: float | None, atr_value: float | None, multiple: float = SPIKE_RANGE_ATR_MULTIPLE
+) -> tuple[bool, str | None, str | None]:
+    """(ok, category, detail) -- REPLAY-ONLY (6 Oct 2026): not called by check_broker_b_trades(), so it blocks nothing
+    live; spike_gate_replay.py uses it to show what it would have blocked. Blocks when the last 15 one-minute bars'
+    high-low range on the entry side (entry_context's range_15m_bid/ask) is at least `multiple` x ATR(14) of the 15-min
+    candles: ATR lags a sudden spike, so a market that just moved far more than usual reads as normal on ATR alone
+    (B #48: range 12.5 vs ATR 6.08). Fails open (ok=True) on missing data. `category` has no live number (dedup key)."""
+    if range_15m is None or atr_value is None or atr_value <= 0:
+        return True, None, None
+    if range_15m < multiple * atr_value:
+        return True, None, None
+    return (
+        False,
+        "recent spike (15-min range far above ATR)",
+        f"recent spike: 15-min range ${range_15m:.2f} is {range_15m / atr_value:.2f}x ATR(14) ${atr_value:.2f} (>= {multiple:g}x)",
     )
 
 
