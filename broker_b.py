@@ -81,8 +81,8 @@ the round-trip back down, all inside the 9-11pm ET window, the market's thinnest
 
 4. **ADX regime switch, all four rules** (`_adx_confirms()`, 1 Oct 2026): ADX(14) on the same 15-min
    candles as RSI (`data_fetcher.fetch_gold_rsi_adx()`; `config.ADX_TRENDING_THRESHOLD` 25 /
-   `ADX_CHOP_THRESHOLD` 20). The two fade rules are skipped when ADX >= 25 (fading a level in a real
-   trend gets run over); the two breakout rules are skipped when ADX < 20 (no trend to follow through).
+   `ADX_CHOP_THRESHOLD` 20). The two fade rules are skipped when ADX >= 25 *and the trend is against the fade* (6 Oct 2026: a Sell fade only in an
+   up-trend, a Buy fade only in a down-trend, by +DI vs -DI; fading with the trend is allowed); the two breakout rules are skipped when ADX < 20 (no trend to follow through).
    The RSI exhaustion gate above is NOT waived by ADX (waiver removed 6 Oct 2026, after #45). Blocks send the normal deduplicated Telegram notice.
 
 5. **RSI exhaustion on the fades + high-volatility (ATR) gate** (3 Oct 2026, after Friday 2 Oct's review: 4 of 5
@@ -144,7 +144,11 @@ from config import (
     RSI_PERIOD,
 )
 from block_rules import default_rules, get_block_rules
-from data_fetcher import fetch_gold_rsi_adx_atr
+from data_fetcher import (
+    fetch_gold_candles,
+    gold_rsi_adx_atr_from_candles,
+    gold_trend_direction_from_candles,
+)
 from entry_context import build_entry_context, level_distances
 from price_bars import fetch_gold_bars
 from notifier import send_telegram_message
@@ -313,12 +317,16 @@ def _dxy_confirms(
 
 
 def _adx_confirms(
-    scenario_name: str, adx_value: float | None, rules: dict | None = None
+    scenario_name: str, adx_value: float | None, rules: dict | None = None, trend_dir: int | None = None
 ) -> tuple[bool, str | None, str | None]:
     """(ok, category, detail) -- ADX(14) as a regime switch: the two fade rules bet on a level holding,
     so they're blocked in a real trend (ADX >= ADX_TRENDING_THRESHOLD); the two breakout rules bet on
     a level breaking with follow-through, so they're blocked when there's no trend (ADX <
-    ADX_CHOP_THRESHOLD). `category` has no live number (dedup key, see _dxy_confirms()); `detail`
+    ADX_CHOP_THRESHOLD). The fade block is directional (6 Oct 2026): ADX itself has no direction, so
+    `trend_dir` (+1 = +DI above -DI, -1 = the reverse; data_fetcher.gold_trend_direction_from_candles())
+    decides -- a Sell fade is blocked only by an up-trend, a Buy fade only by a down-trend, so fading
+    *with* the trend is allowed. An unknown direction (None) keeps the old direction-blind block.
+    `category` has no live number (dedup key, see _dxy_confirms()); `detail`
     carries the reading for the Telegram text only. None (couldn't compute) fails open. `rules`: see _dxy_confirms()."""
     if adx_value is None:
         return True, None, None
@@ -334,6 +342,17 @@ def _adx_confirms(
         )
     if adx_value < adx_trending:
         return True, None, None
+    if trend_dir is not None:
+        is_sell = scenario_name == "sell_resistance"
+        if (is_sell and trend_dir < 0) or (not is_sell and trend_dir > 0):
+            return True, None, None  # fading with the trend, not against it
+        word = "up-trend" if trend_dir > 0 else "down-trend"
+        side = "sell" if is_sell else "buy"
+        return (
+            False,
+            f"ADX({ADX_PERIOD}) shows a strong {word} against a {side} fade (threshold >= {adx_trending:g})",
+            f"ADX({ADX_PERIOD}) shows a strong {word} against a {side} fade: {adx_value:.1f} (>= {adx_trending:g})",
+        )
     return (
         False,
         f"ADX({ADX_PERIOD}) shows a strong trend against a fade (threshold >= {adx_trending:g})",
@@ -699,7 +718,15 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
     except Exception:
         dxy_readings = None
     # One candle fetch supplies both RSI (breakout rules) and ADX (all four rules).
-    rsi_value, adx_value, atr_value = fetch_gold_rsi_adx_atr(RSI_PERIOD, ADX_PERIOD, ATR_PERIOD)
+    # (one candle fetch also gives the trend direction, +DI vs -DI, for the fade gate)
+    try:
+        gold_candles = fetch_gold_candles()
+        rsi_value, adx_value, atr_value = gold_rsi_adx_atr_from_candles(
+            gold_candles, RSI_PERIOD, ADX_PERIOD, ATR_PERIOD
+        )
+        adx_dir = gold_trend_direction_from_candles(gold_candles, ADX_PERIOD)
+    except Exception:
+        rsi_value = adx_value = atr_value = adx_dir = None
     # The active block rules (block_rules table, newest row; config.py values for anything it can't supply).
     rules = get_block_rules()
 
@@ -731,7 +758,7 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
             continue
         dxy_ok, dxy_category, dxy_detail = _dxy_confirms(trade_type, dxy_readings, rules)
         rsi_ok, rsi_category, rsi_detail = _rsi_confirms(scenario_name, rsi_value, adx_value, rules)
-        adx_ok, adx_category, adx_detail = _adx_confirms(scenario_name, adx_value, rules)
+        adx_ok, adx_category, adx_detail = _adx_confirms(scenario_name, adx_value, rules, adx_dir)
         atr_ok, atr_category, atr_detail = _atr_confirms(atr_value, rules)
         if dxy_ok and rsi_ok and adx_ok and atr_ok:
             selected = (trigger_ts, trigger_price, trade_type, rule_name, scenario_name)
