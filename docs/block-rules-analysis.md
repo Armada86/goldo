@@ -54,8 +54,14 @@ force when each forecast run was made.
   (a fade enters after price ran into the level, so it nearly always read as against the trend). `block_rules` rows 1-5 were scored
   before this, so the next run will read the `adx_trending` cutoff differently.
 
+- **6 Oct 2026, breakout ADX floor:** BRA had lowered `adx_chop` from 20 to 18 (row 4) and B #48 bought a breakout at ADX 18.54 and lost the full
+  stop. `config.ADX_CHOP_FLOOR` (20) now bounds it: `get_block_rules()` never returns a lower live value, and BRA's grid for `adx_chop` is 20 / 22 / 25
+  (it can raise the cutoff, not lower it or switch it off). The next BRA run writes a row with 20. The dashboard still shows past runs' stored values.
 - **6 Oct 2026, DXY gate needs 3 polls in a row:** `_dxy_confirms()` blocks only if DXY's trailing-15-min move cleared `dxy_threshold`
   in the adverse direction on each of the last three polls; fewer polls of history fails open. Earlier BRA rows judged DXY on a single poll.
+
+- **6 Oct 2026, re-arm needs a real win (not a BRA rule):** `broker_b.REARM_MIN_WIN_PNL` ($5) -- a level re-arms only after a close of at least +$5; BRA's replay does
+  not model level re-arming at all.
 
 ## Limits
 

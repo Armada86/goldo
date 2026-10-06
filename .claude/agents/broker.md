@@ -26,8 +26,8 @@ often, and prose copies drift. Read the code first, and cite function/constant n
   (`_find_exit`, `_scan_exit_crossing`, `stop_loss_threshold`, `trailing_stop_params`,
   `TRAILING_STOP_ACTIVATION`/`TRAILING_STOP_DISTANCE`), P/L (`_pnl`).
 - `broker_b.py` — level entries (`_scan_zone_entry`, `ZONE_SCENARIOS`, `MAX_TRADES_PER_LEVEL`,
-  `ENTRY_MAX_TOUCH_AGE_MINUTES`, `ENTRY_WINDOW_*_ET`), filters (`_dxy_confirms`, `_rsi_confirms`,
-  `_adx_confirms`), blocked-entry notices. Exits are `broker._find_exit()` imported, shared with A.
+  `ENTRY_MAX_TOUCH_AGE_MINUTES`, `ENTRY_WINDOW_*_ET`, `REARM_MIN_WIN_PNL`, `_carried_level_history`), filters (`_dxy_confirms`, `_rsi_confirms`,
+  `_adx_confirms`, `_atr_confirms`; `_spike_confirms` is replay-only, see `spike_gate_replay.py`), blocked-entry notices. Exits are `broker._find_exit()` imported, shared with A.
 - `config.py` / `intrahour_swing_thresholds.json` — thresholds. `trading_control.py` — pauses/overrides.
 - `CLAUDE.md` — narrative history of why each rule/filter exists (live incidents with dates).
 - `price_bars.py` — candle source (FOREX.com bid/ask 1-min bars, Twelve Data fallback).

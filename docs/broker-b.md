@@ -30,7 +30,7 @@ flowchart TD
     Stop -->|no| Hold["Keep holding"]
 
     Open -->|no| Forecast["Latest TA forecast:\nfour levels"]
-    Forecast --> Touch{"A 1-min candle touched a level?\n(fresh approach, max 2 trades per level,\nre-arm only after a win)"}
+    Forecast --> Touch{"A 1-min candle touched a level?\n(fresh approach, max 2 trades per level,\nre-arm only after a win of $5+)"}
     Touch -->|no| Nothing["Nothing to do"]
     Touch -->|yes| Age{"Touch no older than 7 min?"}
     Age -->|no| Blocked
@@ -48,10 +48,16 @@ DXY / ADX / RSI / ATR values below are the defaults from `config.py`; the live v
 
 1. **Trading hours** — 7am–5pm ET, weekdays.
 2. **DXY** — skip a Buy if DXY rose, or a Sell if DXY fell, by its own 15-min threshold (a fresh headwind), on **three polls in a row** (since 6 Oct 2026; a one- or two-poll blip does not block).
-3. **ADX** — fades are blocked when ADX ≥ 25 and still rising (a strong but fading ADX lets them through); breakouts are blocked when ADX < 20 (no trend).
-4. **RSI exhaustion** — breakouts blocked when RSI is already past 70/30; fades blocked at RSI ≥ 68 (sell) / ≤ 32 (buy).
-   Waived when ADX ≥ 25.
+3. **ADX** — fades are blocked when ADX ≥ 25 and still rising (a strong but fading ADX lets them through); breakouts are blocked when ADX < 20 (no trend). The breakout cutoff has a **floor of 20**: `start BRA` may raise it (22, 25) but never lower it, and `get_block_rules()` clamps the live value to 20 (6 Oct 2026, after B #48 opened at ADX 18.54 with BRA's cutoff at 18).
+4. **RSI exhaustion** — breakouts blocked when RSI is already past 70/30; fades blocked at RSI ≥ 68 (sell) / ≤ 32 (buy). Never waived (the old "waived when ADX ≥ 25" exception was removed 6 Oct 2026).
 5. **Volatility** — every rule is blocked when 15-min ATR(14) ≥ $12 (the $10 stop would be inside normal noise).
+
+## Re-arming a level
+
+A level trades at most **2 times** per forecast. It re-arms only after a **real win**: a closed trade of at least **+$5**
+(`broker_b.REARM_MIN_WIN_PNL`, since 6 Oct 2026). Any smaller close, a loss, breakeven or a trail that locked a sliver,
+retires the level like a stop-out until a TA run changes it. (B #46 trailed out at +$1.13 and re-armed #47, which lost the full $15.)
+A later TA run of the same ET day that keeps a level's trigger price unchanged inherits its earlier trades and retirement.
 
 ## Exit
 
@@ -70,6 +76,10 @@ in the trade's favour is ignored).
 
 
 ## Good to know
+
+- **Spike gate (replay only):** `broker_b._spike_confirms()` would block an entry when the last 15 minutes' one-minute range is at least
+  1.75 x ATR(14) (ATR lags a sudden spike; B #48: range 12.5 vs ATR 6.08). It is **not wired into live trading**.
+  `python spike_gate_replay.py` shows what it would have blocked; the first replay was inconclusive (it also blocks winning fades).
 
 - **Blocked-touch notices repeat on a fresh touch** of the same level, at most one per 30 minutes per level and reason (a level that stays past its trigger doesn't spam every poll).
 - **One position at a time**, across all four rules. If another level is touched while a trade is open, a ⛔ Telegram notice says so at the next poll (the touch is not filled later).
