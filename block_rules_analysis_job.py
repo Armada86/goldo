@@ -19,7 +19,7 @@ import broker
 import stop_loss_analysis_job as sla_job
 from block_rules import get_block_rules
 from broker_b import ZONE_SCENARIOS
-from data_fetcher import GOLD_SPOT_SYMBOL, compute_adx, compute_atr, compute_di, compute_rsi, fetch_candles
+from data_fetcher import GOLD_SPOT_SYMBOL, compute_adx, compute_atr, compute_rsi, fetch_candles
 from notifier import send_telegram_message
 from storage import (
     get_broker_b_blocked_touches,
@@ -41,8 +41,7 @@ def indicator_frame() -> pd.DataFrame:
     candles["rsi"] = compute_rsi(candles["close"])
     candles["adx"] = compute_adx(candles)
     candles["atr"] = compute_atr(candles)
-    plus_di, minus_di = compute_di(candles)
-    candles["dir"] = (plus_di - minus_di).apply(lambda d: None if pd.isna(d) or d == 0 else (1 if d > 0 else -1))
+    candles["rising"] = candles["adx"].diff() > 0
     return candles.set_index("datetime")
 
 
@@ -55,12 +54,12 @@ def indicators_at(frame: pd.DataFrame, ts) -> tuple[float | None, float | None, 
     return tuple(None if pd.isna(last[c]) else float(last[c]) for c in ("rsi", "adx", "atr"))
 
 
-def trend_dir_at(frame: pd.DataFrame, ts) -> int | None:
-    """+1 / -1 (+DI above / below -DI) of the latest candle at or before ts, None if unknown."""
+def adx_rising_at(frame: pd.DataFrame, ts) -> bool | None:
+    """True/False: ADX of the latest candle at or before ts is above/not above the previous candle's; None if unknown."""
     row = frame[frame.index <= ts]
-    if row.empty or pd.isna(row.iloc[-1]["dir"]):
+    if len(row) < 2 or pd.isna(row.iloc[-1]["adx"]) or pd.isna(row.iloc[-2]["adx"]):
         return None
-    return int(row.iloc[-1]["dir"])
+    return bool(row.iloc[-1]["rising"])
 
 
 def dxy_change_at(readings: list, ts) -> float | None:
@@ -116,7 +115,7 @@ def build_events(trades: list[dict], blocked: list[dict], first_ts, now) -> tupl
         rsi, adx, atr = indicators_at(frame, r["open_ts"])
         scenario = RULE_TO_SCENARIO[r["rule_name"]][0]
         events.append(bra.Event(r["label"], scenario, r["trade_type"], r["was_trade"], rsi, adx, atr,
-                                dxy_change_at(dxy, r["open_ts"]), path, trend_dir_at(frame, r["open_ts"])))
+                                dxy_change_at(dxy, r["open_ts"]), path, adx_rising_at(frame, r["open_ts"])))
     return events, n_skipped
 
 

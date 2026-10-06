@@ -146,7 +146,7 @@ def broker_b_entry_rules_html(as_of=None) -> str:
         ("DXY", f"Skip a Buy if DXY rose, or a Sell if it fell, by &ge; {v('dxy_threshold')} over the last 15 min."),
         (
             "ADX(14)",
-            f"Fades blocked at ADX &ge; {v('adx_trending')} when the trend is against them; breakouts blocked at ADX &lt; {v('adx_chop')}.",
+            f"Fades blocked at ADX &ge; {v('adx_trending')} while ADX is still rising; breakouts blocked at ADX &lt; {v('adx_chop')}.",
         ),
         (
             "RSI(14)",

@@ -6,7 +6,7 @@ config.py holds the defaults the table was first seeded from, and stays the fall
 can't supply (table missing or empty, database unreachable): broker_b.py behaves exactly as before in that case.
 
     DXY   dxy_threshold          skip a Buy if DXY rose / a Sell if it fell by at least this over 15 min
-    ADX   adx_trending           fades (TA-Zone-*) blocked at ADX >= this when the trend (+DI/-DI) is against the fade
+    ADX   adx_trending           fades (TA-Zone-*) blocked at ADX >= this while ADX is still rising
           adx_chop               breakouts (TA-Breakout-*) blocked at ADX < this
     RSI   rsi_overbought         TA-Breakout-buy blocked at RSI >= this
           rsi_oversold           TA-Breakout-sell blocked at RSI <= this
