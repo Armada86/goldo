@@ -77,6 +77,7 @@ class Event:
     atr: float | None
     dxy_change: float | None  # DXY's net move over the trailing 15 min at the event
     path: sla.TradePath
+    adx_dir: int | None = None  # +1 / -1: +DI above / below -DI at the event (fade gate direction)
 
 
 def passes(ev: Event, rules: dict) -> bool:
@@ -85,7 +86,7 @@ def passes(ev: Event, rules: dict) -> bool:
     return (
         _dxy_confirms(ev.trade_type, dxy_readings, rules)[0]
         and _rsi_confirms(ev.scenario, ev.rsi, ev.adx, rules)[0]
-        and _adx_confirms(ev.scenario, ev.adx, rules)[0]
+        and _adx_confirms(ev.scenario, ev.adx, rules, ev.adx_dir)[0]
         and _atr_confirms(ev.atr, rules)[0]
     )
 
