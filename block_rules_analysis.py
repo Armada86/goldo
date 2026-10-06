@@ -11,7 +11,7 @@ conditions at that moment (RSI/ADX/ATR(14) on 15-min candles, DXY's 15-min move)
 stop_loss_analysis.build_path(), replayed with the SAME exit rule the brokers run live and the stop / trailing
 settings currently in force.
 
-A candidate set of rules is scored by running the REAL gate functions (broker_b._dxy_confirms() / _adx_confirms() /
+A candidate set of rules is scored by running the REAL gate functions (broker_b._dxy_confirms_changes() / _adx_confirms() /
 _rsi_confirms() / _atr_confirms()) on every event: events that pass are taken (one position at a time, like
 Broker B), the rest are blocked. So the analysis can't drift from what the live gates do.
 
@@ -33,7 +33,7 @@ import numpy as np
 
 import stop_loss_analysis as sla
 from block_rules import OFF_VALUES, RULE_KEYS
-from broker_b import _adx_confirms, _atr_confirms, _dxy_confirms, _rsi_confirms
+from broker_b import _adx_confirms, _atr_confirms, _dxy_confirms_changes, _rsi_confirms
 
 BRA_PREFIX = "\U0001F6E1️ "  # shield -- distinct from the other Telegram prefixes
 
@@ -77,14 +77,14 @@ class Event:
     atr: float | None
     dxy_change: float | None  # DXY's net move over the trailing 15 min at the event
     path: sla.TradePath
+    dxy_changes: list | None = None  # that move at each of the last 3 polls up to the event (oldest first), for the 3-in-a-row DXY gate
     adx_rising: bool | None = None  # ADX above the previous 15-min candle's at the event (fade gate)
 
 
 def passes(ev: Event, rules: dict) -> bool:
     """True if the live gates, run with `rules`, would let this event through."""
-    dxy_readings = [(0, 0.0), (1, ev.dxy_change)] if ev.dxy_change is not None else None
     return (
-        _dxy_confirms(ev.trade_type, dxy_readings, rules)[0]
+        _dxy_confirms_changes(ev.trade_type, ev.dxy_changes, rules)[0]
         and _rsi_confirms(ev.scenario, ev.rsi, ev.adx, rules)[0]
         and _adx_confirms(ev.scenario, ev.adx, rules, ev.adx_rising)[0]
         and _atr_confirms(ev.atr, rules)[0]

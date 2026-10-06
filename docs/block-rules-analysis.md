@@ -12,7 +12,7 @@ table can't supply (table missing or empty, database unreachable), so Broker B n
 
 | Column | Meaning | Seeded from `config.py` (4 Oct 2026) |
 |---|---|---|
-| `dxy_threshold` | skip a Buy if DXY rose / a Sell if it fell by at least this over 15 min | 0.0649 |
+| `dxy_threshold` | skip a Buy if DXY rose / a Sell if it fell by at least this over 15 min, on 3 polls in a row | 0.0649 |
 | `adx_trending` | fades blocked at ADX >= this while ADX is still rising (vs the previous 15-min candle) | 25 |
 | `adx_chop` | breakouts blocked at ADX < this | 20 |
 | `rsi_overbought` / `rsi_oversold` | breakout buy blocked at RSI >= / breakout sell at RSI <= | 70 / 30 |
@@ -30,7 +30,7 @@ force when each forecast run was made.
    DXY / ADX / RSI / ATR (`broker_b_blocked`; timing blocks and too-old touches are left out because no value here would
    change them).
 2. **Conditions:** for each event, RSI/ADX/ATR(14) on 15-min candles at that moment, whether ADX was rising (above the previous
-   candle's, `Event.adx_rising`, used by the fade gate) and DXY's 15-min move.
+   candle's, `Event.adx_rising`, used by the fade gate) and DXY's 15-min move at each of the last three polls (`Event.dxy_changes`, for the 3-in-a-row DXY gate).
 3. **Replay:** each event is replayed from its entry (a blocked touch from the level price at the recorded touch time)
    with the live exit rule and the stop / trailing settings currently in force, using the same price data and replay as
    `start SLA`.
@@ -53,6 +53,9 @@ force when each forecast run was made.
   previous 15-min candle's; a strong but fading ADX lets it through. A +DI/-DI direction version was tried and dropped the same day
   (a fade enters after price ran into the level, so it nearly always read as against the trend). `block_rules` rows 1-5 were scored
   before this, so the next run will read the `adx_trending` cutoff differently.
+
+- **6 Oct 2026, DXY gate needs 3 polls in a row:** `_dxy_confirms()` blocks only if DXY's trailing-15-min move cleared `dxy_threshold`
+  in the adverse direction on each of the last three polls; fewer polls of history fails open. Earlier BRA rows judged DXY on a single poll.
 
 ## Limits
 

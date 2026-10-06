@@ -400,7 +400,7 @@ NY cash close) — both incident trades fired at 9pm ET, so this alone would hav
 **DXY confirmation** (`broker_b._dxy_confirms()`) — a Buy is skipped if DXY has risen, a Sell skipped
 if DXY has fallen, by at least its own calibrated 15-min companion-swing threshold
 (`config.INTRAHOUR_SWING_ALERT_THRESHOLD["dxy"][15]`) over the trailing 15 minutes — this is the check
-that would have stopped the incident's short, since DXY was already easing before it fired; (3) **RSI
+that would have stopped the incident's short, since DXY was already easing before it fired. **Since 6 Oct 2026 the move must clear the threshold on three consecutive polls** (`broker_b.DXY_CONFIRM_POLLS`; `_dxy_changes()` takes the trailing-15-min move at each of the last three 5-minute polls, `_dxy_confirms_changes()` blocks only if all three are adverse; one- or two-poll blips and moves that already faded no longer block; too little DXY history fails open; the blocked notice says "3 polls in a row"; `start BRA` replays it via `Event.dxy_changes`; Broker A's DXY check is unchanged); (3) **RSI
 exhaustion, breakout rules only** (`broker_b._rsi_confirms()`) — `TA-Breakout-buy` is skipped if gold's
 RSI(14) (same computation as `rules.check_rsi_alerts()`) is already >= `RSI_OVERBOUGHT_THRESHOLD` (70),
 `TA-Breakout-sell` skipped if already <= `RSI_OVERSOLD_THRESHOLD` (30); the two fade rules aren't RSI-gated.

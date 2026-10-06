@@ -143,7 +143,7 @@ def broker_b_entry_rules_html(as_of=None) -> str:
         return "off" if rules[key] == OFF_VALUES[key] else f"{rules[key]:.4f}".rstrip("0").rstrip(".")
 
     rows = [
-        ("DXY", f"Skip a Buy if DXY rose, or a Sell if it fell, by &ge; {v('dxy_threshold')} over the last 15 min."),
+        ("DXY", f"Skip a Buy if DXY rose, or a Sell if it fell, by &ge; {v('dxy_threshold')} over 15 min, on 3 polls in a row."),
         (
             "ADX(14)",
             f"Fades blocked at ADX &ge; {v('adx_trending')} while ADX is still rising; breakouts blocked at ADX &lt; {v('adx_chop')}.",
