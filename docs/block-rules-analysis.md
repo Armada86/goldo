@@ -13,7 +13,7 @@ table can't supply (table missing or empty, database unreachable), so Broker B n
 | Column | Meaning | Seeded from `config.py` (4 Oct 2026) |
 |---|---|---|
 | `dxy_threshold` | skip a Buy if DXY rose / a Sell if it fell by at least this over 15 min | 0.0649 |
-| `adx_trending` | fades blocked at ADX >= this (also waives the RSI blocks) | 25 |
+| `adx_trending` | fades blocked at ADX >= this | 25 |
 | `adx_chop` | breakouts blocked at ADX < this | 20 |
 | `rsi_overbought` / `rsi_oversold` | breakout buy blocked at RSI >= / breakout sell at RSI <= | 70 / 30 |
 | `fade_rsi_overbought` / `fade_rsi_oversold` | fade sell blocked at RSI >= / fade buy at RSI <= | 68 / 32 |

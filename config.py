@@ -167,7 +167,7 @@ RSI_OVERSOLD_THRESHOLD = 30
 # broker._adx_confirms() / broker_b._adx_confirms(). Textbook cutoffs, not yet calibrated on our own
 # trades (entry_context logs adx14 on every trade so they can be).
 ADX_PERIOD = 14
-ADX_TRENDING_THRESHOLD = 25  # at/above: a real trend -- fades are blocked, RSI exhaustion blocks are waived
+ADX_TRENDING_THRESHOLD = 25  # at/above: a real trend -- fades are blocked (RSI blocks are never waived)
 ADX_CHOP_THRESHOLD = 20  # below: no trend -- breakouts and Broker A's momentum consensus are blocked
 
 # Broker B entry gates added 3 Oct 2026 after Friday 2 Oct's review (4 of 5 trades stopped out). Both are
