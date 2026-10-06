@@ -68,7 +68,7 @@ flowchart TD
     FMP --> OilWeekly --> DB2
     OilWeekly --> Telegram2
 
-    Cron2 -->|weekday 6:45am + 11:45am ET| TAForecast["ta_forecast_job.py"]
+    Cron2 -->|weekday 6:55am + 9:55am + 1:55pm ET| TAForecast["ta_forecast_job.py"]
     TD2 --> TAForecast --> DB2
     TAForecast --> Telegram2
     TAForecast -.->|bias gate + RSI/DXY filters| BrokerA2["broker.py\nBroker A"]
@@ -156,7 +156,7 @@ flowchart TD
     (unlike release_watch_job.py, there's no other mechanism tracking this indicator, so this job owns
     both), then every subsequent invocation that same Tuesday sees the week is already recorded and
     no-ops.
-22. **cron-job.org -> ta_forecast_job.py -> Postgres / Telegram (weekdays 6:45am and 11:45am ET)**: builds an
+22. **cron-job.org -> ta_forecast_job.py -> Postgres / Telegram (weekdays 6:55am, 9:55am and 1:55pm ET)**: builds an
     XAU/USD technical forecast from Twelve Data 15min/1h/4h/daily candles (indicator snapshot, level
     zones, a four-scenario plan, and a candle-graded review of the previous forecast) and writes it to
     `ta_forecasts`, then sends the same text to Telegram. Both Broker A (bias gate + entry filters) and
