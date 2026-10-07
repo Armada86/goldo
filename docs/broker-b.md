@@ -30,7 +30,7 @@ flowchart TD
     Stop -->|no| Hold["Keep holding"]
 
     Open -->|no| Forecast["Latest TA forecast:\nfour levels"]
-    Forecast --> Touch{"A 1-min candle touched a level?\n(fresh approach, max 2 trades per level,\nre-arm only after a win of $5+)"}
+    Forecast --> Touch{"A 1-min candle touched a level?\n(fresh approach, max 2 trades per level,\nre-arm only after a win of $3+)"}
     Touch -->|no| Nothing["Nothing to do"]
     Touch -->|yes| Age{"Touch no older than 7 min?"}
     Age -->|no| Blocked
@@ -54,8 +54,8 @@ DXY / ADX / RSI / ATR values below are the defaults from `config.py`; the live v
 
 ## Re-arming a level
 
-A level trades at most **2 times** per forecast. It re-arms only after a **real win**: a closed trade of at least **+$5**
-(`broker_b.REARM_MIN_WIN_PNL`, since 6 Oct 2026). Any smaller close, a loss, breakeven or a trail that locked a sliver,
+A level trades at most **2 times** per forecast. It re-arms only after a **real win**: a closed trade of at least **+$3**
+(`broker_b.REARM_MIN_WIN_PNL`, since 6 Oct 2026, $5 until 7 Oct). Any smaller close, a loss, breakeven or a trail that locked a sliver,
 retires the level like a stop-out until a TA run changes it. (B #46 trailed out at +$1.13 and re-armed #47, which lost the full $15.)
 A later TA run of the same ET day that keeps a level's trigger price unchanged inherits its earlier trades and retirement.
 

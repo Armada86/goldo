@@ -17,7 +17,7 @@ zone" scenarios (`sell_resistance`/`buy_support`) *and* their mirrored breakout 
 mapping. Only one trade open at a time, across all four rules, same as Broker A -- a fresh entry is
 never opened while a Broker B position is already open, no matter which of the four levels it is.
 **Each level re-arms after a win**: up to MAX_TRADES_PER_LEVEL (2) trades per (forecast, level), but
-the first stop-out (or win under REARM_MIN_WIN_PNL, $5) at a level retires it for that forecast (trade_b_level_history()); a later forecast row of the same ET day that keeps the same level inherits that history (_carried_level_history(), 6 Oct 2026). A re-arm only
+the first stop-out (or win under REARM_MIN_WIN_PNL, $3) at a level retires it for that forecast (trade_b_level_history()); a later forecast row of the same ET day that keeps the same level inherits that history (_carried_level_history(), 6 Oct 2026). A re-arm only
 fires on a genuine fresh touch -- price must be observed back on the away side of the trigger at
 some point after the previous trade closed before the next touch counts (see
 _scan_zone_entry()'s approach-side check). Without this, a level that broke out and kept running
@@ -196,8 +196,9 @@ MAX_TRADES_PER_LEVEL = 2
 # A closed trade only counts as a win for the re-arm rule if it made at least this much ($ per oz); anything smaller (a
 # loss, breakeven, or a trail that locked a sliver) retires the level for the forecast like a stop-out. 6 Oct 2026: B #46
 # sold TA1's 4165.68 resistance, trailed out at +$1.13, and that 'win' re-armed the level for B #47, which lost the full
-# $15. Hand-picked from that one trade (about half the default $10 stop) -- revisit with more history.
-REARM_MIN_WIN_PNL = 5.0
+# $15. Hand-picked from that one trade -- revisit with more history. Set to $3 (was $5, lowered 7 Oct 2026 at the user's request:
+# with the live trail 10 behind its peak a trade needs a ~+$15 peak to close at +$5, so $5 was stricter than intended).
+REARM_MIN_WIN_PNL = 3.0
 
 # A touch is only filled if the poll noticing it is at most this old (poll interval + slack for a slow
 # run) -- a touch older than that was missed or blocked on an earlier poll, and filling it now means a

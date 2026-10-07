@@ -60,7 +60,7 @@ force when each forecast run was made.
 - **6 Oct 2026, DXY gate needs 3 polls in a row:** `_dxy_confirms()` blocks only if DXY's trailing-15-min move cleared `dxy_threshold`
   in the adverse direction on each of the last three polls; fewer polls of history fails open. Earlier BRA rows judged DXY on a single poll.
 
-- **6 Oct 2026, re-arm needs a real win (not a BRA rule):** `broker_b.REARM_MIN_WIN_PNL` ($5) -- a level re-arms only after a close of at least +$5; BRA's replay does
+- **6 Oct 2026, re-arm needs a real win (not a BRA rule):** `broker_b.REARM_MIN_WIN_PNL` ($3, was $5 on 6 Oct) -- a level re-arms only after a close of at least +$3; BRA's replay does
   not model level re-arming at all.
 
 ## Limits
