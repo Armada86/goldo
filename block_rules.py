@@ -1,4 +1,4 @@
-"""Broker B's entry-filter thresholds (the "block rules"): DXY, ADX, RSI and ATR.
+"""Broker B's entry-filter thresholds (the "block rules"): DXY, ADX, RSI, ATR and the spike gate.
 
 The values live in the Postgres `block_rules` table (append-only; the newest row is the active one) so the block
 rules analysis (block_rules_analysis_job.py, Telegram "start BRA") can change them without a code commit.
@@ -13,6 +13,8 @@ can't supply (table missing or empty, database unreachable): broker_b.py behaves
           fade_rsi_overbought    TA-Zone-sell blocked at RSI >= this
           fade_rsi_oversold      TA-Zone-buy blocked at RSI <= this
     ATR   atr_max                every rule blocked when 15-min ATR(14) >= this ($)
+    Spike spike_fade             fades (TA-Zone-*) blocked when the last 15 one-minute bars' entry-side range >= this x ATR(14)
+          spike_breakout         breakouts (TA-Breakout-*) blocked at this multiple (tighter: they follow the move, fades want it)
 
 A value of 99 / 0 / 101 (see OFF_VALUES below) effectively switches a block off."""
 
@@ -28,6 +30,8 @@ from config import (
     INTRAHOUR_SWING_ALERT_THRESHOLD,
     RSI_OVERBOUGHT_THRESHOLD,
     RSI_OVERSOLD_THRESHOLD,
+    SPIKE_BREAKOUT_ATR_MULTIPLE,
+    SPIKE_FADE_ATR_MULTIPLE,
 )
 
 log = logging.getLogger(__name__)
@@ -43,8 +47,12 @@ RULE_KEYS = (
     "fade_rsi_overbought",
     "fade_rsi_oversold",
     "atr_max",
+    "spike_fade",
+    "spike_breakout",
 )
 
+
+SPIKE_KEYS = ("spike_fade", "spike_breakout")  # added 8 Oct 2026: older block_rules rows have NULL here
 
 # Values that switch a block off, per rule.
 OFF_VALUES = {
@@ -56,6 +64,8 @@ OFF_VALUES = {
     "fade_rsi_overbought": 101.0,
     "fade_rsi_oversold": 0.0,
     "atr_max": 99.0,
+    "spike_fade": 99.0,
+    "spike_breakout": 99.0,
 }
 
 
@@ -70,6 +80,8 @@ def default_rules() -> dict[str, float]:
         "fade_rsi_overbought": float(FADE_RSI_OVERBOUGHT_THRESHOLD),
         "fade_rsi_oversold": float(FADE_RSI_OVERSOLD_THRESHOLD),
         "atr_max": float(ATR_HIGH_VOLATILITY_THRESHOLD),
+        "spike_fade": float(SPIKE_FADE_ATR_MULTIPLE),
+        "spike_breakout": float(SPIKE_BREAKOUT_ATR_MULTIPLE),
     }
 
 
@@ -87,6 +99,10 @@ def get_block_rules(as_of=None) -> dict[str, float]:
         return rules
     if row:
         rules.update({k: v for k, v in row.items() if k in RULE_KEYS and v is not None})
+        if as_of is not None:  # a row from before the spike gate existed had it off, whatever the config default says now
+            for k in SPIKE_KEYS:
+                if row.get(k) is None:
+                    rules[k] = OFF_VALUES[k]
     if as_of is None:  # live gate only: a past run's display shows what was really in force then
         rules["adx_chop"] = max(rules["adx_chop"], float(ADX_CHOP_FLOOR))
     return rules

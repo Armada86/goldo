@@ -1,12 +1,12 @@
 # Block rules analysis (BRA)
 
-Tunes Broker B's four entry filters from history and applies the result. Runs by itself every weekday at 6:30 AM ET (cron-job.org) and can also be triggered from Telegram with
+Tunes Broker B's five entry filters (DXY, ADX, RSI, ATR, spike) from history and applies the result. Runs by itself every weekday at 6:30 AM ET (cron-job.org) and can also be triggered from Telegram with
 `start block rules analysis` or `start BRA` (Worker -> `.github/workflows/block_rules_analysis.yml` ->
 `block_rules_analysis_job.py`). Code: `block_rules_analysis.py` (pure analysis), `block_rules.py` (the values).
 
 ## The `block_rules` table
 
-Append-only: every row is a full set of the eight values, and the **newest row is the active one**, so the table is also
+Append-only: every row is a full set of the ten values, and the **newest row is the active one**, so the table is also
 the history of every change. `broker_b.py` reads it once per poll. `config.py` stays as the fallback for any value the
 table can't supply (table missing or empty, database unreachable), so Broker B never stops trading over it.
 
@@ -18,6 +18,7 @@ table can't supply (table missing or empty, database unreachable), so Broker B n
 | `rsi_overbought` / `rsi_oversold` | breakout buy blocked at RSI >= / breakout sell at RSI <= | 70 / 30 |
 | `fade_rsi_overbought` / `fade_rsi_oversold` | fade sell blocked at RSI >= / fade buy at RSI <= | 68 / 32 |
 | `atr_max` | everything blocked when 15-min ATR(14) >= this ($) | 12 |
+| `spike_fade` / `spike_breakout` | spike gate (8 Oct 2026): fades / breakouts blocked when the entry-side high-low range of the last 15 one-minute bars is >= this x ATR(14). Fades get the looser multiple (they enter after a run into the level and bet on the reversal). Added later than the other columns: older rows are NULL, which the dashboard shows as off for those times; `init_db()` appended a row with the defaults when the gate went in. BRA's grids: fade 1.75-3.5 or off, breakout 1.25-3.0 or off. The event's range is measured from the same 1-minute bars the replay already fetches (FOREX.com bid/ask, else Twelve Data mid), ending at the event time; the live gate measures it at the poll, a few minutes later at most. Unknown range fails open. | 2.5 / 2.0 |
 | `set_ts`, `source`, `changed`, `n_events`, `note` | when, who (`seed` or `BRA`), whether the run changed anything, how many events, a one-line note | |
 
 `99` (or `0` / `101` for the lower-bound rules) means the block is off. The first row (`source = seed`) holds the values
@@ -27,7 +28,7 @@ force when each forecast run was made.
 ## What a run does
 
 1. **Events:** every Broker B touch we know of in the last 45 days: the closed trades, plus the touches blocked by
-   DXY / ADX / RSI / ATR (`broker_b_blocked`; timing blocks and too-old touches are left out because no value here would
+   DXY / ADX / RSI / ATR / spike (`broker_b_blocked`; timing blocks and too-old touches are left out because no value here would
    change them).
 2. **Conditions:** for each event, RSI/ADX/ATR(14) on 15-min candles at that moment, whether ADX was rising (above the previous
    candle's, `Event.adx_rising`, used by the fade gate) and DXY's 15-min move at each of the last three polls (`Event.dxy_changes`, for the 3-in-a-row DXY gate).
@@ -36,7 +37,7 @@ force when each forecast run was made.
    `start SLA`.
 4. **Scoring:** a candidate set of values runs the real gate functions from `broker_b.py` on every event; events that
    pass are taken, one position at a time like Broker B, the rest are blocked.
-5. **Search:** each of the eight values is swept over its own grid with the others held; each grid point is scored with
+5. **Search:** each of the ten values is swept over its own grid with the others held; each grid point is scored with
    its neighbours (a plateau beats a lucky spike). The best change is applied only if it beats the current total by
    `max($10, 10%)` **and** still wins without the single event that gained the most; then it repeats from the new
    values until nothing qualifies.

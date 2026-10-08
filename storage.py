@@ -179,10 +179,15 @@ def init_db() -> None:
                 rsi_oversold DOUBLE PRECISION NOT NULL,
                 fade_rsi_overbought DOUBLE PRECISION NOT NULL,
                 fade_rsi_oversold DOUBLE PRECISION NOT NULL,
-                atr_max DOUBLE PRECISION NOT NULL
+                atr_max DOUBLE PRECISION NOT NULL,
+                spike_fade DOUBLE PRECISION,
+                spike_breakout DOUBLE PRECISION
             )
             """
         )
+        # Spike gate (8 Oct 2026): nullable, since the rows written before it have no value.
+        cur.execute("ALTER TABLE block_rules ADD COLUMN IF NOT EXISTS spike_fade DOUBLE PRECISION")
+        cur.execute("ALTER TABLE block_rules ADD COLUMN IF NOT EXISTS spike_breakout DOUBLE PRECISION")
         # First run only: seed the table with the rules currently in config.py (see block_rules.py).
         cur.execute("SELECT 1 FROM block_rules LIMIT 1")
         if cur.fetchone() is None:
@@ -194,6 +199,21 @@ def init_db() -> None:
                 f"VALUES ('seed', FALSE, 'Rules from config.py', {', '.join(['%s'] * len(RULE_KEYS))})",
                 [defaults[k] for k in RULE_KEYS],
             )
+        else:
+            # The spike gate went in with its columns empty on every older row: append one row carrying the newest row's
+            # values plus the spike defaults, so the table records when the gate came into force (the dashboard reads this).
+            cur.execute("SELECT spike_fade FROM block_rules ORDER BY id DESC LIMIT 1")
+            if cur.fetchone()[0] is None:
+                from block_rules import RULE_KEYS, default_rules
+
+                old_keys = [k for k in RULE_KEYS if not k.startswith("spike_")]
+                defaults = default_rules()
+                cur.execute(
+                    f"INSERT INTO block_rules (source, changed, note, {', '.join(RULE_KEYS)}) "
+                    f"SELECT 'seed', FALSE, 'Spike gate added (config.py defaults)', {', '.join(old_keys)}, %s, %s "
+                    "FROM block_rules ORDER BY id DESC LIMIT 1",
+                    [defaults["spike_fade"], defaults["spike_breakout"]],
+                )
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS stop_settings_history (
@@ -1128,7 +1148,7 @@ def get_block_rules_row(as_of: datetime | None = None) -> dict | None:
         where, params = ("WHERE set_ts <= %s", (as_of,)) if as_of is not None else ("", ())
         cur.execute(f"SELECT {', '.join(RULE_KEYS)} FROM block_rules {where} ORDER BY id DESC LIMIT 1", params)
         row = cur.fetchone()
-    return {k: float(v) for k, v in zip(RULE_KEYS, row)} if row else None
+    return {k: None if v is None else float(v) for k, v in zip(RULE_KEYS, row)} if row else None
 
 
 def insert_block_rules_row(rules: dict, source: str, changed: bool, n_events: int | None, note: str | None) -> int:
@@ -1145,14 +1165,14 @@ def insert_block_rules_row(rules: dict, source: str, changed: bool, n_events: in
 
 
 def get_broker_b_blocked_touches(since: datetime) -> list[dict]:
-    """Broker B touches that were blocked by one of the four BRA-tunable filters (DXY / RSI / ADX /
-    volatility) since `since`, oldest first, for the block rules analysis. Timing blocks and
+    """Broker B touches that were blocked by one of the five BRA-tunable filters (DXY / RSI / ADX /
+    volatility / spike) since `since`, oldest first, for the block rules analysis. Timing blocks and
     "touch too old" notices are left out: no threshold here would have changed them."""
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT rule_name, trigger_price, reasons, touch_ts FROM broker_b_blocked "
             "WHERE touch_ts IS NOT NULL AND touch_ts >= %s AND (reasons ILIKE '%%DXY%%' OR reasons ILIKE '%%RSI(14)%%' "
-            "OR reasons ILIKE '%%ADX(14)%%' OR reasons ILIKE '%%volatility%%') ORDER BY touch_ts",
+            "OR reasons ILIKE '%%ADX(14)%%' OR reasons ILIKE '%%volatility%%' OR reasons ILIKE '%%recent spike%%') ORDER BY touch_ts",
             (since,),
         )
         rows = cur.fetchall()

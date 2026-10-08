@@ -1,21 +1,21 @@
-"""Block rules analysis (BRA): tune Broker B's four entry filters (DXY, ADX, RSI, ATR) from history.
+"""Block rules analysis (BRA): tune Broker B's entry filters (DXY, ADX, RSI, ATR, spike) from history.
 
 Triggered from Telegram ("start block rules analysis" / "start BRA" -> Worker -> block_rules_analysis.yml ->
 block_rules_analysis_job.py). This module is the pure part (no DB, no network) so it can be tested directly;
 the job fetches the data, calls analyse(), sends the report, and writes the result to the `block_rules` table.
 
 Events: every Broker B touch we know of is replayed -- the trades that really opened (their real entry), plus the
-touches that one of these four filters blocked (broker_b_blocked; entered at the level price at the recorded touch
+touches that one of these filters blocked (broker_b_blocked; entered at the level price at the recorded touch
 time, an approximation: the stored time is when the poll saw the bar, not the exact touch). Each event carries the
-conditions at that moment (RSI/ADX/ATR(14) on 15-min candles, DXY's 15-min move) and a price path from
+conditions at that moment (RSI/ADX/ATR(14) on 15-min candles, DXY's 15-min move, the entry-side range of the last 15 one-minute bars) and a price path from
 stop_loss_analysis.build_path(), replayed with the SAME exit rule the brokers run live and the stop / trailing
 settings currently in force.
 
 A candidate set of rules is scored by running the REAL gate functions (broker_b._dxy_confirms_changes() / _adx_confirms() /
-_rsi_confirms() / _atr_confirms()) on every event: events that pass are taken (one position at a time, like
+_rsi_confirms() / _atr_confirms() / _spike_confirms()) on every event: events that pass are taken (one position at a time, like
 Broker B), the rest are blocked. So the analysis can't drift from what the live gates do.
 
-Choosing values: greedy coordinate search. Each of the eight values is swept over its own grid with the others
+Choosing values: greedy coordinate search. Each of the ten values is swept over its own grid with the others
 held at their current setting; a grid point is scored by the mean total P/L of itself and its neighbours one step
 away (a plateau beats a lucky spike). The best change is applied only if it beats the current total by a real
 margin AND still wins without the single event that gained the most; then the sweep repeats from the new rules
@@ -34,7 +34,7 @@ import numpy as np
 import stop_loss_analysis as sla
 from block_rules import OFF_VALUES, RULE_KEYS
 from config import ADX_CHOP_FLOOR
-from broker_b import _adx_confirms, _atr_confirms, _dxy_confirms_changes, _rsi_confirms
+from broker_b import _adx_confirms, _atr_confirms, _dxy_confirms_changes, _rsi_confirms, _spike_confirms
 
 BRA_PREFIX = "\U0001F6E1️ "  # shield -- distinct from the other Telegram prefixes
 
@@ -52,6 +52,8 @@ GRIDS = {
     "rsi_oversold": [0.0, 20.0, 25.0, 30.0, 35.0],
     "fade_rsi_overbought": [60.0, 64.0, 66.0, 68.0, 70.0, 72.0, 101.0],
     "fade_rsi_oversold": [0.0, 28.0, 30.0, 32.0, 34.0, 36.0, 40.0],
+    "spike_fade": [1.75, 2.0, 2.25, 2.5, 3.0, 3.5, 99.0],  # x ATR(14); fades want a spike, so no value below 1.75
+    "spike_breakout": [1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 3.0, 99.0],
 }
 DXY_FACTORS = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
 
@@ -64,6 +66,8 @@ LABELS = {
     "fade_rsi_overbought": "RSI: block fade sell at >=",
     "fade_rsi_oversold": "RSI: block fade buy at <=",
     "atr_max": "ATR: block everything at >= $",
+    "spike_fade": "Spike: block fades at range >= x ATR",
+    "spike_breakout": "Spike: block breakouts at range >= x ATR",
 }
 
 
@@ -72,7 +76,7 @@ class Event:
     label: str
     scenario: str  # sell_resistance / buy_support / bull_breakout / bear_breakdown
     trade_type: str  # "Buy" or "Sell"
-    was_trade: bool  # True: really opened; False: blocked by one of the four filters
+    was_trade: bool  # True: really opened; False: blocked by one of the filters
     rsi: float | None
     adx: float | None
     atr: float | None
@@ -80,6 +84,7 @@ class Event:
     path: sla.TradePath
     dxy_changes: list | None = None  # that move at each of the last 3 polls up to the event (oldest first), for the 3-in-a-row DXY gate
     adx_rising: bool | None = None  # ADX above the previous 15-min candle's at the event (fade gate)
+    range_15m: float | None = None  # entry-side high-low range of the 15 one-minute bars up to the event (spike gate)
 
 
 def passes(ev: Event, rules: dict) -> bool:
@@ -89,6 +94,7 @@ def passes(ev: Event, rules: dict) -> bool:
         and _rsi_confirms(ev.scenario, ev.rsi, ev.adx, rules)[0]
         and _adx_confirms(ev.scenario, ev.adx, rules, ev.adx_rising)[0]
         and _atr_confirms(ev.atr, rules)[0]
+        and _spike_confirms(ev.scenario, ev.range_15m, ev.atr, rules)[0]
     )
 
 
@@ -219,7 +225,7 @@ def format_report(result: dict, first_ts, last_ts, n_skipped: int = 0) -> str:
         f"{BRA_PREFIX}BLOCK RULES ANALYSIS",
         f"{result['n_events']} Broker B events {first_ts.astimezone(sla.DISPLAY_TZ):%d %b} - "
         f"{last_ts.astimezone(sla.DISPLAY_TZ):%d %b %Y} ET: {result['n_trades']} trades that opened + "
-        f"{result['n_blocked']} touches blocked by DXY/ADX/RSI/ATR"
+        f"{result['n_blocked']} touches blocked by DXY/ADX/RSI/ATR/spike"
         + (f" ({n_skipped} skipped, no price data)" if n_skipped else "") + ".",
         "",
     ]

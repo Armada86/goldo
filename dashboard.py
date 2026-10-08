@@ -121,7 +121,7 @@ BROKER_B_RULES_SHOWN_FROM = date(2026, 10, 5)
 
 
 def broker_b_entry_rules_html(as_of=None) -> str:
-    """Compact summary of Broker B's DXY/ADX/RSI/ATR entry filters (see broker_b.py), plus the stop loss and trailing stop
+    """Compact summary of Broker B's DXY/ADX/RSI/ATR/spike entry filters (see broker_b.py), plus the stop loss and trailing stop
     in force (stop_settings_history, set by the stop loss analysis / make SL / make trail; broker.py defaults if none). The values are the active
     block_rules row (see block_rules.py -- what the block rules analysis last set), with config.py's values for
     anything the table can't supply, so this shows what the bot is actually using. `as_of` (the forecast run's
@@ -154,6 +154,10 @@ def broker_b_entry_rules_html(as_of=None) -> str:
             f"fade sell blocked at &ge; {v('fade_rsi_overbought')}, fade buy at &le; {v('fade_rsi_oversold')}.",
         ),
         ("ATR(14)", f"All rules blocked when 15-min ATR &ge; ${v('atr_max')}."),
+        (
+            "Spike",
+            f"Last 15 one-minute bars' range &ge; {v('spike_fade')}&times; ATR blocks fades; &ge; {v('spike_breakout')}&times; ATR blocks breakouts.",
+        ),
         ("Exits", exit_text),
     ]
     body = "".join(f"<div><b>{name}</b> &mdash; {text}</div>" for name, text in rows)

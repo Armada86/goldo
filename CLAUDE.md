@@ -312,13 +312,16 @@ on all five, both fade-sells at RSI >= ~69 lost), `broker_b._atr_confirms()` blo
 supplies RSI/ADX/ATR (`data_fetcher.fetch_gold_rsi_adx_atr()`; Broker A still uses the RSI/ADX wrapper). Every block sends the usual deduplicated ⛔
 Telegram notice naming the level and the live reading. Broker A is unaffected. Cutoffs are hand-picked from 15 trades -- calibrate from
 `entry_context` (`rsi14`, `atr14`) or `start SLA`.
-**Spike gate (6 Oct 2026, replay-only, Broker B)**: `broker_b._spike_confirms()` (`config.SPIKE_RANGE_ATR_MULTIPLE`, 1.75) would block an entry when the last 15 one-minute
-bars' entry-side range (`entry_context.range_15m_bid/ask`) is >= that multiple of ATR(14) -- ATR lags a sudden spike (B #48: range 12.5 vs ATR 6.08). It is **not called by
-`check_broker_b_trades()`**, so it blocks nothing live; `python spike_gate_replay.py` replays it over every closed Broker A/B trade with a logged range and ATR and prints what each
-multiple would have blocked. First replay (23 trades): 1.75x blocks 8 (-$11.06, 3 of them winning fades), 2.0x blocks 5 (-$31.14, 1 win) -- a sharp cliff, so the cutoff is
-unreliable; fades want a spike (mean reversion), so a breakout-only gate (blocks B #48 and #37, no winners) is the likelier version. Wire it in only after more history.
+**Spike gate (live since 8 Oct 2026, Broker B, split fade/breakout)**: `broker_b._spike_confirms()` blocks an entry when the last 15 one-minute bars' entry-side high-low range
+(`_entry_range()`, the same number as `entry_context.range_15m_bid/ask`; fewer than 10 bars or no ATR fails open) is >= `spike_fade` x ATR(14) for the fade rules (`TA-Zone-*`, default
+`config.SPIKE_FADE_ATR_MULTIPLE` 2.5) or >= `spike_breakout` x ATR(14) for the breakout rules (default `SPIKE_BREAKOUT_ATR_MULTIPLE` 2.0). ATR lags a sudden spike (B #48: range 12.5 vs ATR 6.08);
+fades get the looser multiple because they enter after a run into the level and bet on the reversal (a blanket 2.0x would have blocked winning fades B #44/#41), breakouts follow the move.
+Replay of the 35 closed trades on 8 Oct: split 2.5/2.0 blocks 5 trades (-$51.14, no winners), +$25.75 -> +$76.89 -- hand-picked from that small sample, so treat the values as a start. Both multiples live in
+`block_rules` (`spike_fade`, `spike_breakout`; nullable columns added by `init_db()`, which also appends a row with the defaults when the gate first goes in, so the dashboard can show older runs as off) and `start BRA` tunes them
+(`Event.range_15m`, measured by `block_rules_analysis_job.range_15m_at()` from the 1-minute bars it already fetches, FOREX.com bid/ask else Twelve Data mid, ending at the event time rather than the poll). A spike block sends the usual deduplicated
+⛔ notice (category "recent spike ...") and consumes the touch like the other filters; `get_broker_b_blocked_touches()` includes it so BRA can judge loosening it. `python spike_gate_replay.py` is the quick trades-only replay (it cannot see touches the gate itself blocked).
 
-**Block rules analysis (BRA, 4 Oct 2026, Broker B)**: the DXY / ADX / RSI / ATR entry-filter values now live in a Postgres `block_rules` table
+**Block rules analysis (BRA, 4 Oct 2026, Broker B)**: the DXY / ADX / RSI / ATR / spike entry-filter values now live in a Postgres `block_rules` table
 (`block_rules.py`; append-only, newest row = active; `init_db()` creates it and seeds the first row, `source = 'seed'`, from `config.py`), and
 `broker_b.check_broker_b_trades()` reads it once per poll (`block_rules.get_block_rules()`), falling back to `config.py` per value if the table
 is missing/empty/unreadable. The Telegram command `start block rules analysis` / `start BRA` dispatches `.github/workflows/block_rules_analysis.yml`
@@ -420,7 +423,7 @@ cheap point check against the poll's already-fetched spot price rather than a re
 ~16 off-hours polls a day don't each burn a Twelve Data 1-minute-candle call (~190/day) purely to
 report a block that was never going to trade anyway. Both paths are deduplicated in Postgres
 (`broker_b_blocked` table, `storage.record_broker_b_blocked_if_new()`, keyed on `(ta_forecast_id,
-rule_name, reasons)`) so a level sitting past its trigger for hours sends one notice, not one per poll. **Re-notify on a fresh touch (5 Oct 2026)**: a touch-based block (DXY/RSI/ADX/ATR, too-old touch) whose *newer* touch of the same level arrives at least `storage.BLOCKED_RENOTIFY_MINUTES` (30) after the last notice sends the notice again (`broker_b_blocked.last_notified_ts`); observed live: TA3's 4139.78 sell was ADX-blocked at 2:06 PM ET and again at 3:10 PM ET, and only the first sent a message. Notices without a touch time (timing blocks, "crossed while a trade was open") stay one per combination.
+rule_name, reasons)`) so a level sitting past its trigger for hours sends one notice, not one per poll. **Re-notify on a fresh touch (5 Oct 2026)**: a touch-based block (DXY/RSI/ADX/ATR/spike, too-old touch) whose *newer* touch of the same level arrives at least `storage.BLOCKED_RENOTIFY_MINUTES` (30) after the last notice sends the notice again (`broker_b_blocked.last_notified_ts`); observed live: TA3's 4139.78 sell was ADX-blocked at 2:06 PM ET and again at 3:10 PM ET, and only the first sent a message. Notices without a touch time (timing blocks, "crossed while a trade was open") stay one per combination.
 The stored `reasons` string is a fixed **dedup category** with no poll-varying number in it (e.g. "DXY
 rose against the Buy (fresh headwind)", not the live delta) — `_dxy_confirms()`/`_rsi_confirms()` return
 `(ok, category, detail)` and `_notify_timing_block()` builds its own category/detail pair the same way,
@@ -908,7 +911,7 @@ file rather than per-element `style=`. The `$` unit shown on price cells is
 picked per-name (`DOLLAR_UNIT_NAMES`) the same way `rules.py` picks it for alert messages.
 
 **Broker B entry rules on the dashboard (4 Oct 2026)**: right under the forecast caption line (price · bias · score), `dashboard.py` shows a small
-"Broker B rules in force" block (`broker_b_entry_rules_html()`): the DXY / ADX / RSI / ATR entry cutoffs (the `block_rules` row in force at the run's time, `config` as fallback)
+"Broker B rules in force" block (`broker_b_entry_rules_html()`): the DXY / ADX / RSI / ATR / spike entry cutoffs (the `block_rules` row in force at the run's time, `config` as fallback)
 and an "Exits" line with the stop loss and trailing stop in force at that time. The exit numbers come from `stop_settings_history` (`storage.insert_stop_settings_history()` /
 `get_stop_settings_as_of()`): a display-only, append-only log (a NULL column = unchanged) written by the stop loss analysis job when it applies its advice and by the Worker's
 `make SL` / `make trail`, because the brokers' own `stop_loss_setting` / `trailing_stop_setting` tables only keep the latest value; `broker.py` defaults apply if nothing is logged yet.
