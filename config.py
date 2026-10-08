@@ -179,11 +179,14 @@ ADX_CHOP_FLOOR = 20
 # (ATR was ~$5-10 on earlier days, $11-13 on all five of Friday's trades). Blocks every Broker B rule.
 ATR_PERIOD = 14
 ATR_HIGH_VOLATILITY_THRESHOLD = 12.0
-# Spike gate (6 Oct 2026, REPLAY-ONLY: broker_b._spike_confirms() exists but check_broker_b_trades() does not call it):
-# would block an entry when the last 15 one-minute-bar range is at/above this multiple of ATR(14) -- ATR on 15-min candles
-# lags a sudden spike (B #48: range 12.5 vs ATR 6.08 = 2.06x, lost the full stop). Hand-picked from 5 breakout trades;
-# run spike_gate_replay.py before wiring it in.
-SPIKE_RANGE_ATR_MULTIPLE = 1.75
+# Spike gate (live since 8 Oct 2026, Broker B, split by rule type): blocks an entry when the last 15 one-minute bars' entry-side
+# high-low range is at/above this multiple of ATR(14) on 15-min candles -- ATR lags a sudden spike (B #48: range 12.5 vs ATR 6.08
+# = 2.06x, lost the full stop). Fades (TA-Zone-*) trade the reversal AFTER a run into the level, so they get the looser gate (only
+# the extreme spikes, 2.6x+ in the 35-trade replay of 8 Oct, lost money); breakouts follow the move and get the tighter one.
+# Defaults/fallback only: the live values come from the block_rules table, which `start BRA` tunes (see block_rules.py).
+SPIKE_FADE_ATR_MULTIPLE = 2.5
+SPIKE_BREAKOUT_ATR_MULTIPLE = 2.0
+SPIKE_RANGE_BARS = 15  # one-minute bars in the range window
 # RSI(14) exhaustion on the two FADE rules (the breakout rules already use RSI_OVERBOUGHT/OVERSOLD above):
 # TA-Zone-sell blocked at/above the first, TA-Zone-buy at/below the second (both 68-and-up fade-sells lost).
 FADE_RSI_OVERBOUGHT_THRESHOLD = 68

@@ -96,8 +96,14 @@ the round-trip back down, all inside the 9-11pm ET window, the market's thinnest
    Cutoffs are hand-picked from a 15-trade sample -- calibrate from `entry_context` (`rsi14`, `atr14`) / `start SLA`.
    Every block sends the normal deduplicated ⛔ Telegram notice.
 
-**The DXY/ADX/RSI/ATR thresholds are not read from config.py directly (4 Oct 2026)**: they come from the newest row of the Postgres
-`block_rules` table via `block_rules.get_block_rules()` (once per poll, passed to the four `_*_confirms()` gates as `rules`), which the Telegram
+6. **Spike gate, all four rules** (8 Oct 2026, `_spike_confirms()`): blocks when the last 15 one-minute bars' entry-side high-low range
+   (`_entry_range()`, the same number entry_context logs as `range_15m_bid/ask`) is >= `spike_fade` x ATR(14) for the two fade rules
+   (default `SPIKE_FADE_ATR_MULTIPLE` 2.5) or >= `spike_breakout` x ATR(14) for the two breakout rules (default 2.0). ATR on 15-min
+   candles lags a sudden spike (B #48: range 12.5 vs ATR 6.08); fades get the looser multiple because they enter after a run into the
+   level and bet on the reversal. Chosen from a 35-trade replay (`spike_gate_replay.py`), so `start BRA` re-tunes both. Same ⛔ notice.
+
+**The DXY/ADX/RSI/ATR/spike thresholds are not read from config.py directly (4 Oct 2026)**: they come from the newest row of the Postgres
+`block_rules` table via `block_rules.get_block_rules()` (once per poll, passed to the five `_*_confirms()` gates as `rules`), which the Telegram
 `start BRA` analysis (`block_rules_analysis.py`) rewrites; config.py's values are the first seed and the per-value fallback. The numbers quoted
 in this docstring are those defaults.
 
@@ -145,7 +151,7 @@ from config import (
     ADX_PERIOD,
     ATR_PERIOD,
     RSI_PERIOD,
-    SPIKE_RANGE_ATR_MULTIPLE,
+    SPIKE_RANGE_BARS,
 )
 from block_rules import default_rules, get_block_rules
 from data_fetcher import (
@@ -488,14 +494,32 @@ def _atr_confirms(atr_value: float | None, rules: dict | None = None) -> tuple[b
     )
 
 
+FADE_SCENARIOS = {"sell_resistance", "buy_support"}
+
+
+def _entry_range(bars) -> float | None:
+    """High-low range of the last SPIKE_RANGE_BARS one-minute bars (entry-side bid/ask, the same measure entry_context logs as
+    range_15m_bid/ask), or None if fewer than 10 bars are available."""
+    try:
+        recent = bars.tail(SPIKE_RANGE_BARS)
+        if len(recent) < 10:
+            return None
+        return float(recent["high"].max() - recent["low"].min())
+    except Exception:
+        return None
+
+
 def _spike_confirms(
-    range_15m: float | None, atr_value: float | None, multiple: float = SPIKE_RANGE_ATR_MULTIPLE
+    scenario_name: str, range_15m: float | None, atr_value: float | None, rules: dict | None = None
 ) -> tuple[bool, str | None, str | None]:
-    """(ok, category, detail) -- REPLAY-ONLY (6 Oct 2026): not called by check_broker_b_trades(), so it blocks nothing
-    live; spike_gate_replay.py uses it to show what it would have blocked. Blocks when the last 15 one-minute bars'
-    high-low range on the entry side (entry_context's range_15m_bid/ask) is at least `multiple` x ATR(14) of the 15-min
-    candles: ATR lags a sudden spike, so a market that just moved far more than usual reads as normal on ATR alone
-    (B #48: range 12.5 vs ATR 6.08). Fails open (ok=True) on missing data. `category` has no live number (dedup key)."""
+    """(ok, category, detail) -- the spike gate (live since 8 Oct 2026). Blocks when the last 15 one-minute bars' high-low
+    range on the entry side is at least `spike_fade` (fades) / `spike_breakout` (breakouts) x ATR(14) of the 15-min candles:
+    ATR lags a sudden spike, so a market that just moved far more than usual reads as normal on ATR alone (B #48: range 12.5
+    vs ATR 6.08). Fades get the looser multiple: they enter after price ran into the level and bet on the reversal, so a big
+    recent range is part of the setup; breakouts follow the move, so a spike means chasing it. Fails open (ok=True) on
+    missing data. `category` has no live number (dedup key). `rules`: see _dxy_confirms()."""
+    rules = rules or default_rules()
+    multiple = rules["spike_fade"] if scenario_name in FADE_SCENARIOS else rules["spike_breakout"]
     if range_15m is None or atr_value is None or atr_value <= 0:
         return True, None, None
     if range_15m < multiple * atr_value:
@@ -503,7 +527,8 @@ def _spike_confirms(
     return (
         False,
         "recent spike (15-min range far above ATR)",
-        f"recent spike: 15-min range ${range_15m:.2f} is {range_15m / atr_value:.2f}x ATR(14) ${atr_value:.2f} (>= {multiple:g}x)",
+        f"recent spike: 15-min range ${range_15m:.2f} is {range_15m / atr_value:.2f}x ATR({ATR_PERIOD}) ${atr_value:.2f} "
+        f"(>= {multiple:g}x)",
     )
 
 
@@ -781,6 +806,7 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
     last_close_ts = get_last_close_ts_b()
     if last_close_ts is not None and last_close_ts > floor_ts:
         floor_ts = last_close_ts
+    recent_bars_by_side = bars_by_side  # untrimmed: the spike gate measures the last 15 minutes whatever the floors above
     bars_by_side = {side: bars[bars["datetime"] > floor_ts] for side, bars in bars_by_side.items()}
 
     # A touch a filter already blocked (DXY/RSI notice, or a timing block) is a missed signal, not a
@@ -855,11 +881,14 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
         rsi_ok, rsi_category, rsi_detail = _rsi_confirms(scenario_name, rsi_value, adx_value, rules)
         adx_ok, adx_category, adx_detail = _adx_confirms(scenario_name, adx_value, rules, adx_rising)
         atr_ok, atr_category, atr_detail = _atr_confirms(atr_value, rules)
-        if dxy_ok and rsi_ok and adx_ok and atr_ok:
+        spike_ok, spike_category, spike_detail = _spike_confirms(
+            scenario_name, _entry_range(recent_bars_by_side[_entry_side(trade_type)]), atr_value, rules
+        )
+        if dxy_ok and rsi_ok and adx_ok and atr_ok and spike_ok:
             selected = (trigger_ts, trigger_price, trade_type, rule_name, scenario_name)
             break
-        dedup_reasons = "; ".join(r for r in (dxy_category, rsi_category, adx_category, atr_category) if r)
-        message_reasons = "; ".join(r for r in (dxy_detail, rsi_detail, adx_detail, atr_detail) if r)
+        dedup_reasons = "; ".join(r for r in (dxy_category, rsi_category, adx_category, atr_category, spike_category) if r)
+        message_reasons = "; ".join(r for r in (dxy_detail, rsi_detail, adx_detail, atr_detail, spike_detail) if r)
         _notify_blocked(
             forecast, rule_name, trigger_price, dedup_reasons, message_reasons, touch_ts=consumed_through
         )

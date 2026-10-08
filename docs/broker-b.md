@@ -77,9 +77,11 @@ in the trade's favour is ignored).
 
 ## Good to know
 
-- **Spike gate (replay only):** `broker_b._spike_confirms()` would block an entry when the last 15 minutes' one-minute range is at least
-  1.75 x ATR(14) (ATR lags a sudden spike; B #48: range 12.5 vs ATR 6.08). It is **not wired into live trading**.
-  `python spike_gate_replay.py` shows what it would have blocked; the first replay was inconclusive (it also blocks winning fades).
+- **Spike gate (live since 8 Oct 2026):** `broker_b._spike_confirms()` blocks an entry when the last 15 one-minute bars' entry-side range is at least
+  `spike_fade` x ATR(14) for the fade rules (default 2.5) or `spike_breakout` x ATR(14) for the breakout rules (default 2.0). ATR lags a sudden spike
+  (B #48: range 12.5 vs ATR 6.08); fades get the looser multiple because they enter after a run into the level and want the reversal. The two
+  multiples live in `block_rules` and `start BRA` tunes them. Chosen from `python spike_gate_replay.py` (35 trades: split 2.5/2.0 would have blocked 5 losers, no winners,
+  +$51 on +$26) -- hand-picked from a small sample, so watch BRA's reports.
 
 - **Blocked-touch notices repeat on a fresh touch** of the same level, at most one per 30 minutes per level and reason (a level that stays past its trigger doesn't spam every poll).
 - **One position at a time**, across all four rules. If another level is touched while a trade is open, a ⛔ Telegram notice says so at the next poll (the touch is not filled later).

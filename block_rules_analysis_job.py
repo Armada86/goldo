@@ -1,7 +1,7 @@
 """One-shot block rules analysis, run by .github/workflows/block_rules_analysis.yml when you send "start block
 rules analysis" or "start BRA" on Telegram (the Worker dispatches the workflow, same as "start SLA").
 
-Replays every Broker B touch we know of (trades that opened, plus touches blocked by the DXY/ADX/RSI/ATR filters)
+Replays every Broker B touch we know of (trades that opened, plus touches blocked by the DXY/ADX/RSI/ATR/spike filters)
 against candidate filter values with block_rules_analysis.py, sends the report to Telegram, and writes the
 resulting rules as a new row in the `block_rules` table, which Broker B reads on its next poll. A row is written
 on every run, changed or not, so the table doubles as a log of runs; the newest row is the active one.
@@ -31,6 +31,7 @@ from storage import (
 LOOKBACK_DAYS = sla_job.LOOKBACK_DAYS
 CANDLE_OUTPUTSIZE = 5000  # 15-min candles, ~52 days: one Twelve Data call
 DXY_WINDOW_MINUTES = 15
+RANGE_WINDOW_MINUTES = 15  # the spike gate's one-minute-bar window
 DUPLICATE_TOUCH_MINUTES = 30  # blocked notices for the same level this close together are one touch
 RULE_TO_SCENARIO = {rule: (scenario, trade_type) for scenario, (trade_type, rule) in ZONE_SCENARIOS.items()}
 
@@ -73,6 +74,17 @@ def dxy_changes_at(readings: list, ts) -> list | None:
     return _dxy_changes([r for r in readings if r[0] <= ts])
 
 
+def range_15m_at(frame: pd.DataFrame | None, ts) -> float | None:
+    """High-low range of the 15 one-minute bars up to ts on `frame` (the entry side's bars; the same measure the live spike gate
+    takes at its poll, here taken at the event time), or None if the data has fewer than 10 of them."""
+    if frame is None:
+        return None
+    window = frame[(frame["datetime"] > ts - timedelta(minutes=RANGE_WINDOW_MINUTES)) & (frame["datetime"] <= ts)]
+    if len(window) < 10:
+        return None
+    return float(window["high"].max() - window["low"].min())
+
+
 def dedupe_blocked(touches: list[dict]) -> list[dict]:
     """One touch per (level, close-together run of notices): the same touch is stored once per distinct reason."""
     kept, last_seen = [], {}
@@ -105,7 +117,7 @@ def build_events(trades: list[dict], blocked: list[dict], first_ts, now) -> tupl
         return [], 0
 
     forex = sla_job.fetch_forex_bars()
-    td = sla_job.fetch_twelve_data_bars(raw[0]["open_ts"] - timedelta(minutes=5), now)
+    td = sla_job.fetch_twelve_data_bars(raw[0]["open_ts"] - timedelta(minutes=RANGE_WINDOW_MINUTES + 5), now)
     frame = indicator_frame()
     dxy = get_readings_since("dxy", raw[0]["open_ts"] - timedelta(minutes=DXY_READINGS_MINUTES + 5))
 
@@ -118,9 +130,15 @@ def build_events(trades: list[dict], blocked: list[dict], first_ts, now) -> tupl
         path = paths[0]
         path.label = r["label"]
         rsi, adx, atr = indicators_at(frame, r["open_ts"])
+        # Entry-side bars for the spike range: a Buy enters on the ask, a Sell on the bid (FOREX.com within its ~2.8 days, else Twelve Data mid).
+        if forex is not None and r["open_ts"] > forex[0]["datetime"].iloc[0]:
+            range_frame = forex[1] if r["trade_type"] == "Buy" else forex[0]
+        else:
+            range_frame = td
         scenario = RULE_TO_SCENARIO[r["rule_name"]][0]
         events.append(bra.Event(r["label"], scenario, r["trade_type"], r["was_trade"], rsi, adx, atr,
-                                dxy_change_at(dxy, r["open_ts"]), path, dxy_changes_at(dxy, r["open_ts"]), adx_rising_at(frame, r["open_ts"])))
+                                dxy_change_at(dxy, r["open_ts"]), path, dxy_changes_at(dxy, r["open_ts"]), adx_rising_at(frame, r["open_ts"]),
+                                range_15m_at(range_frame, r["open_ts"])))
     return events, n_skipped
 
 
