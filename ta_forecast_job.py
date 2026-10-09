@@ -53,7 +53,8 @@ DIAGRAM_AXIS_X = 46
 DIAGRAM_BAND_X = 52
 DIAGRAM_BAND_WIDTH = 190
 DIAGRAM_LABEL_X = 250
-DIAGRAM_MIN_LABEL_GAP = 13   # px between stacked zone-label rows, so close zones never overlap
+DIAGRAM_MAX_ZONES_PER_SIDE = 2   # nearest resistances / supports drawn; farther ones are left off the picture
+DIAGRAM_MIN_LABEL_GAP = 13  # px between stacked zone-label rows, so close zones never overlap
 DIAGRAM_LEGEND_HEIGHT = 50
 DIAGRAM_CANDLE_BODY_WIDTH = 14        # the optional day-candle sits inside the band column, not a
                                       # separate side margin -- see render_diagram_svg()'s docstring
@@ -643,8 +644,13 @@ def render_diagram_svg(
     true position on the band's right edge) -- so a reader can tell which bar/line a displaced label
     (marks included, since they trail the label) really belongs to instead of guessing from vertical
     proximity alone."""
+    # Only the nearest DIAGRAM_MAX_ZONES_PER_SIDE zones per side are drawn (9 Oct 2026, user request): most
+    # of the action is between them, and the farther ones stretched the price axis and crowded the labels.
+    # The stored levels/analysis text still list every zone; zone identity (`is resistances[0]`) is kept.
+    resistances = resistances[:DIAGRAM_MAX_ZONES_PER_SIDE]
+    supports = supports[:DIAGRAM_MAX_ZONES_PER_SIDE]
     zones = [(z, True) for z in resistances] + [(z, False) for z in supports]
-    stops = {sc["name"]: sc for sc in scenarios}
+    stops ={sc["name"]: sc for sc in scenarios}
     stop_lines = [
         s for s in (stops.get("sell_resistance", {}).get("stop"), stops.get("buy_support", {}).get("stop"))
         if s is not None

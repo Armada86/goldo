@@ -748,7 +748,7 @@ first?), which is why the structured `levels` JSONB is stored alongside the text
 turns that same price/resistances/supports/scenarios data into a self-contained SVG price ladder --
 resistance zones above price in red, support zones below in green, a thin price hairline (laid out in
 the same label pass as the zones, not a filled badge, so it never covers a zone/label it happens to land
-on), and the two breakout/breakdown stop lines, at a fixed mobile width rather than hand-placed per-run
+on), and the two breakout/breakdown stop lines (only the nearest two resistances and two supports are drawn, `DIAGRAM_MAX_ZONES_PER_SIDE`, since 9 Oct 2026 -- the third zone per side was dropped to declutter the picture; the analysis text and stored `levels` still list every zone), at a fixed mobile width rather than hand-placed per-run
 coordinates. `price` (`levels['price']`, frozen at whenever the forecast ran) always gets this same
 hairline treatment, whether or not `candle`/`live_price` (below) are given -- it's the number the
 forecast's plan was actually written against, so it doesn't change just because the day has since moved
