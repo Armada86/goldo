@@ -53,10 +53,13 @@ used to be in the message; they are no longer sent (the analysis still computes 
 
 ## Limits
 
-- The replay uses the ordinary stop and trailing stop only. It does not yet model Broker B's fade profit lock at the opposite
-  fade level (5 Oct 2026), nor (since 9 Oct 2026) the fade exit rule: fades have no ordinary trail before that lock and a hard stop capped
-  at $15 (`broker.FADE_STOP_LOSS_CAP`). So for `TA-Zone-*` trades the live exit can differ a lot from the replay, and the advice
-  (tuned on the ordinary trail, which now applies to breakouts and manual trades only) is less reliable for them.
+- **Fades are replayed with their own exit rule (10 Oct 2026).** A Broker B `TA-Zone-*` trade has a hard stop capped at $15 (`config.FADE_STOP_LOSS_CAP`); when its opposite
+  fade level (the lock level) is known and within $15 of the entry (`config.FADE_NO_TRAIL_MAX_LOCK_DISTANCE`) it has no ordinary trailing stop until a bar reaches that level,
+  then a stop at least that level that trails $5 behind the best price (`config.FADE_LOCK_TRAIL_DISTANCE`). A fade with a further or unknown level keeps the ordinary trail
+  (and still locks at the level when known). This is the same rule `broker._scan_exit_crossing(fade=True)` runs live (parity checked on 4,000 random paths). The grid's
+  activation and distance therefore drive Broker A, breakouts and the fades without a near level, and the report says how many trades were fades. The lock level is the
+  opposite level of the latest forecast written before the trade closed (else the one it opened under), a static stand-in for the level each live poll saw, so a trade that
+  ran across a new TA run is approximate.
 - With dozens of trades the advice is a lean, not proof. A different market (gold has been trending down
   through this period) can reverse it.
 - Trades that were blocked at the time cannot be replayed; only the trades that really happened are known.

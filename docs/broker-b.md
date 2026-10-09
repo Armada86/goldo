@@ -72,15 +72,20 @@ profit, and then trails $5 behind the best price. If price comes back through th
 from 4164.37 that reaches the 4150 support has 4150 as its stop (+$14.37), then 5 above each new low. Breakout trades keep the
 ordinary trail.
 
-**Fades skip the ordinary trail until the lock (from 9 Oct 2026, fade rules only):** B #61 sold the 4183.93 resistance and was trailed
-out at -$6.21 (the $3/$10 trail had tightened the $20 stop to about $6 after a +$4 move) before gold fell $14 to the 4170.60 support. So a
-`TA-Zone-*` trade now has **no ordinary trailing stop** while its opposite level is known: only the hard stop protects it until price reaches
-that level, then the lock above takes over. The hard stop is **capped at $15** for fades (`broker.FADE_STOP_LOSS_CAP`; `min(stop loss, 15)`, so
-`make SL` below 15 still applies). A fade whose opposite level can't be read keeps the ordinary trail (and the cap). Breakouts and
-Telegram-opened trades are unchanged. Replay of B #54-61 on FOREX.com bars with the real exit code (one position at a time): +$0.31 with the old
-rule, +$42.00 with the new one (a $9 forecast-stop cap scored only +$15.88: gold often pokes $9 past a level before reversing). Cost: a fade that
-runs +$10 and reverses now gives it all back to the hard stop (#59: -$15 instead of -$6.14) -- a later, wider fade trail (e.g. activate +8, follow 8)
-is untested.
+**Fades with a near lock level skip the ordinary trail (from 9 Oct 2026; near-only since 10 Oct, fade rules only):** B #61 sold the 4183.93 resistance and was
+trailed out at -$6.21 (the $3/$10 trail had tightened the $20 stop to about $6 after a +$4 move) before gold fell $14 to the support. So a `TA-Zone-*` trade whose
+opposite (lock) level is **within $15 of the entry** (`config.FADE_NO_TRAIL_MAX_LOCK_DISTANCE`) has **no ordinary trailing stop**: only the hard stop protects it
+until price reaches that level, then the lock above takes over. A fade whose lock level is further away, or can't be read, keeps the ordinary trail (and, when known,
+still locks at that level). Every fade's hard stop is **capped at $15** (`broker.FADE_STOP_LOSS_CAP`; `min(stop loss, 15)`, so `make SL` below 15 still applies).
+Breakouts and Telegram-opened trades are unchanged.
+
+**Why the $15 cutoff (10 Oct 2026):** the first version (9 Oct) dropped the ordinary trail at any lock distance. SLA/BRA can now replay it: over all 60 closed trades
+(43 fades; 15 on bid/ask, 45 on Twelve Data mid; one position at a time; lock level = the opposite level of the latest forecast at close, a static approximation) at the
+live $20 / $3 / $10 settings: plain trail with no lock +$148; lock + ordinary trail (the 5-9 Oct live rule) +$187; no trail at any distance **+$62**; no trail only when the
+lock level is within $15 **+$194.5**. The no-trail version only won on the last 8 trades: on older forecasts the opposite level was often $20-40 away and a fade with no trail
+gave back everything on the way there (#3, #41, #17, #1 lost $20-29 each versus the ordinary trail). Cutoffs of $20-30 scored +$145-154, so $15 is the best of those tried, picked on
+60 trades (8 recent, 52 in a different regime, 45 mid-priced) -- a start, not a calibration. B #54-61 replay: +$0.31 with the old rule, +$42.00 with this one (all their lock levels
+are within $15). Cost that remains: a near fade that runs +$10 and reverses still gives it back to the hard stop (#59: -$15 instead of -$6.14).
 The opposite level is read from the **latest** forecast, so if a newer TA run moves it the lock follows (a level not beyond the entry
 in the trade's favour is ignored).
 

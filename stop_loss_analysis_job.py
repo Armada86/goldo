@@ -22,10 +22,12 @@ from dotenv import load_dotenv
 
 import broker
 import stop_loss_analysis as sla
+from broker_b import FADE_OPPOSITE_SCENARIO, _entry_price_and_invalidation
 from notifier import send_telegram_message
 from retry import with_retries
 from storage import (
     get_closed_trades_for_analysis,
+    get_ta_forecasts_since,
     insert_stop_settings_history,
     set_stop_loss_override,
     set_trailing_stop_override,
@@ -101,8 +103,37 @@ def _plausible(trade, bars) -> bool:
     return gap <= MAX_ENTRY_GAP_MINUTES and abs(float(first["open"]) - trade["entry_price"]) <= MAX_ENTRY_PRICE_DISTANCE
 
 
-def build_paths(trades, forex, td):
-    """TradePath per trade, plus counts of how many used bid/ask, mid, or had no data."""
+def fade_lock_level(trade, forecasts):
+    """The price of a Broker B fade trade's opposite fade level (its lock level, see broker_b._fade_lock_level()), or None for
+    any other trade or if no usable level is found. Uses the latest forecast written at or before the trade's close (or, for a
+    touch that never traded, before 5 PM ET that day), falling back to the forecast the trade opened under; a level that is not
+    beyond the entry in the trade's favour is ignored. The live bot reads the latest forecast at every poll, so for a trade that
+    ran across a new TA run this is the level in force at the end, an approximation of what each poll saw."""
+    opposite = FADE_OPPOSITE_SCENARIO.get(trade.get("rule_name"))
+    if opposite is None or not forecasts:
+        return None
+    entry = float(trade["entry_price"])
+    as_of = trade.get("close_ts") or sla.horizon_end(trade["open_ts"])
+    sources = [f for f in forecasts if f["ts"] <= as_of][-1:]
+    own = next((f for f in forecasts if f["id"] == trade.get("ta_forecast_id")), None)
+    if own is not None:
+        sources.append(own)
+    for forecast in sources:
+        try:
+            scenario = next(s for s in forecast["levels"]["scenarios"] if s.get("name") == opposite)
+            level = float(_entry_price_and_invalidation(opposite, scenario)[0])
+        except Exception:
+            continue
+        if (level - entry if trade["trade_type"] == "Buy" else entry - level) > 0:
+            return level
+    return None
+
+
+def build_paths(trades, forex, td, forecasts=None):
+    """TradePath per trade, plus counts of how many used bid/ask, mid, or had no data. `forecasts` (ta_forecasts rows as
+    {id, ts, levels}, oldest first) lets Broker B fade trades (TA-Zone-*) be replayed with their own exit rule -- capped stop, no
+    ordinary trail before the lock level -- see stop_loss_analysis.py; without it a fade is still flagged (capped stop) but has
+    no lock level, so it keeps the ordinary trail."""
     paths, n_bid_ask, n_mid, n_skipped = [], 0, 0, 0
     forex_start = forex[0]["datetime"].iloc[0] if forex else None
     for t in trades:
@@ -112,7 +143,9 @@ def build_paths(trades, forex, td):
         else:
             frame, source = td, "mid"
         bars = None if frame is None else frame[(frame["datetime"] > t["open_ts"]) & (frame["datetime"] <= sla.horizon_end(t["open_ts"]))]
-        path = sla.build_path(label, t["broker"], t["trade_type"], t["entry_price"], t["open_ts"], bars, source)
+        fade = t.get("rule_name") in FADE_OPPOSITE_SCENARIO
+        path = sla.build_path(label, t["broker"], t["trade_type"], t["entry_price"], t["open_ts"], bars, source,
+                              fade, fade_lock_level(t, forecasts) if fade else None)
         if path is not None and not _plausible(t, bars):
             path = None  # a hole in the price data (or bars that do not match the trade): better to skip than to replay garbage
         if path is None:
@@ -138,7 +171,12 @@ def run(dry_run: bool = False) -> None:
     first_open = trades[0]["open_ts"]
     forex = fetch_forex_bars()
     td = fetch_twelve_data_bars(first_open - timedelta(minutes=5), now)
-    paths, n_bid_ask, n_mid, n_skipped = build_paths(trades, forex, td)
+    try:
+        forecasts = get_ta_forecasts_since(first_open)
+    except Exception as e:  # without forecasts the fades just keep the ordinary trail in the replay
+        print(f"[sla] could not read the forecasts for the fade lock levels: {e}")
+        forecasts = []
+    paths, n_bid_ask, n_mid, n_skipped = build_paths(trades, forex, td, forecasts)
     if len(paths) < sla.MIN_TRADES:
         message = f"{sla.SLA_PREFIX}STOP LOSS ANALYSIS: price data was available for only {len(paths)} trades, not enough for advice."
         print(message) if dry_run else send_telegram_message(message)

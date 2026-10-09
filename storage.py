@@ -950,6 +950,17 @@ def get_latest_ta_forecast() -> dict | None:
     }
 
 
+def get_ta_forecasts_since(since: datetime) -> list[dict]:
+    """Every ta_forecasts row written at or after `since` minus a day (so the row in force at `since` is included), oldest
+    first, as {id, ts, levels}. Used by the stop loss / block rules analyses to find a fade trade's lock level."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, ts, levels FROM ta_forecasts WHERE ts >= %s - INTERVAL '1 day' ORDER BY ts",
+            (since,),
+        )
+        return [{"id": r[0], "ts": r[1], "levels": r[2]} for r in cur.fetchall()]
+
+
 def get_prior_ta_forecasts(forecast: dict) -> list[dict]:
     """Earlier ta_forecasts rows from the same ET forecast_date as `forecast`, newest first, as {id, levels}. Used by
     broker_b.py to carry a level's trade history over to a later run that kept the same level."""
@@ -1119,18 +1130,20 @@ def set_trailing_stop_override(activation: float, distance: float) -> None:
 def get_closed_trades_for_analysis(since: datetime) -> list[dict]:
     """Every closed Broker A and Broker B trade opened at or after `since`, oldest first, for the
     stop loss analysis (stop_loss_analysis_job.py). Only the entry matters to the replay, so trades that
-    were closed by hand or by a "stop trading" command are included like any other."""
+    were closed by hand or by a "stop trading" command are included like any other. `close_ts` and (Broker B only, else
+    None) `ta_forecast_id` let the analyses find a fade trade's lock level (the opposite fade level of the forecast in force)."""
     rows: list[dict] = []
     with get_connection() as conn, conn.cursor() as cur:
-        for table, broker in (("trades", "A"), ("broker_b_trades", "B")):
+        for table, broker, forecast_col in (("trades", "A", "NULL"), ("broker_b_trades", "B", "ta_forecast_id")):
             cur.execute(
-                f"SELECT id, rule_name, trade_type, entry_price, open_ts FROM {table} "
+                f"SELECT id, rule_name, trade_type, entry_price, open_ts, close_ts, {forecast_col} FROM {table} "
                 "WHERE status = 'Closed' AND open_ts >= %s ORDER BY open_ts",
                 (since,),
             )
-            for trade_id, rule_name, trade_type, entry_price, open_ts in cur.fetchall():
+            for trade_id, rule_name, trade_type, entry_price, open_ts, close_ts, ta_forecast_id in cur.fetchall():
                 rows.append({"broker": broker, "id": trade_id, "rule_name": rule_name, "trade_type": trade_type,
-                             "entry_price": float(entry_price), "open_ts": open_ts})
+                             "entry_price": float(entry_price), "open_ts": open_ts, "close_ts": close_ts,
+                             "ta_forecast_id": ta_forecast_id})
     rows.sort(key=lambda r: r["open_ts"])
     return rows
 
@@ -1170,13 +1183,13 @@ def get_broker_b_blocked_touches(since: datetime) -> list[dict]:
     "touch too old" notices are left out: no threshold here would have changed them."""
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "SELECT rule_name, trigger_price, reasons, touch_ts FROM broker_b_blocked "
+            "SELECT rule_name, trigger_price, reasons, touch_ts, ta_forecast_id FROM broker_b_blocked "
             "WHERE touch_ts IS NOT NULL AND touch_ts >= %s AND (reasons ILIKE '%%DXY%%' OR reasons ILIKE '%%RSI(14)%%' "
             "OR reasons ILIKE '%%ADX(14)%%' OR reasons ILIKE '%%volatility%%' OR reasons ILIKE '%%recent spike%%') ORDER BY touch_ts",
             (since,),
         )
         rows = cur.fetchall()
-    return [{"rule_name": r[0], "trigger_price": float(r[1]), "reasons": r[2], "touch_ts": r[3]} for r in rows]
+    return [{"rule_name": r[0], "trigger_price": float(r[1]), "reasons": r[2], "touch_ts": r[3], "ta_forecast_id": r[4]} for r in rows]
 
 
 def get_readings_since(name: str, since: datetime) -> list[tuple[datetime, float]]:
