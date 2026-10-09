@@ -71,6 +71,16 @@ level (a sell reaching the buy fade support, a buy reaching the sell fade resist
 profit, and then trails $5 behind the best price. If price comes back through the level, the trade closes there. For example, a sell
 from 4164.37 that reaches the 4150 support has 4150 as its stop (+$14.37), then 5 above each new low. Breakout trades keep the
 ordinary trail.
+
+**Fades skip the ordinary trail until the lock (from 9 Oct 2026, fade rules only):** B #61 sold the 4183.93 resistance and was trailed
+out at -$6.21 (the $3/$10 trail had tightened the $20 stop to about $6 after a +$4 move) before gold fell $14 to the 4170.60 support. So a
+`TA-Zone-*` trade now has **no ordinary trailing stop** while its opposite level is known: only the hard stop protects it until price reaches
+that level, then the lock above takes over. The hard stop is **capped at $15** for fades (`broker.FADE_STOP_LOSS_CAP`; `min(stop loss, 15)`, so
+`make SL` below 15 still applies). A fade whose opposite level can't be read keeps the ordinary trail (and the cap). Breakouts and
+Telegram-opened trades are unchanged. Replay of B #54-61 on FOREX.com bars with the real exit code (one position at a time): +$0.31 with the old
+rule, +$42.00 with the new one (a $9 forecast-stop cap scored only +$15.88: gold often pokes $9 past a level before reversing). Cost: a fade that
+runs +$10 and reverses now gives it all back to the hard stop (#59: -$15 instead of -$6.14) -- a later, wider fade trail (e.g. activate +8, follow 8)
+is untested.
 The opposite level is read from the **latest** forecast, so if a newer TA run moves it the lock follows (a level not beyond the entry
 in the trade's favour is ignored).
 
@@ -78,7 +88,7 @@ in the trade's favour is ignored).
 ## Good to know
 
 - **Spike gate (live since 8 Oct 2026):** `broker_b._spike_confirms()` blocks an entry when the last 15 one-minute bars' entry-side range is at least
-  `spike_fade` x ATR(14) for the fade rules (default 2.5) or `spike_breakout` x ATR(14) for the breakout rules (default 2.0). ATR lags a sudden spike
+  `spike_fade` x ATR(14) for the fade rules (default 3.0) or `spike_breakout` x ATR(14) for the breakout rules (default 2.0). **`spike_fade` raised 2.5 -> 3.0 on 9 Oct 2026**: a 4170.60 support fade (range $15.89 = 2.59x ATR, mostly the drop into the level) was blocked and the bounce was +$13 (replayed +$13.33); 3.0 still blocks the one real spike in B #54-61 (#59, 3.28x). ATR lags a sudden spike
   (B #48: range 12.5 vs ATR 6.08); fades get the looser multiple because they enter after a run into the level and want the reversal. The two
   multiples live in `block_rules` and `start BRA` tunes them. Chosen from `python spike_gate_replay.py` (35 trades: split 2.5/2.0 would have blocked 5 losers, no winners,
   +$51 on +$26) -- hand-picked from a small sample, so watch BRA's reports.

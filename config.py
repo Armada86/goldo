@@ -183,8 +183,10 @@ ATR_HIGH_VOLATILITY_THRESHOLD = 12.0
 # high-low range is at/above this multiple of ATR(14) on 15-min candles -- ATR lags a sudden spike (B #48: range 12.5 vs ATR 6.08
 # = 2.06x, lost the full stop). Fades (TA-Zone-*) trade the reversal AFTER a run into the level, so they get the looser gate (only
 # the extreme spikes, 2.6x+ in the 35-trade replay of 8 Oct, lost money); breakouts follow the move and get the tighter one.
+# Fade multiple raised 2.5 -> 3.0 on 9 Oct 2026: a textbook 4170.60 support fade (range $15.89 = 2.59x ATR, mostly the drop INTO the level)
+# was blocked and the bounce was +$13. A 3.0 limit still blocks the one real spike in the B #54-61 sample (#59, 3.28x).
 # Defaults/fallback only: the live values come from the block_rules table, which `start BRA` tunes (see block_rules.py).
-SPIKE_FADE_ATR_MULTIPLE = 2.5
+SPIKE_FADE_ATR_MULTIPLE = 3.0
 SPIKE_BREAKOUT_ATR_MULTIPLE = 2.0
 SPIKE_RANGE_BARS = 15  # one-minute bars in the range window
 # RSI(14) exhaustion on the two FADE rules (the breakout rules already use RSI_OVERBOUGHT/OVERSOLD above):

@@ -98,7 +98,7 @@ the round-trip back down, all inside the 9-11pm ET window, the market's thinnest
 
 6. **Spike gate, all four rules** (8 Oct 2026, `_spike_confirms()`): blocks when the last 15 one-minute bars' entry-side high-low range
    (`_entry_range()`, the same number entry_context logs as `range_15m_bid/ask`) is >= `spike_fade` x ATR(14) for the two fade rules
-   (default `SPIKE_FADE_ATR_MULTIPLE` 2.5) or >= `spike_breakout` x ATR(14) for the two breakout rules (default 2.0). ATR on 15-min
+   (default `SPIKE_FADE_ATR_MULTIPLE` 3.0, was 2.5 until 9 Oct 2026) or >= `spike_breakout` x ATR(14) for the two breakout rules (default 2.0). ATR on 15-min
    candles lags a sudden spike (B #48: range 12.5 vs ATR 6.08); fades get the looser multiple because they enter after a run into the
    level and bet on the reversal. Chosen from a 35-trade replay (`spike_gate_replay.py`), so `start BRA` re-tunes both. Same ⛔ notice.
 
@@ -738,7 +738,9 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
         return
 
     if open_trade is not None:
-        exit_result = _find_exit(open_trade, gold_price, now, _fade_lock_level(open_trade))
+        exit_result = _find_exit(
+            open_trade, gold_price, now, _fade_lock_level(open_trade), fade=open_trade.get("rule_name") in FADE_OPPOSITE_SCENARIO
+        )
         if exit_result is not None:
             exit_price, exit_ts, pnl = exit_result
             close_trade_row_b(open_trade["id"], exit_price, exit_ts, pnl)
