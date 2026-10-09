@@ -179,6 +179,10 @@ ADX_CHOP_FLOOR = 20
 # (ATR was ~$5-10 on earlier days, $11-13 on all five of Friday's trades). Blocks every Broker B rule.
 ATR_PERIOD = 14
 ATR_HIGH_VOLATILITY_THRESHOLD = 12.0
+# Broker B fade exit rule (see broker.py): once a TA-Zone-* trade reaches its opposite fade level its stop locks there and trails
+# this many $ behind the best price; before that it has no ordinary trailing stop and its hard stop is capped at the second value.
+FADE_LOCK_TRAIL_DISTANCE = 5.0
+FADE_STOP_LOSS_CAP = 15.0
 # Spike gate (live since 8 Oct 2026, Broker B, split by rule type): blocks an entry when the last 15 one-minute bars' entry-side
 # high-low range is at/above this multiple of ATR(14) on 15-min candles -- ATR lags a sudden spike (B #48: range 12.5 vs ATR 6.08
 # = 2.06x, lost the full stop). Fades (TA-Zone-*) trade the reversal AFTER a run into the level, so they get the looser gate (only

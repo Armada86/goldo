@@ -24,6 +24,7 @@ from notifier import send_telegram_message
 from storage import (
     get_broker_b_blocked_touches,
     get_closed_trades_for_analysis,
+    get_ta_forecasts_since,
     get_readings_since,
     insert_block_rules_row,
 )
@@ -102,7 +103,8 @@ def build_events(trades: list[dict], blocked: list[dict], first_ts, now) -> tupl
     """(events, n_skipped): paths and entry conditions for every trade and blocked touch."""
     raw = [
         {"broker": "B", "id": t["id"], "trade_type": t["trade_type"], "entry_price": t["entry_price"],
-         "open_ts": t["open_ts"], "rule_name": t["rule_name"], "was_trade": True,
+         "open_ts": t["open_ts"], "close_ts": t.get("close_ts"), "ta_forecast_id": t.get("ta_forecast_id"),
+         "rule_name": t["rule_name"], "was_trade": True,
          "label": f"B #{t['id']} {t['rule_name']}"}
         for t in trades
     ]
@@ -111,7 +113,7 @@ def build_events(trades: list[dict], blocked: list[dict], first_ts, now) -> tupl
             continue
         raw.append({"broker": "B", "id": f"blocked-{i}", "trade_type": RULE_TO_SCENARIO[b["rule_name"]][1],
                     "entry_price": b["trigger_price"], "open_ts": b["touch_ts"], "rule_name": b["rule_name"],
-                    "was_trade": False, "label": f"blocked {b['rule_name']} {b['touch_ts']:%d %b %H:%M}Z"})
+                    "ta_forecast_id": b.get("ta_forecast_id"), "was_trade": False, "label": f"blocked {b['rule_name']} {b['touch_ts']:%d %b %H:%M}Z"})
     raw.sort(key=lambda r: r["open_ts"])
     if not raw:
         return [], 0
@@ -119,11 +121,16 @@ def build_events(trades: list[dict], blocked: list[dict], first_ts, now) -> tupl
     forex = sla_job.fetch_forex_bars()
     td = sla_job.fetch_twelve_data_bars(raw[0]["open_ts"] - timedelta(minutes=RANGE_WINDOW_MINUTES + 5), now)
     frame = indicator_frame()
+    try:
+        forecasts = get_ta_forecasts_since(raw[0]["open_ts"])
+    except Exception as e:  # without forecasts the fades just keep the ordinary trail in the replay
+        print(f"[bra] could not read the forecasts for the fade lock levels: {e}")
+        forecasts = []
     dxy = get_readings_since("dxy", raw[0]["open_ts"] - timedelta(minutes=DXY_READINGS_MINUTES + 5))
 
     events, n_skipped = [], 0
     for r in raw:
-        paths, _, _, skipped = sla_job.build_paths([r], forex, td)
+        paths, _, _, skipped = sla_job.build_paths([r], forex, td, forecasts)
         if skipped or not paths:
             n_skipped += 1
             continue

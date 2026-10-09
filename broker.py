@@ -64,6 +64,8 @@ from zoneinfo import ZoneInfo
 from config import (
     ADX_CHOP_THRESHOLD,
     ADX_PERIOD,
+    FADE_LOCK_TRAIL_DISTANCE,
+    FADE_STOP_LOSS_CAP,
     INTRAHOUR_SWING_ALERT_THRESHOLD,
     RSI_OVERBOUGHT_THRESHOLD,
     RSI_OVERSOLD_THRESHOLD,
@@ -103,15 +105,12 @@ TRAILING_STOP_DISTANCE = 7.0
 # How many minutes of 1-min candles the exit check pulls each poll -- comfortably more than one
 # 5-min poll interval, so a slightly late-firing poll still has full coverage back to the last
 # check. See _scan_exit_crossing() / module docstring.
-# Broker B fade trades only (5 Oct 2026): once price reaches the OPPOSITE fade level (a TA-Zone-sell reaching the forecast's first
-# support, a TA-Zone-buy reaching its first resistance), the stop jumps to that level (locking that profit) and then trails this
-# many $ behind the best price, so it is never worse than the level; price coming back through the level closes the trade there.
-FADE_LOCK_TRAIL_DISTANCE = 5.0
-# Broker B fade trades only (9 Oct 2026, after #61 sold the 4183.93 resistance and was trailed out at -$6.21 by a $3/$10 trail
-# that tightened a $20 stop to ~$6 after a +$4 move, then gold fell $14 to the support): a fade has no ordinary trailing stop
-# until it reaches its opposite level (the lock above takes over from there), and its hard stop is capped at this many $.
-# A fade whose lock level is unknown keeps the ordinary trail. Replay of B #54-61: +$0.31 -> ~+$42 (docs/broker-b.md).
-FADE_STOP_LOSS_CAP = 15.0
+# FADE_LOCK_TRAIL_DISTANCE and FADE_STOP_LOSS_CAP (Broker B fade exit rule, imported from config.py so the stop loss / block rules
+# analyses share them without importing this module): once a fade reaches its OPPOSITE fade level (a TA-Zone-sell reaching the
+# forecast's first support, a TA-Zone-buy its first resistance, 5 Oct 2026) the stop jumps to that level and trails
+# FADE_LOCK_TRAIL_DISTANCE behind the best price; before that (9 Oct 2026, after #61 was trailed out at -$6.21 by a $3/$10 trail
+# just before gold fell $14 to the support) a fade has no ordinary trailing stop and its hard stop is capped at FADE_STOP_LOSS_CAP.
+# A fade whose lock level is unknown keeps the ordinary trail. Replay of B #54-61: +$0.31 -> +$42 (docs/broker-b.md).
 EXIT_CANDLE_LOOKBACK_MINUTES = 20
 EXIT_CANDLE_MAX_BARS = 3000  # the trailing stop needs every bar since entry, so a long-held trade fetches more
 

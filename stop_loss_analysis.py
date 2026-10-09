@@ -13,6 +13,12 @@ raise the peak; the exit fills at the stop level. A trade the stop never catches
 The replay is vectorised (numpy) so a few hundred settings x tens of trades is instant; its parity with the live
 scan is checked in the tests/verification, not assumed.
 
+Broker B fades (TA-Zone-* trades, 9 Oct 2026) use a different exit, which the replay models for the paths flagged `fade`
+(see TradePath, build_path() and broker._scan_exit_crossing(fade=True)): the hard stop is capped at FADE_STOP_LOSS_CAP and, when
+the trade's lock level (the opposite fade level) is known, the ordinary trailing stop is OFF until a bar reaches that level; from
+the next bar the stop is at least that level's profit and trails FADE_LOCK_TRAIL_DISTANCE behind the best price. A fade without a
+lock level keeps the ordinary trail (with the capped stop). The grid's activation / distance therefore only drive the other trades.
+
 One position at a time: the brokers only ever hold one trade each (Broker A and Broker B are independent), so
 the replay is sequential per broker. A trade is skipped (counts 0) if the previous simulated trade of that broker
 is still open when it enters, which is what stops a wide trailing stop from "holding" a runner for hours while
@@ -34,6 +40,8 @@ from itertools import product
 from zoneinfo import ZoneInfo
 
 import numpy as np
+
+from config import FADE_LOCK_TRAIL_DISTANCE, FADE_STOP_LOSS_CAP
 
 DISPLAY_TZ = ZoneInfo("America/New_York")
 SLA_PREFIX = "\U0001F4CA "  # bar chart -- distinct from the gold (yellow), RSI (orange), broker (blue) and release (purple) prefixes
@@ -66,11 +74,15 @@ class TradePath:
     fav: np.ndarray  # best move in the trade's favour within each bar
     last_pnl: float  # P/L if marked to the last bar (used when the stop is never hit)
     source: str  # "bid/ask" or "mid"
+    fade: bool = False  # Broker B TA-Zone-* trade: capped hard stop, and (with a lock level) no ordinary trail before the lock
+    lock_profit: float | None = None  # profit in $ at the fade's opposite level (the lock level), None if unknown / not in the trade's favour
 
 
-def build_path(label: str, broker: str, trade_type: str, entry: float, open_ts, bars, source: str):
+def build_path(label: str, broker: str, trade_type: str, entry: float, open_ts, bars, source: str,
+               fade: bool = False, lock_level: float | None = None):
     """TradePath for a trade, from bars that are already side-correct and strictly after the open
-    (columns: datetime, high, low, close). None if there are no bars to replay."""
+    (columns: datetime, high, low, close). None if there are no bars to replay. `fade` / `lock_level`: a Broker B TA-Zone-*
+    trade and the price of its opposite fade level (None if unknown); a level that is not beyond the entry in the trade's favour is ignored."""
     if bars is None or len(bars) == 0:
         return None
     high = bars["high"].to_numpy(dtype=float)
@@ -82,7 +94,11 @@ def build_path(label: str, broker: str, trade_type: str, entry: float, open_ts, 
         adv, fav, last = high - entry, entry - low, entry - last_close
     times = bars["datetime"].dt.tz_convert("UTC").dt.tz_localize(None).to_numpy(dtype="datetime64[ns]")
     open_np = np.datetime64(open_ts.astimezone(timezone.utc).replace(tzinfo=None), "ns")
-    return TradePath(label, broker, open_np, times, adv, fav, float(last), source)
+    lock_profit = None
+    if fade and lock_level is not None:
+        profit = (float(lock_level) - entry) if trade_type == "Buy" else (entry - float(lock_level))
+        lock_profit = profit if profit > 0 else None
+    return TradePath(label, broker, open_np, times, adv, fav, float(last), source, bool(fade), lock_profit)
 
 
 def replay(path: TradePath, stop_loss: float, activation: float, distance: float, target: float | None = None):
@@ -94,7 +110,19 @@ def replay(path: TradePath, stop_loss: float, activation: float, distance: float
     peak_before = np.zeros(n)
     if n > 1:
         peak_before[1:] = np.maximum.accumulate(np.maximum(fav, 0.0))[:-1]
+    fade = path.fade and target is None  # the old fixed-target rule (a reference only) never had the fade exit rule
+    if fade:  # Broker B fade exit rule: capped hard stop, no ordinary trail while there is a lock level to reach
+        stop_loss = min(stop_loss, FADE_STOP_LOSS_CAP)
+        if path.lock_profit is not None:
+            activation = distance = float("inf")
     offset = np.where(peak_before >= activation, np.maximum(-stop_loss, peak_before - distance), -stop_loss)
+    if fade and path.lock_profit is not None:
+        reached = fav >= path.lock_profit
+        if reached.any():  # the lock applies from the bar AFTER the first one that reached the level
+            first = int(np.argmax(reached)) + 1
+            offset[first:] = np.maximum(
+                np.maximum(offset[first:], path.lock_profit), peak_before[first:] - FADE_LOCK_TRAIL_DISTANCE
+            )
     stop_hit = adv >= -offset
     stop_i = int(np.argmax(stop_hit)) if stop_hit.any() else n
     tp_i = n
@@ -200,6 +228,8 @@ def analyse(paths, current_stop_loss: float, current_activation: float, current_
         current_stop_loss, current_activation, current_distance)
     return {
         "n": len(paths),
+        "n_fade": sum(1 for p in paths if p.fade),
+        "n_fade_locked": sum(1 for p in paths if p.fade and p.lock_profit is not None),
         "recommended": rec,
         "per_stop_loss": per_sl,
         "alternatives": alternatives,
@@ -253,8 +283,15 @@ def format_report(result: dict, first_ts, last_ts, n_bid_ask: int, n_mid: int, n
         f"{result['n']} closed trades, {first_ts.astimezone(DISPLAY_TZ):%d %b} - {last_ts.astimezone(DISPLAY_TZ):%d %b %Y} ET "
         f"({n_bid_ask} on FOREX.com bid/ask prices, {n_mid} on Twelve Data mid prices"
         + (f", {n_skipped} skipped, no price data" if n_skipped else "") + ")",
-        "",
     ]
+    if result.get("n_fade"):
+        lines.append(
+            f"{result['n_fade']} are Broker B fade trades, replayed with their own exit rule (stop capped at ${_num(FADE_STOP_LOSS_CAP)}, "
+            f"no trailing stop until the opposite level, then ${_num(FADE_LOCK_TRAIL_DISTANCE)} behind the best price; "
+            f"{result['n_fade'] - result['n_fade_locked']} without a known level keep the normal trail). The settings below drive the other "
+            f"{result['n'] - result['n_fade']} trades."
+        )
+    lines.append("")
     if result["change"]:
         lines.append("ADVICE: CHANGE")
     elif result["gain"] >= result["needed_gain"] and rec["gain_without_best"] <= 0:

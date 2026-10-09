@@ -9,7 +9,8 @@ touches that one of these filters blocked (broker_b_blocked; entered at the leve
 time, an approximation: the stored time is when the poll saw the bar, not the exact touch). Each event carries the
 conditions at that moment (RSI/ADX/ATR(14) on 15-min candles, DXY's 15-min move, the entry-side range of the last 15 one-minute bars) and a price path from
 stop_loss_analysis.build_path(), replayed with the SAME exit rule the brokers run live and the stop / trailing
-settings currently in force.
+settings currently in force. Broker B fade events (TA-Zone-*) get their own exit rule (stop capped at config.FADE_STOP_LOSS_CAP, no
+ordinary trail before the opposite fade level, then the lock; 9 Oct 2026), exactly as stop_loss_analysis.replay() models it.
 
 A candidate set of rules is scored by running the REAL gate functions (broker_b._dxy_confirms_changes() / _adx_confirms() /
 _rsi_confirms() / _atr_confirms() / _spike_confirms()) on every event: events that pass are taken (one position at a time, like
@@ -252,7 +253,7 @@ def format_report(result: dict, first_ts, last_ts, n_skipped: int = 0) -> str:
     lines += [
         "",
         f"Confidence: {confidence(result['n_events'])}.",
-        "Every touch is replayed with the live exit rule and the stop settings above, one position at a time. Blocked touches are "
+        "Every touch is replayed with the live exit rule (fades: stop capped at $15, no trailing stop before the opposite level) and the stop settings above, one position at a time. Blocked touches are "
         "replayed from the level price at the recorded touch time (approximate). Each value is scored with its neighbours, and a "
         "change needs to still win without its single best event. A rule moves at most one grid step per run, and switching a block off needs a bigger win. Touches no filter ever recorded can't be judged.",
     ]
