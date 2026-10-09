@@ -15,9 +15,10 @@ scan is checked in the tests/verification, not assumed.
 
 Broker B fades (TA-Zone-* trades, 9 Oct 2026) use a different exit, which the replay models for the paths flagged `fade`
 (see TradePath, build_path() and broker._scan_exit_crossing(fade=True)): the hard stop is capped at FADE_STOP_LOSS_CAP and, when
-the trade's lock level (the opposite fade level) is known, the ordinary trailing stop is OFF until a bar reaches that level; from
-the next bar the stop is at least that level's profit and trails FADE_LOCK_TRAIL_DISTANCE behind the best price. A fade without a
-lock level keeps the ordinary trail (with the capped stop). The grid's activation / distance therefore only drive the other trades.
+the trade's lock level (the opposite fade level) is known and within FADE_NO_TRAIL_MAX_LOCK_DISTANCE of the entry, the ordinary trailing
+stop is OFF until a bar reaches that level; from the next bar the stop is at least that level's profit and trails
+FADE_LOCK_TRAIL_DISTANCE behind the best price. A fade whose lock level is unknown or further away keeps the ordinary trail (with the
+capped stop, and still the lock at that level when known). The grid's activation / distance therefore only drive the other trades.
 
 One position at a time: the brokers only ever hold one trade each (Broker A and Broker B are independent), so
 the replay is sequential per broker. A trade is skipped (counts 0) if the previous simulated trade of that broker
@@ -41,7 +42,7 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 
-from config import FADE_LOCK_TRAIL_DISTANCE, FADE_STOP_LOSS_CAP
+from config import FADE_LOCK_TRAIL_DISTANCE, FADE_NO_TRAIL_MAX_LOCK_DISTANCE, FADE_STOP_LOSS_CAP
 
 DISPLAY_TZ = ZoneInfo("America/New_York")
 SLA_PREFIX = "\U0001F4CA "  # bar chart -- distinct from the gold (yellow), RSI (orange), broker (blue) and release (purple) prefixes
@@ -113,7 +114,7 @@ def replay(path: TradePath, stop_loss: float, activation: float, distance: float
     fade = path.fade and target is None  # the old fixed-target rule (a reference only) never had the fade exit rule
     if fade:  # Broker B fade exit rule: capped hard stop, no ordinary trail while there is a lock level to reach
         stop_loss = min(stop_loss, FADE_STOP_LOSS_CAP)
-        if path.lock_profit is not None:
+        if path.lock_profit is not None and path.lock_profit <= FADE_NO_TRAIL_MAX_LOCK_DISTANCE:
             activation = distance = float("inf")
     offset = np.where(peak_before >= activation, np.maximum(-stop_loss, peak_before - distance), -stop_loss)
     if fade and path.lock_profit is not None:
@@ -230,6 +231,7 @@ def analyse(paths, current_stop_loss: float, current_activation: float, current_
         "n": len(paths),
         "n_fade": sum(1 for p in paths if p.fade),
         "n_fade_locked": sum(1 for p in paths if p.fade and p.lock_profit is not None),
+        "n_fade_no_trail": sum(1 for p in paths if p.fade and p.lock_profit is not None and p.lock_profit <= FADE_NO_TRAIL_MAX_LOCK_DISTANCE),
         "recommended": rec,
         "per_stop_loss": per_sl,
         "alternatives": alternatives,
@@ -287,9 +289,9 @@ def format_report(result: dict, first_ts, last_ts, n_bid_ask: int, n_mid: int, n
     if result.get("n_fade"):
         lines.append(
             f"{result['n_fade']} are Broker B fade trades, replayed with their own exit rule (stop capped at ${_num(FADE_STOP_LOSS_CAP)}, "
-            f"no trailing stop until the opposite level, then ${_num(FADE_LOCK_TRAIL_DISTANCE)} behind the best price; "
-            f"{result['n_fade'] - result['n_fade_locked']} without a known level keep the normal trail). The settings below drive the other "
-            f"{result['n'] - result['n_fade']} trades."
+            f"no trailing stop until the opposite level when it is within ${_num(FADE_NO_TRAIL_MAX_LOCK_DISTANCE)}, then "
+            f"${_num(FADE_LOCK_TRAIL_DISTANCE)} behind the best price; fades with a further or unknown level keep the normal trail). "
+            f"The settings below drive the other {result['n'] - result['n_fade']} trades and those fades."
         )
     lines.append("")
     if result["change"]:

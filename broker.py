@@ -65,6 +65,7 @@ from config import (
     ADX_CHOP_THRESHOLD,
     ADX_PERIOD,
     FADE_LOCK_TRAIL_DISTANCE,
+    FADE_NO_TRAIL_MAX_LOCK_DISTANCE,
     FADE_STOP_LOSS_CAP,
     INTRAHOUR_SWING_ALERT_THRESHOLD,
     RSI_OVERBOUGHT_THRESHOLD,
@@ -110,7 +111,7 @@ TRAILING_STOP_DISTANCE = 7.0
 # forecast's first support, a TA-Zone-buy its first resistance, 5 Oct 2026) the stop jumps to that level and trails
 # FADE_LOCK_TRAIL_DISTANCE behind the best price; before that (9 Oct 2026, after #61 was trailed out at -$6.21 by a $3/$10 trail
 # just before gold fell $14 to the support) a fade has no ordinary trailing stop and its hard stop is capped at FADE_STOP_LOSS_CAP.
-# A fade whose lock level is unknown keeps the ordinary trail. Replay of B #54-61: +$0.31 -> +$42 (docs/broker-b.md).
+# A fade whose lock level is unknown, or more than FADE_NO_TRAIL_MAX_LOCK_DISTANCE away, keeps the ordinary trail. Replay of B #54-61: +$0.31 -> +$42 (docs/broker-b.md).
 EXIT_CANDLE_LOOKBACK_MINUTES = 20
 EXIT_CANDLE_MAX_BARS = 3000  # the trailing stop needs every bar since entry, so a long-held trade fetches more
 
@@ -380,8 +381,9 @@ def _scan_exit_crossing(
     ordering when a single bar spans both. `lock_level` (Broker B fade trades, see FADE_LOCK_TRAIL_DISTANCE): once a bar has
     reached that price (the opposite fade level), from the NEXT bar on the stop is at least that level and trails
     FADE_LOCK_TRAIL_DISTANCE behind the best price, whichever is better for the trade. `fade` (Broker B TA-Zone-* trades, see
-    FADE_STOP_LOSS_CAP): the hard stop is capped at FADE_STOP_LOSS_CAP and, when there is a valid lock level, the ordinary
-    trailing stop is switched off -- the hard stop alone protects the trade until the lock level is reached."""
+    FADE_STOP_LOSS_CAP): the hard stop is capped at FADE_STOP_LOSS_CAP and, when there is a valid lock level within
+    FADE_NO_TRAIL_MAX_LOCK_DISTANCE of the entry, the ordinary trailing stop is switched off -- the hard stop alone protects the
+    trade until the lock level is reached. A further lock level keeps the ordinary trail (and still locks at that level)."""
     if stop_loss_distance is None:
         stop_loss_distance = stop_loss_threshold()
     if activation is None or distance is None:
@@ -396,8 +398,8 @@ def _scan_exit_crossing(
         lock_profit = (float(lock_level) - entry) if is_buy else (entry - float(lock_level))
         if lock_profit <= 0:
             lock_profit = None  # the level is not in the trade's favour: nothing to lock
-    if fade and lock_profit is not None:
-        activation = distance = float("inf")  # no ordinary trail before the lock level; the lock takes over there
+    if fade and lock_profit is not None and lock_profit <= FADE_NO_TRAIL_MAX_LOCK_DISTANCE:
+        activation = distance = float("inf")  # a near lock level: no ordinary trail before it, the lock takes over there
     locked = False
     for _, bar in candles.iterrows():
         offset = _exit_stop_offset(peak, stop_loss_distance, activation, distance)

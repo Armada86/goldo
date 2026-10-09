@@ -183,6 +183,10 @@ ATR_HIGH_VOLATILITY_THRESHOLD = 12.0
 # this many $ behind the best price; before that it has no ordinary trailing stop and its hard stop is capped at the second value.
 FADE_LOCK_TRAIL_DISTANCE = 5.0
 FADE_STOP_LOSS_CAP = 15.0
+# ... and that "no ordinary trail before the lock" applies only when the lock level is within this many $ of the entry (10 Oct 2026): a fade
+# whose opposite level is further away keeps the ordinary trail (plus the lock and the capped stop). Replay of 60 trades: +$62 with no trail
+# at any distance, +$187 with the ordinary trail always, +$194.5 with this $15 cutoff (docs/broker-b.md).
+FADE_NO_TRAIL_MAX_LOCK_DISTANCE = 15.0
 # Spike gate (live since 8 Oct 2026, Broker B, split by rule type): blocks an entry when the last 15 one-minute bars' entry-side
 # high-low range is at/above this multiple of ATR(14) on 15-min candles -- ATR lags a sudden spike (B #48: range 12.5 vs ATR 6.08
 # = 2.06x, lost the full stop). Fades (TA-Zone-*) trade the reversal AFTER a run into the level, so they get the looser gate (only
