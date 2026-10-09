@@ -53,7 +53,7 @@ used to be in the message; they are no longer sent (the analysis still computes 
 
 ## Limits
 
-- **Fades are replayed with their own exit rule (10 Oct 2026).** A Broker B `TA-Zone-*` trade has a hard stop capped at $15 (`config.FADE_STOP_LOSS_CAP`); when its opposite
+- **Fades are replayed with their own exit rule (9 Oct 2026).** A Broker B `TA-Zone-*` trade has a hard stop capped at $15 (`config.FADE_STOP_LOSS_CAP`); when its opposite
   fade level (the lock level) is known and within $15 of the entry (`config.FADE_NO_TRAIL_MAX_LOCK_DISTANCE`) it has no ordinary trailing stop until a bar reaches that level,
   then a stop at least that level that trails $5 behind the best price (`config.FADE_LOCK_TRAIL_DISTANCE`). A fade with a further or unknown level keeps the ordinary trail
   (and still locks at the level when known). This is the same rule `broker._scan_exit_crossing(fade=True)` runs live (parity checked on 4,000 random paths). The grid's

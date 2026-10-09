@@ -72,14 +72,14 @@ profit, and then trails $5 behind the best price. If price comes back through th
 from 4164.37 that reaches the 4150 support has 4150 as its stop (+$14.37), then 5 above each new low. Breakout trades keep the
 ordinary trail.
 
-**Fades with a near lock level skip the ordinary trail (from 9 Oct 2026; near-only since 10 Oct, fade rules only):** B #61 sold the 4183.93 resistance and was
+**Fades with a near lock level skip the ordinary trail (from 9 Oct 2026; near-only since 9 Oct, fade rules only):** B #61 sold the 4183.93 resistance and was
 trailed out at -$6.21 (the $3/$10 trail had tightened the $20 stop to about $6 after a +$4 move) before gold fell $14 to the support. So a `TA-Zone-*` trade whose
 opposite (lock) level is **within $15 of the entry** (`config.FADE_NO_TRAIL_MAX_LOCK_DISTANCE`) has **no ordinary trailing stop**: only the hard stop protects it
 until price reaches that level, then the lock above takes over. A fade whose lock level is further away, or can't be read, keeps the ordinary trail (and, when known,
 still locks at that level). Every fade's hard stop is **capped at $15** (`broker.FADE_STOP_LOSS_CAP`; `min(stop loss, 15)`, so `make SL` below 15 still applies).
 Breakouts and Telegram-opened trades are unchanged.
 
-**Why the $15 cutoff (10 Oct 2026):** the first version (9 Oct) dropped the ordinary trail at any lock distance. SLA/BRA can now replay it: over all 60 closed trades
+**Why the $15 cutoff (9 Oct 2026):** the first version (9 Oct) dropped the ordinary trail at any lock distance. SLA/BRA can now replay it: over all 60 closed trades
 (43 fades; 15 on bid/ask, 45 on Twelve Data mid; one position at a time; lock level = the opposite level of the latest forecast at close, a static approximation) at the
 live $20 / $3 / $10 settings: plain trail with no lock +$148; lock + ordinary trail (the 5-9 Oct live rule) +$187; no trail at any distance **+$62**; no trail only when the
 lock level is within $15 **+$194.5**. The no-trail version only won on the last 8 trades: on older forecasts the opposite level was often $20-40 away and a fade with no trail
