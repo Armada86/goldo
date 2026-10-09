@@ -107,6 +107,11 @@ TRAILING_STOP_DISTANCE = 7.0
 # support, a TA-Zone-buy reaching its first resistance), the stop jumps to that level (locking that profit) and then trails this
 # many $ behind the best price, so it is never worse than the level; price coming back through the level closes the trade there.
 FADE_LOCK_TRAIL_DISTANCE = 5.0
+# Broker B fade trades only (9 Oct 2026, after #61 sold the 4183.93 resistance and was trailed out at -$6.21 by a $3/$10 trail
+# that tightened a $20 stop to ~$6 after a +$4 move, then gold fell $14 to the support): a fade has no ordinary trailing stop
+# until it reaches its opposite level (the lock above takes over from there), and its hard stop is capped at this many $.
+# A fade whose lock level is unknown keeps the ordinary trail. Replay of B #54-61: +$0.31 -> ~+$42 (docs/broker-b.md).
+FADE_STOP_LOSS_CAP = 15.0
 EXIT_CANDLE_LOOKBACK_MINUTES = 20
 EXIT_CANDLE_MAX_BARS = 3000  # the trailing stop needs every bar since entry, so a long-held trade fetches more
 
@@ -365,6 +370,7 @@ def _scan_exit_crossing(
     activation: float | None = None,
     distance: float | None = None,
     lock_level: float | None = None,
+    fade: bool = False,
 ) -> tuple[float, datetime] | None:
     """Replays 1-min OHLC candles (all of them since the trade opened, in order) against this trade's
     trailing stop -- see the module docstring for why a candle scan beats a point-in-time price. There
@@ -374,11 +380,15 @@ def _scan_exit_crossing(
     against the stop as it stood BEFORE that bar's own high/low can raise the peak, the conservative
     ordering when a single bar spans both. `lock_level` (Broker B fade trades, see FADE_LOCK_TRAIL_DISTANCE): once a bar has
     reached that price (the opposite fade level), from the NEXT bar on the stop is at least that level and trails
-    FADE_LOCK_TRAIL_DISTANCE behind the best price, whichever is better for the trade."""
+    FADE_LOCK_TRAIL_DISTANCE behind the best price, whichever is better for the trade. `fade` (Broker B TA-Zone-* trades, see
+    FADE_STOP_LOSS_CAP): the hard stop is capped at FADE_STOP_LOSS_CAP and, when there is a valid lock level, the ordinary
+    trailing stop is switched off -- the hard stop alone protects the trade until the lock level is reached."""
     if stop_loss_distance is None:
         stop_loss_distance = stop_loss_threshold()
     if activation is None or distance is None:
         activation, distance = trailing_stop_params()
+    if fade:
+        stop_loss_distance = min(stop_loss_distance, FADE_STOP_LOSS_CAP)
     is_buy = trade["trade_type"] == "Buy"
     entry = float(trade["entry_price"])
     peak = 0.0  # best profit reached so far, $ per oz
@@ -387,6 +397,8 @@ def _scan_exit_crossing(
         lock_profit = (float(lock_level) - entry) if is_buy else (entry - float(lock_level))
         if lock_profit <= 0:
             lock_profit = None  # the level is not in the trade's favour: nothing to lock
+    if fade and lock_profit is not None:
+        activation = distance = float("inf")  # no ordinary trail before the lock level; the lock takes over there
     locked = False
     for _, bar in candles.iterrows():
         offset = _exit_stop_offset(peak, stop_loss_distance, activation, distance)
@@ -412,13 +424,15 @@ def _exit_bar_count(trade: dict, now: datetime) -> int:
 
 
 def _find_exit(
-    trade: dict, fallback_price: float, fallback_ts: datetime, lock_level: float | None = None
+    trade: dict, fallback_price: float, fallback_ts: datetime, lock_level: float | None = None, fade: bool = False
 ) -> tuple[float, datetime, float] | None:
     """(exit_price, exit_ts, pnl) if this trade should close now, else None. Tries the real
     intrabar candle path first; falls back to the plain point-price check (the original behavior)
     if the candle fetch fails or turns up no crossing, so a Twelve Data hiccup never blocks a
     trade from closing at all."""
     stop_loss_distance = stop_loss_threshold()  # read once, so one check can't straddle a change
+    if fade:
+        stop_loss_distance = min(stop_loss_distance, FADE_STOP_LOSS_CAP)
     trail_activation, trail_distance = trailing_stop_params()
     try:
         # A Buy closes (sells) on the bid, a Sell closes (buys back) on the ask -- see price_bars.py.
@@ -430,7 +444,7 @@ def _find_exit(
         # entry technically happened) -- scanning it for an exit crossing can otherwise close a
         # trade in the same minute it opened, at a P/L it never actually had a chance to earn.
         candles = candles[candles["datetime"] > trade["open_ts"]]
-        crossing = _scan_exit_crossing(trade, candles, stop_loss_distance, trail_activation, trail_distance, lock_level)
+        crossing = _scan_exit_crossing(trade, candles, stop_loss_distance, trail_activation, trail_distance, lock_level, fade)
     except Exception:
         crossing = None  # best-effort accuracy improvement -- fall back below, don't block on it
 
