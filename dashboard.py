@@ -464,8 +464,6 @@ if min_forecast_date is not None:
                 f"L \\${candle['low']:,.2f} C \\${candle['close']:,.2f}"
             )
         st.caption(caption)
-        if forecast_local.date() >= BROKER_B_RULES_SHOWN_FROM:
-            st.markdown(broker_b_entry_rules_html(forecast["ts"]), unsafe_allow_html=True)
         try:
             scenario_outcomes = load_broker_b_outcomes(forecast["id"]) if forecast.get("id") else {}
         except Exception as e:
@@ -478,6 +476,8 @@ if min_forecast_date is not None:
         # Wrapped in .goldo-diagram-wrap so the laptop/desktop media query above can cap+center it --
         # see that rule's comment for why the SVG needs a sized container to cap against.
         st.markdown(f'<div class="goldo-diagram-wrap">{diagram_svg}</div>', unsafe_allow_html=True)
+        if forecast_local.date() >= BROKER_B_RULES_SHOWN_FROM:
+            st.markdown(broker_b_entry_rules_html(forecast["ts"]), unsafe_allow_html=True)
         with st.expander("Full forecast text"):
             st.text(forecast["analysis"])
     elif selected_date != today_et:

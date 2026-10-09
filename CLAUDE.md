@@ -911,7 +911,7 @@ fixed `<colgroup>` so columns can't overflow the viewport width, kept in the CSS
 file rather than per-element `style=`. The `$` unit shown on price cells is
 picked per-name (`DOLLAR_UNIT_NAMES`) the same way `rules.py` picks it for alert messages.
 
-**Broker B entry rules on the dashboard (4 Oct 2026)**: right under the forecast caption line (price · bias · score), `dashboard.py` shows a small
+**Broker B entry rules on the dashboard (4 Oct 2026)**: right below the forecast diagram (moved from above it, 9 Oct 2026), `dashboard.py` shows a small
 "Broker B rules in force" block (`broker_b_entry_rules_html()`): the DXY / ADX / RSI / ATR / spike entry cutoffs (the `block_rules` row in force at the run's time, `config` as fallback)
 and an "Exits" line with the stop loss and trailing stop in force at that time. The exit numbers come from `stop_settings_history` (`storage.insert_stop_settings_history()` /
 `get_stop_settings_as_of()`): a display-only, append-only log (a NULL column = unchanged) written by the stop loss analysis job when it applies its advice and by the Worker's
