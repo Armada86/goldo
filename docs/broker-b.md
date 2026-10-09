@@ -81,6 +81,12 @@ Telegram-opened trades are unchanged. Replay of B #54-61 on FOREX.com bars with 
 rule, +$42.00 with the new one (a $9 forecast-stop cap scored only +$15.88: gold often pokes $9 past a level before reversing). Cost: a fade that
 runs +$10 and reverses now gives it all back to the hard stop (#59: -$15 instead of -$6.14) -- a later, wider fade trail (e.g. activate +8, follow 8)
 is untested.
+**Longer-history check (10 Oct 2026, now that SLA/BRA model the rule):** replaying all 60 closed trades (43 fades; 15 on bid/ask, 45 on Twelve Data mid; one position at a
+time; lock level = the opposite level of the latest forecast at close, a static approximation) at the live $20 / $3 / $10 settings gives: plain trail with no lock +$148; lock +
+ordinary trail (the 5-9 Oct live rule) +$187; the 9 Oct rule (cap $15, no trail before the lock) **+$62**. It only wins on the last 8 trades (+$34.5 vs -$7.2): on older
+forecasts the opposite level was often 20-40 dollars away, and with no trail a fade gives back everything it made on the way there (#3, #41, #17, #1 lose $20-29 each
+versus the ordinary trail). Dropping the ordinary trail only when the lock level is within $15 (otherwise keep the trail) scores +$194.5 (+$187.3 with the plain lock) and
+keeps the recent gain (+$34.5); wider thresholds give back more. Not applied -- 8 recent trades vs 52 older ones in a different regime, and 45 of the 60 are mid-priced replays.
 The opposite level is read from the **latest** forecast, so if a newer TA run moves it the lock follows (a level not beyond the entry
 in the trade's favour is ignored).
 
