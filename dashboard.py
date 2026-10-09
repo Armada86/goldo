@@ -21,7 +21,14 @@ if "DATABASE_URL" not in os.environ and "DATABASE_URL" in st.secrets:
 import broker
 import broker_b
 from block_rules import OFF_VALUES, get_block_rules
-from config import DASHBOARD_INDICATOR_NAMES, DOLLAR_UNIT_NAMES, TECHNICAL_READING_NAMES
+from config import (
+    DASHBOARD_INDICATOR_NAMES,
+    DOLLAR_UNIT_NAMES,
+    FADE_LOCK_TRAIL_DISTANCE,
+    FADE_NO_TRAIL_MAX_LOCK_DISTANCE,
+    FADE_STOP_LOSS_CAP,
+    TECHNICAL_READING_NAMES,
+)
 from storage import get_connection, get_stop_settings_as_of
 from ta_forecast_job import render_diagram_svg
 
@@ -118,6 +125,9 @@ FORECAST_RUN_DATE_KEY = "forecast_run_picker_date"  # the date FORECAST_RUN_KEY 
 # place from the Monday 5 Oct 2026 session on; earlier sessions traded under different rules, so showing the
 # current rules under them would misdescribe what Broker B actually did.
 BROKER_B_RULES_SHOWN_FROM = date(2026, 10, 5)
+# The fade exit rule (broker.py: capped stop, no ordinary trail before a near lock level, then the lock) went live on 9 Oct 2026 at 9:56 AM ET;
+# the 9:55 AM TA2 run is the first whose levels traded under it, so a forecast run from then on shows its "Fade exit" line, earlier ones don't.
+FADE_EXIT_RULE_SHOWN_FROM = datetime(2026, 10, 9, 9, 55, tzinfo=DISPLAY_TZ)
 
 
 def broker_b_entry_rules_html(as_of=None) -> str:
@@ -160,6 +170,15 @@ def broker_b_entry_rules_html(as_of=None) -> str:
         ),
         ("Exits", exit_text),
     ]
+    if as_of is not None and as_of >= FADE_EXIT_RULE_SHOWN_FROM:
+        rows.append(
+            (
+                "Fade exit",
+                f"Fade trades (TA-Zone) only: stop loss capped at &minus;${FADE_STOP_LOSS_CAP:g}; if the opposite fade level is within "
+                f"${FADE_NO_TRAIL_MAX_LOCK_DISTANCE:g} of entry there is no trailing stop until price reaches it, then the stop locks at that level and "
+                f"follows ${FADE_LOCK_TRAIL_DISTANCE:g} behind the best price. A further level keeps the normal trailing stop.",
+            )
+        )
     body = "".join(f"<div><b>{name}</b> &mdash; {text}</div>" for name, text in rows)
     return (
         "<div style='font-size:12px;color:#444;line-height:1.5;margin:0 0 0.5rem 0;'>"

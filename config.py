@@ -183,7 +183,7 @@ ATR_HIGH_VOLATILITY_THRESHOLD = 12.0
 # this many $ behind the best price; before that it has no ordinary trailing stop and its hard stop is capped at the second value.
 FADE_LOCK_TRAIL_DISTANCE = 5.0
 FADE_STOP_LOSS_CAP = 15.0
-# ... and that "no ordinary trail before the lock" applies only when the lock level is within this many $ of the entry (10 Oct 2026): a fade
+# ... and that "no ordinary trail before the lock" applies only when the lock level is within this many $ of the entry (9 Oct 2026): a fade
 # whose opposite level is further away keeps the ordinary trail (plus the lock and the capped stop). Replay of 60 trades: +$62 with no trail
 # at any distance, +$187 with the ordinary trail always, +$194.5 with this $15 cutoff (docs/broker-b.md).
 FADE_NO_TRAIL_MAX_LOCK_DISTANCE = 15.0
