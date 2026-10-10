@@ -415,7 +415,7 @@ class ForexClient:
             "limit_price": float(by_type[3]["TriggerPrice"]),
         }
 
-    # --- Forex B (forex_watcher.py) order plumbing: stop-only protection, moving it, cancelling it -----------------
+    # --- Broker F (forex_watcher.py) order plumbing: stop-only protection, moving it, cancelling it -----------------
     # Written from the same third-party API descriptions as the rest of this module; the stop-only attach is the confirmed
     # IfDone call minus the Limit leg. Moving and cancelling a stop are NOT yet confirmed live -- forex_live_check.py
     # exercises each on a 0.1 oz demo position and must pass before forex_watcher.py is run in live mode.

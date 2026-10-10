@@ -292,7 +292,7 @@ def pause_note_html(pauses: list[tuple]) -> str:
 
 
 def load_broker_pnl_for_date(d) -> dict:
-    """Broker A (`trades`) + Broker B (`broker_b_trades`) realized P&L for trades that *closed* within
+    """Broker A (`trades`) + Broker B (`broker_b_trades`) (+ Broker F, shown separately) realized P&L for trades that *closed* within
     one ET calendar day -- a trade opened the day before but closed today counts as today's, matching
     how a daily P&L total is normally read. Summed separately per engine plus combined, for the
     top-of-dashboard daily total tied to the same selected date as the forecast navigator below."""
@@ -312,7 +312,21 @@ def load_broker_pnl_for_date(d) -> dict:
             (start_utc, end_utc),
         )
         broker_b = cur.fetchone()[0]
-    return {"broker_a": float(broker_a), "broker_b": float(broker_b), "total": float(broker_a) + float(broker_b)}
+        # Broker F (forex_b_trades, the FOREX.com demo account) trades Broker B's rules, so it is shown beside the total but NOT
+        # added to it (that would count the same rules twice). The table only exists once init_db() has run with it.
+        broker_f = 0.0
+        cur.execute("SELECT to_regclass('forex_b_trades')")
+        if cur.fetchone()[0] is not None:
+            cur.execute(
+                "SELECT COALESCE(SUM(pnl), 0) FROM forex_b_trades WHERE status = 'Closed' AND mode = 'live' "
+                "AND close_ts >= %s AND close_ts < %s",
+                (start_utc, end_utc),
+            )
+            broker_f = float(cur.fetchone()[0])
+    return {
+        "broker_a": float(broker_a), "broker_b": float(broker_b), "broker_f": broker_f,
+        "total": float(broker_a) + float(broker_b),
+    }
 
 
 try:
@@ -416,7 +430,8 @@ if min_forecast_date is not None:
         st.markdown(
             f"<div style='font-size:12px;color:#444;'>Broker P&amp;L ({selected_date:%b %d}): "
             f"Broker A <b>${pnl['broker_a']:+,.2f}</b> · Broker B <b>${pnl['broker_b']:+,.2f}</b> · "
-            f"Total <b style='color:{total_color};font-size:24px;'>${pnl['total']:+,.2f}</b></div>",
+            f"Total <b style='color:{total_color};font-size:24px;'>${pnl['total']:+,.2f}</b> "
+            f"· Broker F (demo account) <b>${pnl['broker_f']:+,.2f}</b></div>",
             unsafe_allow_html=True,
         )
 
@@ -512,21 +527,28 @@ def load_alerts() -> pd.DataFrame:
 
 
 def load_trades() -> pd.DataFrame:
-    """Broker A's `trades` and Broker B's `broker_b_trades`, merged into one timeline (not two separate
-    tables) via UNION ALL, most recent 20 combined by `open_ts` -- a `broker` column (added here, not a
-    real column on either table) says which engine opened each row, since `rule_name` alone doesn't make
-    that obvious at a glance (Broker A's Consensus5of7-buy/-sell vs. Broker B's TA-Zone-*/TA-Breakout-*)."""
+    """Broker A's `trades`, Broker B's `broker_b_trades` and Broker F's `forex_b_trades` (live demo-account trades only, not the
+    shadow-mode records), merged into one timeline (not separate tables) via UNION ALL, most recent 20 combined by `open_ts` -- a
+    `broker` column (added here, not a real column on any table) says which engine opened each row, since `rule_name` alone doesn't
+    make that obvious at a glance (Broker A's Consensus5of7-buy/-sell vs. Broker B's/F's TA-Zone-*/TA-Breakout-*)."""
     with get_connection() as conn:
-        return pd.read_sql(
+        with conn.cursor() as cur:
+            cur.execute("SELECT to_regclass('forex_b_trades')")
+            has_f = cur.fetchone()[0] is not None  # created by init_db(); absent before Broker F first runs
+        query = (
             "SELECT 'Broker A' AS broker, rule_name, trade_type, entry_price, open_ts, "
             "triggering_alerts, exit_price, close_ts, pnl, status FROM trades "
             "UNION ALL "
             "SELECT 'Broker B' AS broker, rule_name, trade_type, entry_price, open_ts, "
             "triggering_alerts, exit_price, close_ts, pnl, status FROM broker_b_trades "
-            "ORDER BY open_ts DESC LIMIT 20",
-            conn,
-            parse_dates=["open_ts", "close_ts"],
         )
+        if has_f:
+            query += (
+                "UNION ALL "
+                "SELECT 'Broker F' AS broker, rule_name, trade_type, entry_price, open_ts, "
+                "triggering_alerts, exit_price, close_ts, pnl, status FROM forex_b_trades WHERE mode = 'live' "
+            )
+        return pd.read_sql(query + "ORDER BY open_ts DESC LIMIT 20", conn, parse_dates=["open_ts", "close_ts"])
 
 
 def to_display_str(ts: pd.Series) -> pd.Series:

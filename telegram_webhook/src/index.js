@@ -21,14 +21,16 @@
  * normal $10 target if a manual close command never arrives first -- the two paths don't conflict,
  * they just both watch the same `status = 'Open'` row.
  *
- * Scope, same as originally agreed: Broker A and Broker B only. The Forex broker
- * (forex_broker.py -- real orders on a FOREX.com demo account) is NOT reachable from here; its own
- * module docstring says its full trading logic must stay disconnected from automation unless
- * explicitly asked to connect it, and this webhook was never asked to include it.
+ * Broker F (forex_watcher.py -- Broker B's rules on the FOREX.com DEMO account) was added to the commands on the user's
+ * explicit request (10 Oct 2026). The Worker does NOT talk to forex.com: the order code, its XAU/USD-only locks and the stop
+ * handling live in Python, so "buy/sell/close broker F" only queues a row in forex_b_commands and dispatches forex_watch.yml;
+ * the watcher loop (already ticking every 10 s) executes it and sends the fill/close message itself. The old forex_broker.py
+ * is still not reachable from here.
  *
  * Commands recognized in an incoming Telegram message's text (case-insensitive, forgiving about
  * word order/spacing):
- *   "buy broker a" / "sell broker B" / "Broker A buy" -> open a Buy/Sell position on that broker
+ *   "buy broker a" / "sell broker B" / "Broker F buy"  -> open a Buy/Sell position on that broker (F: a real 1 oz
+ *                                                          market order on the demo account, queued for the watcher)
  *   "close broker a" / "close broker B"                -> close that broker's open position NOW,
  *                                                          at the current spot price, regardless
  *                                                          of unrealized P/L (unlike the automatic
@@ -96,10 +98,12 @@ const TRADE_ALERT_PREFIX_B = "\u{1F7E6} "; // blue square -- broker_b.TRADE_ALER
 const PROFIT_MARKER_B = "\u{1F7E9} "; // green square -- broker_b.PROFIT_MARKER
 const LOSS_MARKER_B = "\u{1F7E5} "; // red square -- broker_b.LOSS_MARKER
 
+const TRADE_ALERT_PREFIX_F = "\u{1F7EA} "; // purple square -- forex_watcher.TRADE_PREFIX (Broker F, the FOREX.com demo account)
+
 const REJECT_MARKER = "⛔ "; // no-entry sign -- same as broker.BLOCKED_MARKER/broker_b.BLOCKED_MARKER
 
 const DIRECTION_RE = /\b(buy|sell)\b/i;
-const BROKER_RE = /\bbroker\s+([ab])\b/i;
+const BROKER_RE = /\bbroker\s+([abf])\b/i;
 const CLOSE_RE = /\bclose\b/i;
 
 /** Mirrors broker._format_ts(): America/New_York, "YYYY-MM-DD HH:MM:SS TZ". */
@@ -265,14 +269,22 @@ async function setOverride(sql, mode) {
   `;
 }
 
-async function stopTrading(sql, apiKey) {
+async function stopTrading(sql, apiKey, env) {
   await ensureControlTables(sql);
   await setOverride(sql, "stopped"); // first, so the poll stops opening things even if a close below fails
-  const lines = ["\u{1F6D1} Trading STOPPED for Broker A and Broker B."];
+  const lines = ["\u{1F6D1} Trading STOPPED for Broker A, Broker B and Broker F."];
   const openA = await sql`SELECT id FROM trades WHERE status = 'Open' LIMIT 1`;
   const openB = await sql`SELECT id FROM broker_b_trades WHERE status = 'Open' LIMIT 1`;
   if (openA.length > 0) lines.push(await closeBrokerA(sql, apiKey));
   if (openB.length > 0) lines.push(await closeBrokerB(sql, apiKey));
+  if (await brokerFHasOpenTrade(sql)) {
+    // The watcher closes it itself within one tick (trading_pause_reason); make sure a watcher loop is running to do so.
+    const dispatchError = await dispatchWorkflow(env, "forex_watch.yml", "the Broker F watcher");
+    lines.push(
+      `${TRADE_ALERT_PREFIX_F.trimEnd()} BROKER F: its open position is closed on forex.com within seconds by the watcher.` +
+        (dispatchError ? ` (${dispatchError})` : "")
+    );
+  }
   lines.push('No new trades until the next automatic trading window opens (7am ET, weekdays) or you send "start trading".');
   return lines.join("\n");
 }
@@ -280,15 +292,15 @@ async function stopTrading(sql, apiKey) {
 async function startTrading(sql) {
   await ensureControlTables(sql);
   await setOverride(sql, "started");
-  return '\u25B6\uFE0F Trading STARTED for Broker A and Broker B. It runs until the program\'s own trading window closes (5pm ET), or until you send "stop trading".';
+  return '\u25B6\uFE0F Trading STARTED for Broker A, Broker B and Broker F. It runs until the program\'s own trading window closes (5pm ET), or until you send "stop trading".';
 }
 
 async function schedulePause(sql, start, end) {
   await ensureControlTables(sql);
   await sql`INSERT INTO trading_pauses (start_ts, end_ts) VALUES (${start.toISOString()}, ${end.toISOString()})`;
   return (
-    `\u23F8 Pause scheduled for Broker A and Broker B:\n${formatTs(start)} -> ${formatTs(end)}\n` +
-    "No new trades in that window; any open position is closed at the first poll (every 5 min) inside it."
+    `\u23F8 Pause scheduled for Broker A, Broker B and Broker F:\n${formatTs(start)} -> ${formatTs(end)}\n` +
+    "No new trades in that window; any open position is closed at the first poll (every 5 min) inside it (Broker F: within seconds)."
   );
 }
 
@@ -301,7 +313,7 @@ async function rearmLevels(sql) {
     ON CONFLICT (id) DO UPDATE SET rearm_ts = EXCLUDED.rearm_ts
   `;
   return (
-    `${TRADE_ALERT_PREFIX_B.trimEnd()}\u{1F501} BROKER B: all levels re-armed. Earlier trades and stop-outs no longer count, ` +
+    `${TRADE_ALERT_PREFIX_B.trimEnd()}\u{1F501} BROKER B and BROKER F: all levels re-armed. Earlier trades and stop-outs no longer count, ` +
     "so each level can trade again. A level still needs a fresh approach and touch before it fires."
   );
 }
@@ -372,7 +384,7 @@ async function setTrail(sql, activation, distance) {
   `;
   await logStopSettings(sql, null, activation, distance);
   return (
-    `\u{1F4C8} Trailing stop set for Broker A and Broker B: it starts trailing once a trade is $${activation.toFixed(2)} in profit ` +
+    `\u{1F4C8} Trailing stop set for Broker A, Broker B and Broker F: it starts trailing once a trade is $${activation.toFixed(2)} in profit ` +
     `and then follows $${distance.toFixed(2)} behind the best price. It applies to open trades too, and it stays until you change it.`
   );
 }
@@ -385,7 +397,7 @@ async function setStopLoss(sql, value) {
   `;
   await logStopSettings(sql, value, null, null);
   return (
-    `\u{1F6D1} Stop-loss set to $${value.toFixed(2)} for Broker A and Broker B. ` +
+    `\u{1F6D1} Stop-loss set to $${value.toFixed(2)} for Broker A, Broker B and Broker F. ` +
     `It stays at $${value.toFixed(2)} until you change it, and applies to open trades too (no fixed take-profit: once a trade is $${TRAILING_STOP_ACTIVATION.toFixed(0)} up, the stop trails $${TRAILING_STOP_DISTANCE.toFixed(0)} behind its best price).`
   );
 }
@@ -460,6 +472,35 @@ async function sendTelegram(botToken, chatId, text) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ chat_id: chatId, text }),
   });
+}
+
+
+async function ensureForexCommandsTable(sql) {
+  await sql`CREATE TABLE IF NOT EXISTS forex_b_commands (id SERIAL PRIMARY KEY, command TEXT NOT NULL, created_ts TIMESTAMPTZ NOT NULL DEFAULT NOW(), status TEXT NOT NULL DEFAULT 'pending', handled_ts TIMESTAMPTZ, result TEXT)`;
+}
+
+/** True if Broker F (forex_b_trades) has an open trade; false if the table does not exist yet. */
+async function brokerFHasOpenTrade(sql) {
+  const exists = await sql`SELECT to_regclass('forex_b_trades') AS t`;
+  if (!exists[0].t) return false;
+  const open = await sql`SELECT id FROM forex_b_trades WHERE status = 'Open' LIMIT 1`;
+  return open.length > 0;
+}
+
+/**
+ * Broker F commands are queued for the Python watcher (forex_watcher.py), which places/closes the order on the forex.com demo
+ * account and sends the fill message. The reply here only confirms the command was queued (or that nothing could be queued).
+ */
+async function queueBrokerF(sql, env, command) {
+  await ensureForexCommandsTable(sql);
+  await sql`INSERT INTO forex_b_commands (command) VALUES (${command})`;
+  const dispatchError = await dispatchWorkflow(env, "forex_watch.yml", "the Broker F watcher");
+  const what = command === "close" ? "close" : `${command === "buy" ? "Buy" : "Sell"} 1 oz XAU/USD`;
+  return (
+    `${TRADE_ALERT_PREFIX_F.trimEnd()} BROKER F: ${what} queued for the forex.com demo account. The watcher executes it within seconds ` +
+    "and confirms here; if it cannot, it says why." +
+    (dispatchError ? `\n(${dispatchError} If no watcher is running, the order waits up to 5 minutes, then expires.)` : "")
+  );
 }
 
 async function openBrokerA(sql, tradeType, apiKey) {
@@ -635,7 +676,7 @@ export default {
     const control = parseControlCommand(message.text);
     if (control) {
       let controlReply;
-      if (control.action === "stop") controlReply = await stopTrading(sql, env.TWELVE_DATA_API_KEY);
+      if (control.action === "stop") controlReply = await stopTrading(sql, env.TWELVE_DATA_API_KEY, env);
       else if (control.action === "start") controlReply = await startTrading(sql);
       else if (control.action === "pause") controlReply = await schedulePause(sql, control.start, control.end);
       else controlReply = `${REJECT_MARKER}${control.message}`;
@@ -649,7 +690,9 @@ export default {
     }
 
     let reply;
-    if (parsed.action === "open") {
+    if (parsed.brokerLetter === "F") {
+      reply = await queueBrokerF(sql, env, parsed.action === "open" ? parsed.tradeType.toLowerCase() : "close");
+    } else if (parsed.action === "open") {
       reply =
         parsed.brokerLetter === "A"
           ? await openBrokerA(sql, parsed.tradeType, env.TWELVE_DATA_API_KEY)

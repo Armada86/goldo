@@ -1,4 +1,4 @@
-# Forex B -- Broker B's rules on the FOREX.com demo account
+# Broker F -- Broker B's rules on the FOREX.com demo account
 
 Status (10 Oct 2026): `forex_watcher.py` watches the live bid/ask every 10 s and trades Broker B's rules separately from Broker B.
 Two modes, chosen by the repo variable `FOREX_B_MODE` (read by `forex_watch.yml`; unset = shadow):
@@ -10,7 +10,7 @@ Live flow: market order on the touch (after Broker B's five filters) -> stop-onl
 platform stop is moved to the stop Broker B's exit code would use (`broker._scan_exit()`, never loosened, moved only when >= $0.50
 better) -> the platform stop closing the position is recorded from `/order/tradehistory`; if the watcher's own stop is crossed first,
 or trading is paused (`stop trading`), it cancels the stop and closes at market. It refuses to run live if the account holds an
-XAU/USD position it does not track, and the poll's old close-check ignores Forex B's positions (`forex_broker._reconcile`).
+XAU/USD position it does not track, and the poll's old close-check ignores Broker F's positions (`forex_broker._reconcile`).
 
 ## Problem 1 -- tracking at a finer time scale
 
@@ -71,5 +71,5 @@ forex.com's API reference is login-gated, so each of these needs a 1 oz demo tes
 6. Entry as a **resting order** (limit at the fade level / stop-entry at the breakout) instead of a market order on touch -- gives the
    exact level price but cannot run the filters at the touch; probably keep market-on-touch.
 
-Not yet decided: whether Forex B should also be controllable by the Telegram `stop trading` / `make` commands for the real position
+Not yet decided: whether Broker F should also be controllable by the Telegram `stop trading` / `make` commands for the real position
 (`stop trading` is already honoured: the shadow watcher closes and opens nothing while paused).

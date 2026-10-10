@@ -9,6 +9,15 @@ test("parseCommand: open commands, various phrasing", () => {
   assert.deepEqual(parseCommand("please sell  broker  b now"), { action: "open", tradeType: "Sell", brokerLetter: "B" });
 });
 
+test("parseCommand: Broker F open/close", () => {
+  assert.deepEqual(parseCommand("buy broker F"), { action: "open", tradeType: "Buy", brokerLetter: "F" });
+  assert.deepEqual(parseCommand("Sell Broker f"), { action: "open", tradeType: "Sell", brokerLetter: "F" });
+  assert.deepEqual(parseCommand("broker F buy"), { action: "open", tradeType: "Buy", brokerLetter: "F" });
+  assert.deepEqual(parseCommand("close broker F"), { action: "close", brokerLetter: "F" });
+  assert.equal(parseCommand("buy brokerf"), null);
+  assert.equal(parseCommand("sell broker g"), null);
+});
+
 test("parseCommand: close commands", () => {
   assert.deepEqual(parseCommand("close broker A"), { action: "close", brokerLetter: "A" });
   assert.deepEqual(parseCommand("Close Broker B please"), { action: "close", brokerLetter: "B" });
