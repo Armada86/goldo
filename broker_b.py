@@ -259,12 +259,16 @@ def _entry_price_and_invalidation(scenario_name: str, scenario: dict) -> tuple[f
     return scenario["trigger"], None  # bull_breakout / bear_breakdown
 
 
-def _carried_level_history(forecast: dict, scenario_name: str, rule_name: str, scenario: dict, prior: list) -> dict:
+def _carried_level_history(
+    forecast: dict, scenario_name: str, rule_name: str, scenario: dict, prior: list, history_fn=None
+) -> dict:
     """trade_b_level_history() for this level, plus the history of every earlier forecast row of the same ET day that
     kept the SAME trigger price for this scenario, walking back until a row changes it (6 Oct 2026): a new TA run that
     reproduces a level must not give it a fresh trade budget, so a level retired by a stop-out stays retired and the
-    two-trades cap isn't reset by a run that changed nothing. `prior` is storage.get_prior_ta_forecasts(), newest first."""
-    history = dict(trade_b_level_history(forecast["id"], rule_name, REARM_MIN_WIN_PNL))
+    two-trades cap isn't reset by a run that changed nothing. `prior` is storage.get_prior_ta_forecasts(), newest first.
+    `history_fn` (default trade_b_level_history, Broker B's own trades) lets the Forex engine count its own trades instead."""
+    history_fn = history_fn or trade_b_level_history
+    history = dict(history_fn(forecast["id"], rule_name, REARM_MIN_WIN_PNL))
     try:
         trigger = round(float(_entry_price_and_invalidation(scenario_name, scenario)[0]), 2)
     except Exception:
@@ -274,7 +278,7 @@ def _carried_level_history(forecast: dict, scenario_name: str, rule_name: str, s
         try:
             if earlier is None or round(float(_entry_price_and_invalidation(scenario_name, earlier)[0]), 2) != trigger:
                 break
-            past = trade_b_level_history(row["id"], rule_name, REARM_MIN_WIN_PNL)
+            past = history_fn(row["id"], rule_name, REARM_MIN_WIN_PNL)
         except Exception:
             break
         history["count"] += past["count"]
@@ -290,6 +294,24 @@ def _prior_forecasts(forecast: dict) -> list:
         return get_prior_ta_forecasts(forecast)
     except Exception:
         return []
+
+
+def armed_candidates(forecast: dict, history_fn=None) -> list:
+    """(scenario_name, trade_type, rule_name, scenario) for every level of `forecast` that may still trade: not retired by a
+    stop-out and under MAX_TRADES_PER_LEVEL, counting the history carried over from earlier same-day rows that kept the level.
+    Shared with forex_watcher.py so the two engines arm exactly the same levels; `history_fn` picks whose trades are counted."""
+    scenarios = {s["name"]: s for s in (forecast.get("levels") or {}).get("scenarios", [])}
+    candidates = []
+    prior = _prior_forecasts(forecast)
+    for scenario_name, (trade_type, rule_name) in ZONE_SCENARIOS.items():
+        scenario = scenarios.get(scenario_name)
+        if scenario is None:
+            continue
+        history = _carried_level_history(forecast, scenario_name, rule_name, scenario, prior, history_fn)
+        if history["stopped_out"] or history["count"] >= MAX_TRADES_PER_LEVEL:
+            continue
+        candidates.append((scenario_name, trade_type, rule_name, scenario))
+    return candidates
 
 
 def _scan_zone_entry(
@@ -573,6 +595,27 @@ def _fade_lock_level(trade: dict) -> float | None:
     return None
 
 
+def evaluate_gates(
+    scenario_name: str, trade_type: str, dxy_readings, rsi_value, adx_value, adx_rising, atr_value, range_15m, rules
+) -> tuple[bool, str | None, str | None]:
+    """All five entry filters (DXY, RSI, ADX, ATR, spike) for one touch: (ok, dedup_reasons, message_reasons), the reasons
+    joined in that order and None when ok. Shared with forex_watcher.py so the live gate and the Forex engine cannot drift."""
+    results = (
+        _dxy_confirms(trade_type, dxy_readings, rules),
+        _rsi_confirms(scenario_name, rsi_value, adx_value, rules),
+        _adx_confirms(scenario_name, adx_value, rules, adx_rising),
+        _atr_confirms(atr_value, rules),
+        _spike_confirms(scenario_name, range_15m, atr_value, rules),
+    )
+    if all(ok for ok, _category, _detail in results):
+        return True, None, None
+    return (
+        False,
+        "; ".join(category for _ok, category, _detail in results if category),
+        "; ".join(detail for _ok, _category, detail in results if detail),
+    )
+
+
 def _blocked_message(rule_name: str, price: float, message_reasons: str) -> str:
     return (
         f"{TRADE_ALERT_PREFIX.rstrip()}{BLOCKED_MARKER}BROKER B: {rule_name} level ${price:.2f} "
@@ -761,18 +804,7 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
         return
 
     levels = forecast["levels"]
-    scenarios = {s["name"]: s for s in levels.get("scenarios", [])}
-
-    candidates = []
-    prior = _prior_forecasts(forecast)
-    for scenario_name, (trade_type, rule_name) in ZONE_SCENARIOS.items():
-        scenario = scenarios.get(scenario_name)
-        if scenario is None:
-            continue
-        history = _carried_level_history(forecast, scenario_name, rule_name, scenario, prior)
-        if history["stopped_out"] or history["count"] >= MAX_TRADES_PER_LEVEL:
-            continue
-        candidates.append((scenario_name, trade_type, rule_name, scenario))
+    candidates = armed_candidates(forecast)
 
     if not candidates:
         return
@@ -879,18 +911,13 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
                 touch_ts=consumed_through,
             )
             continue
-        dxy_ok, dxy_category, dxy_detail = _dxy_confirms(trade_type, dxy_readings, rules)
-        rsi_ok, rsi_category, rsi_detail = _rsi_confirms(scenario_name, rsi_value, adx_value, rules)
-        adx_ok, adx_category, adx_detail = _adx_confirms(scenario_name, adx_value, rules, adx_rising)
-        atr_ok, atr_category, atr_detail = _atr_confirms(atr_value, rules)
-        spike_ok, spike_category, spike_detail = _spike_confirms(
-            scenario_name, _entry_range(recent_bars_by_side[_entry_side(trade_type)]), atr_value, rules
+        gates_ok, dedup_reasons, message_reasons = evaluate_gates(
+            scenario_name, trade_type, dxy_readings, rsi_value, adx_value, adx_rising, atr_value,
+            _entry_range(recent_bars_by_side[_entry_side(trade_type)]), rules,
         )
-        if dxy_ok and rsi_ok and adx_ok and atr_ok and spike_ok:
+        if gates_ok:
             selected = (trigger_ts, trigger_price, trade_type, rule_name, scenario_name)
             break
-        dedup_reasons = "; ".join(r for r in (dxy_category, rsi_category, adx_category, atr_category, spike_category) if r)
-        message_reasons = "; ".join(r for r in (dxy_detail, rsi_detail, adx_detail, atr_detail, spike_detail) if r)
         _notify_blocked(
             forecast, rule_name, trigger_price, dedup_reasons, message_reasons, touch_ts=consumed_through
         )

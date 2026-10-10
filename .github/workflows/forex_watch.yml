@@ -1,0 +1,45 @@
+name: Forex B watcher
+
+# Fast (10 s) tick watcher for the Forex B engine -- see forex_watcher.py and docs/forex-b.md. Triggered externally by
+# cron-job.org (workflow_dispatch), like poll.yml. Each run loops for max_minutes (default 25) and exits at once when there is nothing
+# to watch (market closed, outside the 7am-5pm ET entry window, trading paused, nothing open).
+#
+# Intended trigger: every 5 minutes (a restart mechanism, not the price frequency: the 10 s ticks happen inside a run), weekdays 7:00am-5:55pm America/New_York (runs after 5pm only matter while a trade is open;
+# otherwise they exit at once). The concurrency group queues at most one
+# waiting run behind the running one, so the loops follow each other instead of overlapping (two watchers at once could
+# both open the same touch). The mode comes from the repo VARIABLE FOREX_B_MODE (Settings > Secrets and variables > Actions >
+# Variables): unset or "shadow" = record only, no order; "live" = real orders on the FOREX.com DEMO account. Run
+# forex_live_check.yml successfully before setting it to live.
+on:
+  workflow_dispatch:
+    inputs:
+      max_minutes:
+        description: "How long to loop before exiting"
+        default: "25"
+
+concurrency:
+  group: forex-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -r requirements.txt
+
+      - run: python forex_watcher.py --mode "${{ vars.FOREX_B_MODE || 'shadow' }}" --max-minutes "${{ inputs.max_minutes || '5' }}"
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
+          FOREX_USERNAME: ${{ secrets.FOREX_USERNAME }}
+          FOREX_PASSWORD: ${{ secrets.FOREX_PASSWORD }}
+          FOREX_APP_KEY: ${{ secrets.FOREX_APP_KEY }}

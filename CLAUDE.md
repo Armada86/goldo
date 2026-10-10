@@ -509,6 +509,15 @@ three through from repo secrets of the same names for the close-check above; unt
 exist they arrive empty, `ForexClient()` raises `ForexClientError`, and the close-check skips with only a
 log line.
 
+**Forex B (`forex_watcher.py`, `forex_b_trades` table, added 10 Oct 2026) -- Broker B's rules traded on the FOREX.com demo account at tick granularity.** The user plans to trade
+Broker B's exact rules on the demo account, which needs live-price tracking (the 5-minute poll is too coarse) and a stop-loss design that works as platform orders. `forex_watcher.py` polls
+the live bid/ask every 10 s (`ForexClient.get_quote()`) and runs Broker B's own code on those ticks (`broker_b.armed_candidates()`, `_scan_zone_entry()`, `evaluate_gates()`,
+`broker._scan_exit_crossing()` -- shared, not copied), writing `forex_b_trades` (`mode` 'shadow' or 'live'). **Two modes, set by the GitHub repo variable `FOREX_B_MODE`** (unset = shadow): shadow records and announces what it would do (🟪, "FOREX B (shadow)") and sends no order; **live** (written 10 Oct 2026, to start Monday 12 Oct 7am ET, not yet exercised
+against forex.com because the market was closed) places real orders on the FOREX.com **demo** account: market order on the touch, a stop-only platform order right after the fill, the platform stop moved to the stop `broker._scan_exit()` computes each tick, close at market (stop cancelled first) if the watcher's own stop is crossed or trading is paused.
+`forex_live_check.py` / `forex_live_check.yml` (1 oz demo test of attach / move / cancel / close) must pass before switching to live. The poll's `forex_broker._reconcile` ignores Forex B's positions. It never writes to
+Broker B's tables. It is a separate loop (`forex_watch.yml`, cron-job.org every 5 min, 7:00am-5:55pm ET weekdays), not wired into `poll_once()`; the old `forex_broker.py` stays as it was.
+Design, the planned stop layers and the open API questions: `docs/forex-b.md`.
+
 **Inbound Telegram commands (`telegram_webhook/`)**: the project's first (and, so far, only) inbound
 path — every other Telegram interaction is one-way, `notifier.send_telegram_message()` only ever
 sending. Lets the user open or close a Broker A or Broker B position in real time by sending a

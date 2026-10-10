@@ -31,6 +31,7 @@ from forex_client import TRADABLE_MARKET_ID, ForexClient, ForexClientError, Fore
 from notifier import send_telegram_message
 from storage import (
     close_forex_trade_row,
+    get_forex_b_order_ids,
     get_last_forex_trade_open_ts,
     get_open_forex_trade,
     get_recent_alerts,
@@ -111,7 +112,15 @@ def _reconcile(client: ForexClient, prices: dict[str, float], now: datetime) -> 
     """Brings forex_trades in line with forex.com, without sending any order: records the tracked trade
     as closed if its position is gone, and starts tracking an untracked XAU/USD position if nothing is
     tracked. Returns (the still-open tracked trade or None, XAU/USD positions on the account)."""
-    positions = [p for p in client.get_open_positions() if p.get("MarketId") == TRADABLE_MARKET_ID]
+    # Positions opened by the Forex B watcher (forex_watcher.py) are tracked in forex_b_trades, not here.
+    try:
+        forex_b_orders = get_forex_b_order_ids()
+    except Exception:
+        forex_b_orders = set()
+    positions = [
+        p for p in client.get_open_positions()
+        if p.get("MarketId") == TRADABLE_MARKET_ID and str(p.get("OrderId")) not in forex_b_orders
+    ]
     open_trade = get_open_forex_trade()
     if open_trade is not None and _position_for(positions, open_trade) is None:
         _record_platform_close(client, open_trade, prices.get("gold"), now)
