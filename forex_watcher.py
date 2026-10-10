@@ -1,4 +1,4 @@
-"""Forex B: Broker B's rules, watched at tick granularity against the FOREX.com demo account.
+"""Broker F (the Forex broker): Broker B's rules, watched at tick granularity and traded on the FOREX.com demo account.
 
 Why this exists: broker_b.py runs once per 5-minute GitHub poll and reads 1-minute bars, so it notices a level touch
 up to several minutes after it happened and fills it at the level price a resting order WOULD have got. On a real
@@ -25,6 +25,11 @@ Modes (--mode):
       position disappears and the close is recorded from forex.com's trade history; if the watcher's own stop is
       crossed first (or trading is paused) it cancels the stop and closes at market. Moving/cancelling a stop are
       verified by forex_live_check.py, which must pass before this mode is used.
+
+Manual commands: the Telegram Worker cannot place forex.com orders itself (the order code and its XAU/USD-only locks live here), so
+"buy broker F" / "sell broker F" / "close broker F" are queued in the forex_b_commands table and executed by this loop within one tick
+(and the Worker dispatches forex_watch.yml so a loop exists). A command not picked up within 5 minutes expires, never firing late.
+"stop trading" needs nothing extra: the loop already closes the position and opens nothing while trading_pause_reason() is set.
 
 Read-only toward Broker B: this never writes to broker_b_trades / broker_b_blocked, so running it cannot consume or
 change a Broker B touch. A touch it blocks is remembered in memory only.
@@ -72,6 +77,8 @@ from market_hours import is_market_closed
 from notifier import send_telegram_message
 from storage import (
     close_forex_b_trade,
+    finish_forex_b_command,
+    get_pending_forex_b_commands,
     set_forex_b_stop_order,
     forex_b_level_history,
     get_last_close_ts_forex_b,
@@ -136,12 +143,19 @@ def _exit_side(trade_type: str) -> str:
 
 
 def _message(trade_id: int, text: str, mode: str, marker: str = "") -> str:
-    return f"{TRADE_PREFIX.rstrip()}{marker}FOREX B ({mode}) #{trade_id}: {text}"
+    return f"{TRADE_PREFIX.rstrip()}{marker}BROKER F ({mode}) #{trade_id}: {text}"
 
 
 def _entry_possible(now: datetime) -> bool:
     """A fresh entry is allowed right now: market open, inside the 7am-5pm ET weekday window, trading not paused."""
     return not is_market_closed() and _within_entry_window(now) and trading_pause_reason(now) is None
+
+
+def _commands_pending() -> bool:
+    try:
+        return bool(get_pending_forex_b_commands())
+    except Exception:
+        return False
 
 
 class Watcher:
@@ -151,6 +165,7 @@ class Watcher:
         self.feed = Feed(client)
         self.open_trade = get_open_forex_b_trade()
         self.consumed: dict[str, datetime] = {}  # rule_name -> newest tick time a blocked / stale touch used up
+        self.last_quote: dict | None = None
         self.context: dict = {}
         self.context_at = 0.0
 
@@ -355,7 +370,7 @@ class Watcher:
         )
         if not ok:
             send_telegram_message(
-                f"{TRADE_PREFIX.rstrip()}{BLOCKED_MARKER}FOREX B ({self.mode}): {rule_name} level ${trigger_price:.2f} "
+                f"{TRADE_PREFIX.rstrip()}{BLOCKED_MARKER}BROKER F ({self.mode}): {rule_name} level ${trigger_price:.2f} "
                 f"reached but blocked -- {reasons}."
             )
             log.info("%s blocked: %s", rule_name, reasons)
@@ -442,27 +457,106 @@ class Watcher:
 
     def idle(self, now: datetime) -> bool:
         """True when there is nothing to watch: no open trade and no entry possible right now."""
-        return self.open_trade is None and not _entry_possible(now)
+        return self.open_trade is None and not _entry_possible(now) and not _commands_pending()
 
     def step(self) -> None:
-        if not self.feed.add(self.client.get_quote()):
-            return  # no new tick since the last look
+        quote = self.client.get_quote()
+        fresh = self.feed.add(quote)
+        self.last_quote = quote
         now = datetime.now(timezone.utc)
+        self._handle_commands(now)  # Telegram "buy/sell/close broker F", even when the price has not ticked
+        if not fresh:
+            return  # no new tick since the last look
         if self.open_trade is not None:
             self._check_exit(now)
         elif _entry_possible(now):
             self._check_entry(now)
 
+    # --- manual commands (Telegram "buy broker F" / "sell broker F" / "close broker F") ----------------------------------
+
+    def _handle_commands(self, now: datetime) -> None:
+        for cmd in get_pending_forex_b_commands():
+            try:
+                status, result = self._run_command(cmd["command"], now)
+            except Exception as e:
+                log.exception("command %s failed", cmd)
+                status, result = "failed", repr(e)
+            finish_forex_b_command(cmd["id"], status, result)
+            if status != "done":
+                send_telegram_message(f"{TRADE_PREFIX.rstrip()}{BLOCKED_MARKER}BROKER F ({self.mode}): '{cmd['command']}' not done -- {result}")
+            log.info("command %s -> %s (%s)", cmd["command"], status, result)
+
+    def _run_command(self, command: str, now: datetime) -> tuple[str, str]:
+        """Executes one queued command; returns (status, result text). The open/close Telegram messages come from the shared helpers."""
+        if command in ("buy", "sell"):
+            return self._manual_open("Buy" if command == "buy" else "Sell", now)
+        if command == "close":
+            return self._manual_close(now)
+        return "rejected", f"unknown command {command!r}"
+
+    def _manual_open(self, trade_type: str, now: datetime) -> tuple[str, str]:
+        if self.open_trade is not None:
+            return "rejected", "a Broker F trade is already open. Close it first."
+        if trading_pause_reason(now) is not None:
+            return "rejected", 'trading is stopped/paused (send "start trading" first).'
+        if is_market_closed():
+            return "rejected", "the market is closed (Friday 5pm - Sunday 6pm ET)."
+        side = _entry_side(trade_type)
+        fill_price = float(self.last_quote[side])
+        order_id = None
+        rule_name = f"Telegram-{trade_type.lower()}"
+        if self.mode == "live":
+            placed = self._place_entry(trade_type, rule_name)
+            if placed is None:
+                return "failed", "the order was not placed (see the previous message)."
+            fill_price, order_id = placed
+        try:
+            forecast_id = (get_latest_ta_forecast() or {}).get("id")
+        except Exception:
+            forecast_id = None
+        trade_id = insert_forex_b_trade(
+            self.mode, rule_name, trade_type, fill_price, fill_price, now, now, forecast_id, "Manual (Telegram command)",
+            {"spread": round(float(self.last_quote["ask"] - self.last_quote["bid"]), 2)}, forex_order_id=order_id,
+        )
+        self.open_trade = get_open_forex_b_trade()
+        send_telegram_message(_message(
+            trade_id,
+            f"opened {trade_type} 1 oz XAU/USD @ ${fill_price:.2f} (rule {rule_name}).\nTrigger: Manual (Telegram command)\nFilled: {_format_ts(now)}",
+            self.mode,
+        ))
+        if self.mode == "live":
+            self._protect(self.open_trade)
+        self._refresh_context(force=True)
+        return "done", f"opened #{trade_id}"
+
+    def _manual_close(self, now: datetime) -> tuple[str, str]:
+        trade = self.open_trade
+        if trade is None:
+            return "rejected", "no open Broker F trade to close."
+        exit_price = float(self.last_quote[_exit_side(trade["trade_type"])])
+        close_order_id = None
+        if self.mode == "live":
+            position = self._live_position(trade)
+            if position is None:  # already closed on the platform (its stop fired)
+                self._record_platform_close(trade, now)
+                return "done", "the position was already closed on forex.com"
+            closed = self._close_at_market(trade, position)
+            if closed is None:
+                return "failed", "the market close was not confirmed (see the previous message)."
+            exit_price, close_order_id = closed
+        self._finish(trade, exit_price, now, None, "manual close", close_order_id, note="\n(manual close via Telegram)")
+        return "done", f"closed #{trade['id']}"
+
 
 def _live_ready(client: ForexClient) -> bool:
-    """Live mode assumes the account holds no XAU/USD position except Forex B's own: refuses to trade (and says so) if there is an
+    """Live mode assumes the account holds no XAU/USD position except Broker F's own: refuses to trade (and says so) if there is an
     untracked one, e.g. a manual position, since closing at market could net against it."""
     tracked = get_open_forex_b_trade()
     positions = [p for p in client.get_open_positions() if p.get("MarketId") == TRADABLE_MARKET_ID]
     extra = [p for p in positions if tracked is None or str(p.get("OrderId")) != str(tracked["forex_order_id"])]
     if extra:
         send_telegram_message(
-            f"{TRADE_PREFIX.rstrip()}FOREX B (live): not trading -- the demo account already has {len(extra)} untracked XAU/USD "
+            f"{TRADE_PREFIX.rstrip()}BROKER F (live): not trading -- the demo account already has {len(extra)} untracked XAU/USD "
             f"position(s) ({', '.join(str(p.get('OrderId')) for p in extra)}). Close them or switch to shadow mode."
         )
         log.error("untracked XAU/USD positions on the account -- refusing to run live")
@@ -473,14 +567,14 @@ def _live_ready(client: ForexClient) -> bool:
 def run(max_minutes: float, mode: str) -> None:
     deadline = time.monotonic() + max_minutes * 60
     init_db()
-    if get_open_forex_b_trade() is None and not _entry_possible(datetime.now(timezone.utc)):
+    if get_open_forex_b_trade() is None and not _entry_possible(datetime.now(timezone.utc)) and not _commands_pending():
         log.info("Nothing to watch (market closed, outside the entry window, or paused) -- exiting")
         return
     client = ForexClient()
     if mode == "live" and not _live_ready(client):
         return
     watcher = Watcher(client, mode)
-    log.info("Forex B watcher started (%s mode); open trade: %s", mode, watcher.open_trade and watcher.open_trade["id"])
+    log.info("Broker F watcher started (%s mode); open trade: %s", mode, watcher.open_trade and watcher.open_trade["id"])
     while time.monotonic() < deadline:
         started = time.monotonic()
         try:

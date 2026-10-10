@@ -112,7 +112,7 @@ def _reconcile(client: ForexClient, prices: dict[str, float], now: datetime) -> 
     """Brings forex_trades in line with forex.com, without sending any order: records the tracked trade
     as closed if its position is gone, and starts tracking an untracked XAU/USD position if nothing is
     tracked. Returns (the still-open tracked trade or None, XAU/USD positions on the account)."""
-    # Positions opened by the Forex B watcher (forex_watcher.py) are tracked in forex_b_trades, not here.
+    # Positions opened by the Broker F watcher (forex_watcher.py) are tracked in forex_b_trades, not here.
     try:
         forex_b_orders = get_forex_b_order_ids()
     except Exception:

@@ -100,6 +100,18 @@ def init_db() -> None:
         )
         cur.execute(
             """
+            CREATE TABLE IF NOT EXISTS forex_b_commands (
+                id SERIAL PRIMARY KEY,
+                command TEXT NOT NULL,
+                created_ts TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                status TEXT NOT NULL DEFAULT 'pending',
+                handled_ts TIMESTAMPTZ,
+                result TEXT
+            )
+            """
+        )
+        cur.execute(
+            """
             CREATE TABLE IF NOT EXISTS broker_b_trades (
                 id SERIAL PRIMARY KEY,
                 rule_name TEXT NOT NULL,
@@ -1079,7 +1091,7 @@ def trade_b_level_history(ta_forecast_id: int, rule_name: str, min_win_pnl: floa
     return {"count": count, "stopped_out": stopped_out, "last_close_ts": last_close_ts}
 
 
-# --- Forex B: Broker B's rules traded on the FOREX.com demo account at tick granularity (forex_watcher.py) ---
+# --- Broker F: Broker B's rules traded on the FOREX.com demo account at tick granularity (forex_watcher.py) ---
 # `mode` is 'shadow' (decisions recorded from live bid/ask, no order sent) or 'live' (real demo-account orders).
 # Entirely separate from broker_b_trades: the two engines never see each other's positions or level budgets.
 
@@ -1102,7 +1114,7 @@ def insert_forex_b_trade(
     open_ts: datetime, ta_forecast_id: int | None, triggering_alerts: str, entry_context: dict | None = None,
     forex_order_id=None, forex_stop_order_id=None,
 ) -> int:
-    """Inserts the open Forex B trade and returns its id. `entry_price` is the price actually (or, in shadow mode,
+    """Inserts the open Broker F trade and returns its id. `entry_price` is the price actually (or, in shadow mode,
     hypothetically) filled -- the entry-side bid/ask when the touch was noticed; `trigger_price` is the forecast level;
     the difference is the slippage this engine exists to measure."""
     with get_connection() as conn, conn.cursor() as cur:
@@ -1132,13 +1144,13 @@ def close_forex_b_trade(
 
 
 def set_forex_b_stop_order(trade_id: int, stop_order_id) -> None:
-    """Records the platform stop order protecting an open live Forex B trade (it is re-read from the position each tick)."""
+    """Records the platform stop order protecting an open live Broker F trade (it is re-read from the position each tick)."""
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute("UPDATE forex_b_trades SET forex_stop_order_id = %s WHERE id = %s", (str(stop_order_id), trade_id))
 
 
 def get_forex_b_order_ids() -> set[str]:
-    """forex.com OrderIds of every live Forex B position ever opened, so forex_broker's poll close-check never adopts one
+    """forex.com OrderIds of every live Broker F position ever opened, so forex_broker's poll close-check never adopts one
     of them as a 'Manual' trade."""
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT forex_order_id FROM forex_b_trades WHERE forex_order_id IS NOT NULL")
@@ -1172,6 +1184,30 @@ def get_last_close_ts_forex_b() -> datetime | None:
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT MAX(close_ts) FROM forex_b_trades")
         return cur.fetchone()[0]
+
+
+def get_pending_forex_b_commands(max_age_seconds: int = 300) -> list[dict]:
+    """Telegram commands for Broker F ("buy/sell/close broker F", written by the Worker) still waiting for the watcher, oldest first.
+    One older than `max_age_seconds` is marked expired instead of returned: a manual order must never fire minutes late."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('forex_b_commands')")
+        if cur.fetchone()[0] is None:
+            return []
+        cur.execute(
+            "UPDATE forex_b_commands SET status = 'expired', handled_ts = NOW(), result = 'not picked up in time' "
+            "WHERE status = 'pending' AND created_ts < NOW() - make_interval(secs => %s)",
+            (max_age_seconds,),
+        )
+        cur.execute("SELECT id, command, created_ts FROM forex_b_commands WHERE status = 'pending' ORDER BY id")
+        return [{"id": r[0], "command": r[1], "created_ts": r[2]} for r in cur.fetchall()]
+
+
+def finish_forex_b_command(command_id: int, status: str, result: str) -> None:
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE forex_b_commands SET status = %s, handled_ts = NOW(), result = %s WHERE id = %s",
+            (status, result, command_id),
+        )
 
 
 def get_trailing_stop_override() -> tuple[float, float] | None:

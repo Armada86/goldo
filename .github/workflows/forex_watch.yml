@@ -1,6 +1,6 @@
-name: Forex B watcher
+name: Broker F watcher
 
-# Fast (10 s) tick watcher for the Forex B engine -- see forex_watcher.py and docs/forex-b.md. Triggered externally by
+# Fast (10 s) tick watcher for the Broker F engine -- see forex_watcher.py and docs/forex-b.md. Triggered externally by
 # cron-job.org (workflow_dispatch), like poll.yml. Each run loops for max_minutes (default 25) and exits at once when there is nothing
 # to watch (market closed, outside the 7am-5pm ET entry window, trading paused, nothing open).
 #
