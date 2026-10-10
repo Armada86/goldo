@@ -1,6 +1,6 @@
-name: Forex live check (demo, 0.1 oz)
+name: Forex live check (demo, 1 oz)
 
-# Manual only. Places 0.1 oz XAU/USD orders on the FOREX.com DEMO account to verify attach / move / cancel of a platform stop
+# Manual only. Places 1 oz XAU/USD orders (the production size) on the FOREX.com DEMO account to verify attach / move / cancel of a platform stop
 # and closing -- see forex_live_check.py. Run after the market reopens (Sunday 6pm ET) and before setting FOREX_B_MODE=live.
 on:
   workflow_dispatch:

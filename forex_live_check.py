@@ -1,7 +1,7 @@
-"""Verifies, on the FOREX.com DEMO account, the order behaviours forex_watcher.py's live mode depends on, using 0.1 oz of XAU/USD.
+"""Verifies, on the FOREX.com DEMO account, the order behaviours forex_watcher.py's live mode depends on, using the production size (forex_client.TRADE_QUANTITY, 1 oz) of XAU/USD.
 
 Run once the market is open (Sunday 6pm ET onward) and BEFORE switching Forex B to live. Sequence (each step prints the raw response):
-  1. buy 0.1 oz at market                        -> fill price, order id
+  1. buy 1 oz at market                          -> fill price, order id
   2. attach a stop-only order 20 below           -> the position shows StopOrder.TriggerPrice
   3. move that stop up to 15 below               -> the SAME stop order now shows the new trigger (amend works)
   4. cancel the stop                             -> the position stays open with no StopOrder
@@ -17,11 +17,11 @@ import argparse
 import sys
 import time
 
-from forex_client import TRADABLE_MARKET_ID, ForexClient
+from forex_client import TRADABLE_MARKET_ID, TRADE_QUANTITY, ForexClient
 from market_hours import is_market_closed
 from notifier import send_telegram_message
 
-QTY = 0.1
+QTY = TRADE_QUANTITY  # the size Forex B really trades (1 oz), so the test exercises exactly what production will
 results: list[tuple[str, bool, str]] = []
 
 
@@ -48,11 +48,11 @@ def flatten(client: ForexClient) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--yes", action="store_true", help="confirm that 0.1 oz demo orders may be placed")
+    parser.add_argument("--yes", action="store_true", help="confirm that 1 oz demo orders may be placed")
     parser.add_argument("--test-close-with-stop", action="store_true", help="also test an opposite order while a stop is attached")
     args = parser.parse_args()
     if not args.yes:
-        print("Refusing to place orders without --yes (0.1 oz XAU/USD on the demo account).")
+        print("Refusing to place orders without --yes (1 oz XAU/USD on the demo account).")
         return 2
     if is_market_closed():
         print("Market is closed (Fri 5pm - Sun 6pm ET) -- orders cannot fill. Run again after Sunday 6pm ET.")
@@ -65,7 +65,7 @@ def main() -> int:
     try:
         opened = client.place_market_order("buy", quantity=QTY)
         oid, fill = opened["order_id"], opened["fill_price"]
-        check("market buy 0.1 oz", True, f"order {oid} filled @ {fill}")
+        check(f"market buy {QTY:g} oz", True, f"order {oid} filled @ {fill}")
         time.sleep(1)
         placed = client.attach_stop(oid, "buy", fill - 20, quantity=QTY)
         pos = next((p for p in positions(client) if p["OrderId"] == oid), None)
@@ -102,7 +102,7 @@ def main() -> int:
                 print("trade history lookup failed:", e)
         check("account flat at the end", not positions(client))
     ok = all(r[1] for r in results)
-    summary = "FOREX LIVE CHECK (demo, 0.1 oz): " + ("ALL PASSED" if ok else "FAILURES") + "\n" + "\n".join(
+    summary = "FOREX LIVE CHECK (demo, 1 oz): " + ("ALL PASSED" if ok else "FAILURES") + "\n" + "\n".join(
         f"{'✅' if r[1] else '❌'} {r[0]}" for r in results
     )
     send_telegram_message(summary)

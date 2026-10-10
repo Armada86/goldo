@@ -4,7 +4,7 @@ Status (10 Oct 2026): `forex_watcher.py` watches the live bid/ask every 10 s and
 Two modes, chosen by the repo variable `FOREX_B_MODE` (read by `forex_watch.yml`; unset = shadow):
 - **shadow** -- records what it *would* do in `forex_b_trades` (`mode = 'shadow'`), sends no order.
 - **live** -- real orders on the FOREX.com **demo** account (XAU/USD only, 1 oz). Written 10 Oct 2026 but **not yet exercised against forex.com**:
-  `forex_live_check.py` (workflow `forex_live_check.yml`, 0.1 oz) must pass first, because the market was closed when this was built.
+  `forex_live_check.py` (workflow `forex_live_check.yml`, 1 oz) must pass first, because the market was closed when this was built.
 
 Live flow: market order on the touch (after Broker B's five filters) -> stop-only order attached at the initial stop -> each tick the
 platform stop is moved to the stop Broker B's exit code would use (`broker._scan_exit()`, never loosened, moved only when >= $0.50
@@ -59,7 +59,7 @@ spread (Buy enters on the ask, exits on the bid; confirmed live: bid 4192.56 / a
 
 ## Open questions -- `forex_live_check.py` answers 1-4; verify before enabling live mode
 
-forex.com's API reference is login-gated, so each of these needs a 0.1 oz demo test (minimum size 0.1; `MinDistance` for XAU/USD is 0):
+forex.com's API reference is login-gated, so each of these needs a 1 oz demo test (minimum size 0.1; `MinDistance` for XAU/USD is 0):
 
 1. Can an attached stop be **amended** (`/order/updatetradeorder` with `IfDone` carrying the existing stop's `OrderId`)? Is there a
    native trailing-stop order type?
