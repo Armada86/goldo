@@ -88,6 +88,7 @@ def init_db() -> None:
                 entry_context JSONB,
                 forex_order_id TEXT,
                 forex_stop_order_id TEXT,
+                forex_close_order_id TEXT,
                 stop_level DOUBLE PRECISION,
                 exit_price DOUBLE PRECISION,
                 close_ts TIMESTAMPTZ,
@@ -1118,14 +1119,30 @@ def insert_forex_b_trade(
 
 
 def close_forex_b_trade(
-    trade_id: int, exit_price: float, close_ts: datetime, pnl: float, stop_level: float | None, exit_reason: str
+    trade_id: int, exit_price: float, close_ts: datetime, pnl: float, stop_level: float | None, exit_reason: str,
+    forex_close_order_id=None,
 ) -> None:
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
             "UPDATE forex_b_trades SET exit_price = %s, close_ts = %s, pnl = %s, stop_level = %s, exit_reason = %s, "
-            "status = 'Closed' WHERE id = %s",
-            (exit_price, close_ts, pnl, stop_level, exit_reason, trade_id),
+            "forex_close_order_id = %s, status = 'Closed' WHERE id = %s",
+            (exit_price, close_ts, pnl, stop_level, exit_reason,
+             None if forex_close_order_id is None else str(forex_close_order_id), trade_id),
         )
+
+
+def set_forex_b_stop_order(trade_id: int, stop_order_id) -> None:
+    """Records the platform stop order protecting an open live Forex B trade (it is re-read from the position each tick)."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("UPDATE forex_b_trades SET forex_stop_order_id = %s WHERE id = %s", (str(stop_order_id), trade_id))
+
+
+def get_forex_b_order_ids() -> set[str]:
+    """forex.com OrderIds of every live Forex B position ever opened, so forex_broker's poll close-check never adopts one
+    of them as a 'Manual' trade."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT forex_order_id FROM forex_b_trades WHERE forex_order_id IS NOT NULL")
+        return {row[0] for row in cur.fetchall()}
 
 
 def forex_b_level_history(ta_forecast_id: int, rule_name: str, min_win_pnl: float = 0.0) -> dict:

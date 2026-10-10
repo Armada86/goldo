@@ -17,11 +17,14 @@ so a change to Broker B's rules changes this engine too.
 
 Modes (--mode):
   shadow (default) -- records every decision it WOULD make in forex_b_trades (mode = 'shadow') using the live
-      entry-/exit-side prices, and sends Telegram messages, but sends NO order to forex.com. This is what answers "how
-      do live fills differ from Broker B's candle-based ones?" with zero order risk.
-  live -- real demo-account orders. NOT implemented yet: the order plumbing (resting stop at the platform, amending
-      or cancelling it, closing a position that has one) has to be verified on the demo account first; see
-      docs/forex-b.md "Open questions". Refuses to start.
+      entry-/exit-side prices, and sends Telegram messages, but sends NO order to forex.com.
+  live -- real orders on the FOREX.com DEMO account (the client is locked to XAU/USD, 1 oz). Entry is a market order the
+      moment the touch passes the filters. Right after the fill a stop-only order is attached on the platform at the
+      initial stop (so the position is protected even if this process dies); each tick the stop Broker B's exit code
+      would use is computed and the platform stop is moved up to it (never down). If the platform stop triggers, the
+      position disappears and the close is recorded from forex.com's trade history; if the watcher's own stop is
+      crossed first (or trading is paused) it cancels the stop and closes at market. Moving/cancelling a stop are
+      verified by forex_live_check.py, which must pass before this mode is used.
 
 Read-only toward Broker B: this never writes to broker_b_trades / broker_b_blocked, so running it cannot consume or
 change a Broker B touch. A touch it blocks is remembered in memory only.
@@ -43,7 +46,7 @@ from broker import (
     _format_ts,
     _pnl,
     _result_marker,
-    _scan_exit_crossing,
+    _scan_exit,
     _within_entry_window,
     stop_loss_threshold,
     trailing_stop_params,
@@ -64,11 +67,12 @@ from broker_b import (
 from config import ADX_PERIOD, ATR_PERIOD, RSI_PERIOD
 from data_fetcher import fetch_gold_candles, gold_adx_rising_from_candles, gold_rsi_adx_atr_from_candles
 from entry_context import build_entry_context, level_distances
-from forex_client import ForexClient
+from forex_client import TRADABLE_MARKET_ID, ForexClient, ForexClientError, ForexOrderUncertainError
 from market_hours import is_market_closed
 from notifier import send_telegram_message
 from storage import (
     close_forex_b_trade,
+    set_forex_b_stop_order,
     forex_b_level_history,
     get_last_close_ts_forex_b,
     get_latest_ta_forecast,
@@ -93,6 +97,8 @@ TRADE_PREFIX = "\U0001f7ea "  # purple square -- Broker B is blue, A is a blue c
 BLOCKED_MARKER = "⛔ "
 PROFIT_MARKER = "\U0001f7e9 "
 LOSS_MARKER = "\U0001f7e5 "
+
+MIN_STOP_STEP = 0.5  # the platform stop is only moved when the new level is at least this much better ($ per oz)
 
 COLUMNS = ["datetime", "open", "high", "low", "close"]
 
@@ -175,21 +181,32 @@ class Watcher:
 
     # --- exit -----------------------------------------------------------------------------------------------------
 
+    def _exit_inputs(self, trade: dict):
+        """(stop-scan result, next stop price) on the ticks since the trade opened, with Broker B's exit settings."""
+        exit_frame = self.feed.side(_exit_side(trade["trade_type"]))
+        ticks = exit_frame[exit_frame["datetime"] > pd.Timestamp(trade["open_ts"])]
+        fade = trade["rule_name"] in FADE_OPPOSITE_SCENARIO
+        activation, distance = trailing_stop_params()
+        return _scan_exit(
+            trade, ticks, stop_loss_threshold(), activation, distance, self._refresh_context().get("lock_level"), fade
+        )
+
     def _check_exit(self, now: datetime) -> None:
         trade = self.open_trade
         exit_frame = self.feed.side(_exit_side(trade["trade_type"]))
         latest = exit_frame.iloc[-1]
         price_col = "low" if trade["trade_type"] == "Buy" else "high"
         paused = trading_pause_reason(now) is not None
-        crossing = None
-        if not paused:
-            ticks = exit_frame[exit_frame["datetime"] > pd.Timestamp(trade["open_ts"])]
-            fade = trade["rule_name"] in FADE_OPPOSITE_SCENARIO
-            activation, distance = trailing_stop_params()
-            crossing = _scan_exit_crossing(
-                trade, ticks, stop_loss_threshold(), activation, distance, self._refresh_context().get("lock_level"), fade
-            )
+        position = None
+        if self.mode == "live":
+            position = self._live_position(trade)
+            if position is None:
+                self._record_platform_close(trade, now)  # forex.com's own stop closed it
+                return
+        crossing, next_stop = (None, None) if paused else self._exit_inputs(trade)
         if crossing is None and not paused:
+            if position is not None:
+                self._sync_platform_stop(trade, position, next_stop)
             return
         if paused:
             stop_level, exit_price, exit_ts, reason = None, float(latest["close"]), now, "trading paused"
@@ -198,18 +215,94 @@ class Watcher:
             hit = exit_frame[exit_frame["datetime"] == pd.Timestamp(crossed_ts)].iloc[0]
             # The market close happens when the tick is seen: at that tick's price, which is at or beyond the stop.
             exit_price, exit_ts, reason = float(hit[price_col]), crossed_ts, "stop"
+        close_order_id = None
+        if self.mode == "live":
+            closed = self._close_at_market(trade, position)
+            if closed is None:
+                return  # not confirmed closed: the next tick re-reads the position and decides
+            exit_price, close_order_id = closed
+            exit_ts = datetime.now(timezone.utc)
+        self._finish(trade, exit_price, exit_ts, stop_level, reason, close_order_id)
+
+    def _finish(self, trade, exit_price, exit_ts, stop_level, reason, close_order_id=None, note="") -> None:
         pnl = _pnl(trade, exit_price)
-        close_forex_b_trade(trade["id"], exit_price, exit_ts, pnl, stop_level, reason)
+        close_forex_b_trade(trade["id"], exit_price, exit_ts, pnl, stop_level, reason, close_order_id)
         stop_text = f" (stop level ${stop_level:.2f}, slipped ${abs(exit_price - stop_level):.2f})" if stop_level is not None else ""
         send_telegram_message(_message(
             trade["id"],
             f"closed {trade['trade_type']} 1 oz XAU/USD @ ${exit_price:.2f}{stop_text} (opened @ ${trade['entry_price']:.2f}, "
-            f"rule {trade['rule_name']}) -- {'profit' if pnl >= 0 else 'loss'} of ${abs(pnl):.2f}\nFilled: {_format_ts(exit_ts)}",
+            f"rule {trade['rule_name']}) -- {'profit' if pnl >= 0 else 'loss'} of ${abs(pnl):.2f}{note}\nFilled: {_format_ts(exit_ts)}",
             self.mode, _result_marker(pnl, PROFIT_MARKER, LOSS_MARKER),
         ))
         log.info("closed #%s %s pnl %+.2f (%s)", trade["id"], trade["rule_name"], pnl, reason)
         self.open_trade = None
         self._refresh_context(force=True)
+
+    # --- live: orders on the forex.com demo account ----------------------------------------------------------------
+
+    def _live_position(self, trade: dict) -> dict | None:
+        positions = [p for p in self.client.get_open_positions() if p.get("MarketId") == TRADABLE_MARKET_ID]
+        return next((p for p in positions if str(p.get("OrderId")) == str(trade["forex_order_id"])), None)
+
+    def _sync_platform_stop(self, trade: dict, position: dict, desired_stop: float) -> None:
+        """Keeps the platform stop at (or better than) the stop Broker B's exit code wants: attaches one if the position has none,
+        otherwise moves it up (a Buy) / down (a Sell) when the desired level is at least MIN_STOP_STEP better."""
+        is_buy = trade["trade_type"] == "Buy"
+        direction = "buy" if is_buy else "sell"
+        stop = position.get("StopOrder")
+        try:
+            if not stop:
+                placed = self.client.attach_stop(trade["forex_order_id"], direction, desired_stop)
+                set_forex_b_stop_order(trade["id"], placed["stop_order_id"])
+                send_telegram_message(_message(trade["id"], f"stop was missing -- re-attached at ${placed['stop_price']:.2f}.", self.mode))
+                return
+            current = float(stop["TriggerPrice"])
+            better = desired_stop - current if is_buy else current - desired_stop
+            if better >= MIN_STOP_STEP:
+                moved = self.client.move_stop(trade["forex_order_id"], stop["OrderId"], direction, desired_stop)
+                log.info("#%s platform stop %.2f -> %.2f", trade["id"], current, moved["stop_price"])
+        except ForexClientError as e:  # incl. ForexOrderUncertainError: the next tick re-reads the position's real stop
+            log.warning("could not set the platform stop for #%s: %s", trade["id"], e)
+
+    def _close_at_market(self, trade: dict, position: dict) -> tuple[float, object] | None:
+        """Cancels the platform stop (so it cannot fire against the close) and closes at market. Returns (fill price, close
+        order id), or None if the close is not confirmed -- the position is then re-read on the next tick."""
+        stop = position.get("StopOrder")
+        if stop:
+            try:
+                self.client.cancel_order(stop["OrderId"])
+            except ForexClientError as e:
+                log.warning("could not cancel stop %s before closing #%s: %s", stop["OrderId"], trade["id"], e)
+        try:
+            result = self.client.close_position(trade["trade_type"])
+        except ForexClientError as e:
+            send_telegram_message(_message(trade["id"], f"market close NOT confirmed ({e}) -- CHECK THE DEMO ACCOUNT.", self.mode))
+            return None
+        leftovers = [p for p in self.client.get_open_positions() if p.get("MarketId") == TRADABLE_MARKET_ID]
+        if leftovers:
+            send_telegram_message(_message(
+                trade["id"],
+                f"after the market close forex.com still shows {len(leftovers)} open XAU/USD position(s) -- CHECK THE DEMO ACCOUNT "
+                f"(the close may have opened an opposite position instead of netting).", self.mode,
+            ))
+        return result["fill_price"], result["order_id"]
+
+    def _record_platform_close(self, trade: dict, now: datetime) -> None:
+        """The position is gone from forex.com: its stop order triggered (or someone closed it by hand)."""
+        closing = None
+        try:
+            closing = self.client.find_closing_trade(int(trade["forex_order_id"]))
+        except Exception:
+            log.exception("could not read the closing trade")
+        if closing is not None:
+            self._finish(trade, closing["price"], closing["closed_at"] or now, None, "platform stop", closing["order_id"])
+            return
+        exit_side = self.feed.side(_exit_side(trade["trade_type"]))
+        estimate = float(exit_side.iloc[-1]["close"])
+        self._finish(
+            trade, estimate, now, None, "platform stop (price estimated)", None,
+            note="\n(exit price ESTIMATED from the live quote -- not found in forex.com trade history)",
+        )
 
     # --- entry ----------------------------------------------------------------------------------------------------
 
@@ -268,6 +361,12 @@ class Watcher:
             log.info("%s blocked: %s", rule_name, reasons)
             return False
         fill_price = float(self.feed.side(side).iloc[-1]["close"])  # a Buy fills on the ask, a Sell on the bid
+        order_id = stop_order_id = None
+        if self.mode == "live":
+            placed = self._place_entry(trade_type, rule_name)
+            if placed is None:
+                return False
+            fill_price, order_id = placed
         slippage = fill_price - trigger_price if trade_type == "Buy" else trigger_price - fill_price  # + = worse than the level
         session = forecast["levels"].get("session", "?")
         trigger_text = f"{session} TA forecast {forecast['forecast_date']}, {scenario_name} @ ${trigger_price:.2f}"
@@ -287,7 +386,7 @@ class Watcher:
         )
         trade_id = insert_forex_b_trade(
             self.mode, rule_name, trade_type, trigger_price, fill_price, touch_ts, now, forecast["id"], trigger_text,
-            entry_context,
+            entry_context, forex_order_id=order_id,
         )
         self.open_trade = get_open_forex_b_trade()
         send_telegram_message(_message(
@@ -298,8 +397,46 @@ class Watcher:
             self.mode,
         ))
         log.info("opened #%s %s @ %.2f (level %.2f)", trade_id, rule_name, fill_price, trigger_price)
+        if self.mode == "live":
+            self._protect(self.open_trade)
         self._refresh_context(force=True)
         return True
+
+    def _place_entry(self, trade_type: str, rule_name: str) -> tuple[float, object] | None:
+        """Sends the market order. Returns (fill price, order id), or None if nothing was opened. An order whose outcome is unknown
+        (timeout / 5xx) is never retried: the account's positions are read instead and a single new XAU/USD position is adopted."""
+        direction = "buy" if trade_type == "Buy" else "sell"
+        try:
+            result = self.client.place_market_order(direction)
+            return result["fill_price"], result["order_id"]
+        except ForexOrderUncertainError as e:
+            log.warning("entry order outcome unknown: %s", e)
+            time.sleep(2)
+            try:
+                positions = [p for p in self.client.get_open_positions() if p.get("MarketId") == TRADABLE_MARKET_ID]
+            except Exception:
+                positions = None
+            if positions is not None and len(positions) == 1:
+                send_telegram_message(_message(0, f"{rule_name} order outcome was unknown; adopted the single open position {positions[0]['OrderId']}.", self.mode))
+                return float(positions[0]["Price"]), positions[0]["OrderId"]
+            send_telegram_message(_message(0, f"{rule_name} order outcome UNKNOWN and positions are unclear -- CHECK THE DEMO ACCOUNT. Not retried.", self.mode))
+            return None
+        except ForexClientError as e:
+            send_telegram_message(_message(0, f"{rule_name} order rejected, nothing opened: {e}", self.mode))
+            return None
+
+    def _protect(self, trade: dict) -> None:
+        """Attaches the initial platform stop right after the fill: the stop Broker B's exit code gives for a trade with no ticks yet."""
+        direction = "buy" if trade["trade_type"] == "Buy" else "sell"
+        try:
+            _crossing, initial_stop = self._exit_inputs({**trade, "open_ts": datetime.now(timezone.utc)})
+            placed = self.client.attach_stop(trade["forex_order_id"], direction, initial_stop)
+            set_forex_b_stop_order(trade["id"], placed["stop_order_id"])
+            send_telegram_message(_message(trade["id"], f"platform stop set at ${placed['stop_price']:.2f}.", self.mode))
+        except ForexClientError as e:
+            send_telegram_message(_message(
+                trade["id"], f"could NOT attach the platform stop ({e}) -- position is UNPROTECTED on forex.com; the watcher manages it.", self.mode,
+            ))
 
     # --- loop -----------------------------------------------------------------------------------------------------
 
@@ -317,18 +454,32 @@ class Watcher:
             self._check_entry(now)
 
 
-def run(max_minutes: float, mode: str) -> None:
-    if mode != "shadow":
-        raise SystemExit(
-            "live mode is not implemented: the order plumbing must be verified on the demo account first "
-            "(see docs/forex-b.md, 'Open questions'). Use --mode shadow."
+def _live_ready(client: ForexClient) -> bool:
+    """Live mode assumes the account holds no XAU/USD position except Forex B's own: refuses to trade (and says so) if there is an
+    untracked one, e.g. a manual position, since closing at market could net against it."""
+    tracked = get_open_forex_b_trade()
+    positions = [p for p in client.get_open_positions() if p.get("MarketId") == TRADABLE_MARKET_ID]
+    extra = [p for p in positions if tracked is None or str(p.get("OrderId")) != str(tracked["forex_order_id"])]
+    if extra:
+        send_telegram_message(
+            f"{TRADE_PREFIX.rstrip()}FOREX B (live): not trading -- the demo account already has {len(extra)} untracked XAU/USD "
+            f"position(s) ({', '.join(str(p.get('OrderId')) for p in extra)}). Close them or switch to shadow mode."
         )
+        log.error("untracked XAU/USD positions on the account -- refusing to run live")
+        return False
+    return True
+
+
+def run(max_minutes: float, mode: str) -> None:
     deadline = time.monotonic() + max_minutes * 60
     init_db()
     if get_open_forex_b_trade() is None and not _entry_possible(datetime.now(timezone.utc)):
         log.info("Nothing to watch (market closed, outside the entry window, or paused) -- exiting")
         return
-    watcher = Watcher(ForexClient(), mode)
+    client = ForexClient()
+    if mode == "live" and not _live_ready(client):
+        return
+    watcher = Watcher(client, mode)
     log.info("Forex B watcher started (%s mode); open trade: %s", mode, watcher.open_trade and watcher.open_trade["id"])
     while time.monotonic() < deadline:
         started = time.monotonic()

@@ -1,8 +1,16 @@
 # Forex B -- Broker B's rules on the FOREX.com demo account
 
-Status (10 Oct 2026): **shadow mode only.** `forex_watcher.py` watches the live bid/ask every 10 s and records what Forex B
-*would* do in `forex_b_trades` (`mode = 'shadow'`). It sends no order to forex.com. Live orders are blocked until the
-"Open questions" below are verified on the demo account.
+Status (10 Oct 2026): `forex_watcher.py` watches the live bid/ask every 10 s and trades Broker B's rules separately from Broker B.
+Two modes, chosen by the repo variable `FOREX_B_MODE` (read by `forex_watch.yml`; unset = shadow):
+- **shadow** -- records what it *would* do in `forex_b_trades` (`mode = 'shadow'`), sends no order.
+- **live** -- real orders on the FOREX.com **demo** account (XAU/USD only, 1 oz). Written 10 Oct 2026 but **not yet exercised against forex.com**:
+  `forex_live_check.py` (workflow `forex_live_check.yml`, 0.1 oz) must pass first, because the market was closed when this was built.
+
+Live flow: market order on the touch (after Broker B's five filters) -> stop-only order attached at the initial stop -> each tick the
+platform stop is moved to the stop Broker B's exit code would use (`broker._scan_exit()`, never loosened, moved only when >= $0.50
+better) -> the platform stop closing the position is recorded from `/order/tradehistory`; if the watcher's own stop is crossed first,
+or trading is paused (`stop trading`), it cancels the stop and closes at market. It refuses to run live if the account holds an
+XAU/USD position it does not track, and the poll's old close-check ignores Forex B's positions (`forex_broker._reconcile`).
 
 ## Problem 1 -- tracking at a finer time scale
 
@@ -49,7 +57,7 @@ Differences from Broker B worth measuring in shadow mode (all stored per trade):
 spread (Buy enters on the ask, exits on the bid; confirmed live: bid 4192.56 / ask 4196.13 at the Friday close), exit slippage
 (`stop_level` vs `exit_price`), and how many touches/trades the faster feed finds or loses versus Broker B on the same day.
 
-## Open questions -- verify on the demo account before enabling live mode
+## Open questions -- `forex_live_check.py` answers 1-4; verify before enabling live mode
 
 forex.com's API reference is login-gated, so each of these needs a 0.1 oz demo test (minimum size 0.1; `MinDistance` for XAU/USD is 0):
 

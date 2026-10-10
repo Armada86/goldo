@@ -415,6 +415,95 @@ class ForexClient:
             "limit_price": float(by_type[3]["TriggerPrice"]),
         }
 
+    # --- Forex B (forex_watcher.py) order plumbing: stop-only protection, moving it, cancelling it -----------------
+    # Written from the same third-party API descriptions as the rest of this module; the stop-only attach is the confirmed
+    # IfDone call minus the Limit leg. Moving and cancelling a stop are NOT yet confirmed live -- forex_live_check.py
+    # exercises each on a 0.1 oz demo position and must pass before forex_watcher.py is run in live mode.
+
+    def _wait_for_position(self, order_id) -> dict:
+        position = None
+        for attempt in range(POSITION_LOOKUP_ATTEMPTS):
+            position = next((p for p in self.get_open_positions() if p.get("OrderId") == order_id), None)
+            if position is not None or attempt == POSITION_LOOKUP_ATTEMPTS - 1:
+                break
+            time.sleep(1)
+        if position is None:
+            raise ForexClientError(f"No open position with OrderId {order_id}")
+        if position.get("MarketId") != TRADABLE_MARKET_ID:
+            raise ForexClientError(
+                f"Refusing: position {order_id} is on market {position.get('MarketId')}, not "
+                f"{TRADABLE_MARKET_NAME} ({TRADABLE_MARKET_ID})."
+            )
+        return position
+
+    def _stop_leg(self, trigger_price: float, exit_direction: str, quantity: float, stop_order_id=0) -> dict:
+        return {
+            "TriggerPrice": round(float(trigger_price), 2),
+            "Direction": exit_direction,
+            "Quantity": quantity,
+            "Guaranteed": False,
+            "Applicability": "GTC",
+            "OrderId": stop_order_id,
+        }
+
+    def _update_stop(self, order_id, direction: str, stop_leg: dict, quantity: float, what: str) -> dict:
+        price = self.get_price(TRADABLE_MARKET_NAME)
+        data = self._post_once(
+            "order/updatetradeorder",
+            {
+                "OrderId": order_id,
+                "MarketId": TRADABLE_MARKET_ID,
+                "Currency": "USD",
+                "AutoRollover": False,
+                "Direction": direction,
+                "Quantity": quantity,
+                "BidPrice": price,
+                "OfferPrice": price,
+                "TradingAccountId": self._trading_account_id,
+                "IfDone": [{"Stop": stop_leg}],
+            },
+            what,
+        )
+        stops = [o for o in data.get("Orders") or [] if o.get("OrderId") != order_id and o.get("OrderTypeId") == 2]
+        if not stops:
+            raise ForexOrderUncertainError(
+                f"{what} returned no stop order -- check the demo account; response: {data}"
+            )
+        return {"stop_order_id": stops[0]["OrderId"], "stop_price": float(stops[0]["TriggerPrice"])}
+
+    def attach_stop(self, order_id, direction: str, stop_price: float, *, quantity: float | None = None) -> dict:
+        """Attaches ONLY a stop order (no take-profit -- Broker B has none) at `stop_price` to the open position `order_id`
+        (`direction` is the position's). Same XAU/USD lock and single-attempt POST as the other order calls. Returns
+        {"stop_order_id", "stop_price"}."""
+        direction = direction.lower()
+        if direction not in ("buy", "sell"):
+            raise ForexClientError(f"direction must be 'buy' or 'sell', got {direction!r}")
+        quantity = TRADE_QUANTITY if quantity is None else quantity
+        self._assert_tradable_market()
+        self._wait_for_position(order_id)
+        leg = self._stop_leg(stop_price, "sell" if direction == "buy" else "buy", quantity)
+        return self._update_stop(order_id, direction, leg, quantity, f"stop {stop_price:.2f} on position {order_id}")
+
+    def move_stop(
+        self, order_id, stop_order_id, direction: str, stop_price: float, *, quantity: float | None = None
+    ) -> dict:
+        """Moves the existing stop order `stop_order_id` of position `order_id` to `stop_price` (UNVERIFIED -- see above)."""
+        direction = direction.lower()
+        quantity = TRADE_QUANTITY if quantity is None else quantity
+        self._assert_tradable_market()
+        leg = self._stop_leg(stop_price, "sell" if direction == "buy" else "buy", quantity, stop_order_id)
+        return self._update_stop(order_id, direction, leg, quantity, f"move stop {stop_order_id} to {stop_price:.2f}")
+
+    def cancel_order(self, order_id) -> None:
+        """Cancels a resting order (e.g. a position's stop) by its OrderId (UNVERIFIED -- see above)."""
+        data = self._post_once(
+            "order/cancel",
+            {"OrderId": order_id, "TradingAccountId": self._trading_account_id},
+            f"cancel order {order_id}",
+        )
+        if data.get("Status") not in (None, 1) and not data.get("OrderId"):
+            raise ForexClientError(f"cancel of order {order_id} not confirmed: {data}")
+
     @with_retries()
     def find_closing_trade(self, order_id) -> dict | None:
         """The trade that closed position `order_id` (e.g. its TP/SL triggering), from /order/tradehistory

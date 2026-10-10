@@ -372,6 +372,19 @@ def _scan_exit_crossing(
     lock_level: float | None = None,
     fade: bool = False,
 ) -> tuple[float, datetime] | None:
+    """(stop_price, bar_time) of the first bar that touched the trailing stop, or None -- see _scan_exit()."""
+    return _scan_exit(trade, candles, stop_loss_distance, activation, distance, lock_level, fade)[0]
+
+
+def _scan_exit(
+    trade: dict,
+    candles,
+    stop_loss_distance: float | None = None,
+    activation: float | None = None,
+    distance: float | None = None,
+    lock_level: float | None = None,
+    fade: bool = False,
+) -> tuple[tuple[float, datetime] | None, float]:
     """Replays 1-min OHLC candles (all of them since the trade opened, in order) against this trade's
     trailing stop -- see the module docstring for why a candle scan beats a point-in-time price. There
     is no fixed take-profit (removed 2 Oct 2026): the only exit is the stop, which starts at
@@ -401,19 +414,24 @@ def _scan_exit_crossing(
     if fade and lock_profit is not None and lock_profit <= FADE_NO_TRAIL_MAX_LOCK_DISTANCE:
         activation = distance = float("inf")  # a near lock level: no ordinary trail before it, the lock takes over there
     locked = False
-    for _, bar in candles.iterrows():
+
+    def stop_now() -> float:
         offset = _exit_stop_offset(peak, stop_loss_distance, activation, distance)
         if locked:
             offset = max(offset, lock_profit, peak - FADE_LOCK_TRAIL_DISTANCE)
-        stop_price = entry + offset if is_buy else entry - offset
+        return entry + offset if is_buy else entry - offset
+
+    for _, bar in candles.iterrows():
+        stop_price = stop_now()
         hit = bar["low"] <= stop_price if is_buy else bar["high"] >= stop_price
         if hit:
-            return stop_price, bar["datetime"].to_pydatetime()
+            return (stop_price, bar["datetime"].to_pydatetime()), stop_price
         favourable = bar["high"] - entry if is_buy else entry - bar["low"]
         peak = max(peak, favourable)
         if lock_profit is not None and not locked and favourable >= lock_profit:
             locked = True  # applies from the next bar (the bar that touched the level can't also be stopped by it)
-    return None
+    # No crossing: the stop that applies to the NEXT bar/tick too -- what a platform stop order should rest at (forex_watcher.py).
+    return None, stop_now()
 
 
 def _exit_bar_count(trade: dict, now: datetime) -> int:

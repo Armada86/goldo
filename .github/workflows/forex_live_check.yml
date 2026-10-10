@@ -1,0 +1,33 @@
+name: Forex live check (demo, 0.1 oz)
+
+# Manual only. Places 0.1 oz XAU/USD orders on the FOREX.com DEMO account to verify attach / move / cancel of a platform stop
+# and closing -- see forex_live_check.py. Run after the market reopens (Sunday 6pm ET) and before setting FOREX_B_MODE=live.
+on:
+  workflow_dispatch:
+    inputs:
+      test_close_with_stop:
+        description: "Also test an opposite market order while a stop is attached"
+        type: boolean
+        default: true
+
+concurrency:
+  group: forex-watch   # never at the same time as the watcher
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - run: python forex_live_check.py --yes ${{ inputs.test_close_with_stop && '--test-close-with-stop' || '' }}
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          FOREX_USERNAME: ${{ secrets.FOREX_USERNAME }}
+          FOREX_PASSWORD: ${{ secrets.FOREX_PASSWORD }}
+          FOREX_APP_KEY: ${{ secrets.FOREX_APP_KEY }}

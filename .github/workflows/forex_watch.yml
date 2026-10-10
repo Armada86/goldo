@@ -4,9 +4,12 @@ name: Forex B watcher
 # cron-job.org (workflow_dispatch), like poll.yml. Each run loops for ~5 minutes and exits at once when there is nothing
 # to watch (market closed, outside the 7am-5pm ET entry window, trading paused, nothing open).
 #
-# Intended trigger: every 5 minutes, weekdays 6:59am-5:00pm America/New_York. The concurrency group queues at most one
+# Intended trigger: every 5 minutes, weekdays 7:00am-5:55pm America/New_York (runs after 5pm only matter while a trade is open;
+# otherwise they exit at once). The concurrency group queues at most one
 # waiting run behind the running one, so the loops follow each other instead of overlapping (two watchers at once could
-# both open the same touch). SHADOW MODE ONLY for now: no order is sent to forex.com.
+# both open the same touch). The mode comes from the repo VARIABLE FOREX_B_MODE (Settings > Secrets and variables > Actions >
+# Variables): unset or "shadow" = record only, no order; "live" = real orders on the FOREX.com DEMO account. Run
+# forex_live_check.yml successfully before setting it to live.
 on:
   workflow_dispatch:
     inputs:
@@ -31,7 +34,7 @@ jobs:
 
       - run: pip install -r requirements.txt
 
-      - run: python forex_watcher.py --mode shadow --max-minutes "${{ inputs.max_minutes || '5' }}"
+      - run: python forex_watcher.py --mode "${{ vars.FOREX_B_MODE || 'shadow' }}" --max-minutes "${{ inputs.max_minutes || '5' }}"
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
