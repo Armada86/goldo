@@ -74,6 +74,31 @@ def init_db() -> None:
         )
         cur.execute(
             """
+            CREATE TABLE IF NOT EXISTS forex_b_trades (
+                id SERIAL PRIMARY KEY,
+                mode TEXT NOT NULL DEFAULT 'shadow',
+                rule_name TEXT NOT NULL,
+                trade_type TEXT NOT NULL,
+                trigger_price DOUBLE PRECISION NOT NULL,
+                entry_price DOUBLE PRECISION NOT NULL,
+                touch_ts TIMESTAMPTZ NOT NULL,
+                open_ts TIMESTAMPTZ NOT NULL,
+                ta_forecast_id INTEGER,
+                triggering_alerts TEXT NOT NULL,
+                entry_context JSONB,
+                forex_order_id TEXT,
+                forex_stop_order_id TEXT,
+                stop_level DOUBLE PRECISION,
+                exit_price DOUBLE PRECISION,
+                close_ts TIMESTAMPTZ,
+                pnl DOUBLE PRECISION,
+                exit_reason TEXT,
+                status TEXT NOT NULL DEFAULT 'Open'
+            )
+            """
+        )
+        cur.execute(
+            """
             CREATE TABLE IF NOT EXISTS broker_b_trades (
                 id SERIAL PRIMARY KEY,
                 rule_name TEXT NOT NULL,
@@ -1051,6 +1076,85 @@ def trade_b_level_history(ta_forecast_id: int, rule_name: str, min_win_pnl: floa
         cur.execute(query, params)
         count, stopped_out, last_close_ts = cur.fetchone()
     return {"count": count, "stopped_out": stopped_out, "last_close_ts": last_close_ts}
+
+
+# --- Forex B: Broker B's rules traded on the FOREX.com demo account at tick granularity (forex_watcher.py) ---
+# `mode` is 'shadow' (decisions recorded from live bid/ask, no order sent) or 'live' (real demo-account orders).
+# Entirely separate from broker_b_trades: the two engines never see each other's positions or level budgets.
+
+def get_open_forex_b_trade() -> dict | None:
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, mode, rule_name, trade_type, trigger_price, entry_price, touch_ts, open_ts, ta_forecast_id, "
+            "forex_order_id, forex_stop_order_id FROM forex_b_trades WHERE status = 'Open' ORDER BY open_ts DESC LIMIT 1"
+        )
+        row = cur.fetchone()
+    if row is None:
+        return None
+    keys = ("id", "mode", "rule_name", "trade_type", "trigger_price", "entry_price", "touch_ts", "open_ts",
+            "ta_forecast_id", "forex_order_id", "forex_stop_order_id")
+    return dict(zip(keys, row))
+
+
+def insert_forex_b_trade(
+    mode: str, rule_name: str, trade_type: str, trigger_price: float, entry_price: float, touch_ts: datetime,
+    open_ts: datetime, ta_forecast_id: int | None, triggering_alerts: str, entry_context: dict | None = None,
+    forex_order_id=None, forex_stop_order_id=None,
+) -> int:
+    """Inserts the open Forex B trade and returns its id. `entry_price` is the price actually (or, in shadow mode,
+    hypothetically) filled -- the entry-side bid/ask when the touch was noticed; `trigger_price` is the forecast level;
+    the difference is the slippage this engine exists to measure."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO forex_b_trades (mode, rule_name, trade_type, trigger_price, entry_price, touch_ts, open_ts, "
+            "ta_forecast_id, triggering_alerts, entry_context, forex_order_id, forex_stop_order_id, status) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'Open') RETURNING id",
+            (mode, rule_name, trade_type, trigger_price, entry_price, touch_ts, open_ts, ta_forecast_id,
+             triggering_alerts, Json(entry_context) if entry_context else None,
+             None if forex_order_id is None else str(forex_order_id),
+             None if forex_stop_order_id is None else str(forex_stop_order_id)),
+        )
+        return cur.fetchone()[0]
+
+
+def close_forex_b_trade(
+    trade_id: int, exit_price: float, close_ts: datetime, pnl: float, stop_level: float | None, exit_reason: str
+) -> None:
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE forex_b_trades SET exit_price = %s, close_ts = %s, pnl = %s, stop_level = %s, exit_reason = %s, "
+            "status = 'Closed' WHERE id = %s",
+            (exit_price, close_ts, pnl, stop_level, exit_reason, trade_id),
+        )
+
+
+def forex_b_level_history(ta_forecast_id: int, rule_name: str, min_win_pnl: float = 0.0) -> dict:
+    """forex_b_trades' own version of trade_b_level_history(): same return shape, same re-arm meaning, counting only
+    this engine's trades (and, like Broker B, honouring the Telegram "rearm levels" reset)."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('broker_b_rearm')")
+        rearm_ts = None
+        if cur.fetchone()[0] is not None:
+            cur.execute("SELECT rearm_ts FROM broker_b_rearm WHERE id = 1")
+            row = cur.fetchone()
+            rearm_ts = row[0] if row else None
+        query = (
+            "SELECT COUNT(*), COALESCE(BOOL_OR(pnl < %s), FALSE), MAX(close_ts) FROM forex_b_trades "
+            "WHERE ta_forecast_id = %s AND rule_name = %s"
+        )
+        params: tuple = (min_win_pnl, ta_forecast_id, rule_name)
+        if rearm_ts is not None:
+            query += " AND open_ts > %s"
+            params += (rearm_ts,)
+        cur.execute(query, params)
+        count, stopped_out, last_close_ts = cur.fetchone()
+    return {"count": count, "stopped_out": stopped_out, "last_close_ts": last_close_ts}
+
+
+def get_last_close_ts_forex_b() -> datetime | None:
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT MAX(close_ts) FROM forex_b_trades")
+        return cur.fetchone()[0]
 
 
 def get_trailing_stop_override() -> tuple[float, float] | None:

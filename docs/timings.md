@@ -23,6 +23,7 @@ Actions mechanism each scheduled job uses.
 | Broker A/B trailing stop distance | Trails $7 behind best price once active | Per-trade | `broker.TRAILING_STOP_DISTANCE` (overridable via `make trail`) |
 | Broker A/B initial stop-loss | $10 distance (overridable via `make SL <n>`, 1–100) | Per-trade | `broker.STOP_LOSS_THRESHOLD` / `stop_loss_threshold()` |
 | Broker A/B exit-scan candle lookback | Up to 3000 1-minute bars since trade opened | Per-trade | `broker._exit_bar_count()` |
+| Forex B tick watcher (`forex_watcher.py`, shadow mode) | Quote every 10 s in ~5-min bursts; exits at once when idle | Weekdays, 7:00 AM-5:00 PM ET entry window | `forex_watcher.TICK_SECONDS`, `.github/workflows/forex_watch.yml`, cron-job.org |
 | Intrahour swing alert windows | 15 / 10 / 5 minutes, rising-edge per window | Every poll | `config.INTRAHOUR_SWING_WINDOWS_MINUTES` |
 | Broker A Consensus5of7 signal lookback | Trailing 10 minutes of alerts | Every poll | `broker.py` |
 | Frequency test — interactive | On-demand, no schedule | Any day, user-triggered in a Claude Code session | `frequency_test.py` / `frequency-test` skill |

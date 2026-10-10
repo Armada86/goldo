@@ -200,6 +200,32 @@ class ForexClient:
         return float(ticks[-1]["Price"])
 
     @with_retries()
+    def get_quote(self, market_name: str | None = None) -> dict:
+        """Latest live bid and ask for `market_name` (default MARKET_NAME) as {"bid", "ask", "ts"} (ts = the bid
+        tick's UTC time), from two /market/{id}/tickhistory calls (BID and ASK, ~0.5 s each, read-only; confirmed
+        live 10 Oct 2026). This is what a fast watcher polls every ~10 s: a Buy fills on the ask and exits on the
+        bid, a Sell the reverse, so mid (get_price()) understates the real spread cost."""
+        market_id = self._market_id_for(market_name or MARKET_NAME)
+        sides = {}
+        for price_type in ("BID", "ASK"):
+            response = requests.get(
+                f"{BASE_URL}/market/{market_id}/tickhistory",
+                headers=self._headers(),
+                params={"PriceTicks": 1, "priceType": price_type},
+                timeout=10,
+            )
+            response.raise_for_status()
+            ticks = response.json().get("PriceTicks") or []
+            if not ticks:
+                raise ForexClientError(f"No {price_type} tick returned for market {market_id}")
+            sides[price_type] = ticks[-1]
+        return {
+            "bid": float(sides["BID"]["Price"]),
+            "ask": float(sides["ASK"]["Price"]),
+            "ts": _parse_ms_date(sides["BID"].get("TickDate")) or datetime.now(timezone.utc),
+        }
+
+    @with_retries()
     def get_bars(self, count: int, price_type: str, market_name: str | None = None):
         """The most recent `count` one-minute OHLC bars for `market_name` (default MARKET_NAME) as a
         DataFrame (`datetime` UTC, `open`/`high`/`low`/`close`, ascending), priced on `price_type`
