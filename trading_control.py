@@ -1,4 +1,5 @@
-"""Manual trading on/off control for Broker A and Broker B, set from Telegram (telegram_webhook/).
+"""Manual trading on/off control for Broker A, B and F, set from Telegram (telegram_webhook/). A command names a broker
+("stop trading broker F") or, with no name, applies to all three; see trading_pause_reason().
 
 Three inputs, all stored in Postgres by the Worker and read here each poll:
   * a scheduled pause (`trading_pauses`): "Thursday 1 October 2026, stop trading from 7 till 10" -- no
@@ -17,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from market_hours import OVERNIGHT_PAUSE_END_HOUR, OVERNIGHT_PAUSE_START_HOUR
-from storage import get_active_trading_pauses, get_trading_override
+from storage import get_active_trading_pauses, get_broker_trading_override, get_trading_override
 
 ET = ZoneInfo("America/New_York")
 
@@ -55,11 +56,19 @@ def evaluate_pause(now: datetime, mode: str | None, set_ts: datetime | None, pau
     return None
 
 
-def trading_pause_reason(now: datetime | None = None) -> str | None:
+def trading_pause_reason(now: datetime | None = None, broker: str | None = None) -> str | None:
+    """Why `broker` ("A", "B" or "F") must not trade right now, or None. Each broker has its own stop/start state (a Telegram command
+    without a broker name sets it for all three, so the latest command wins per broker) and sees the scheduled pauses that name it
+    or name no broker. A broker with no state of its own yet falls back to the old global override. Without `broker`: the global
+    state only."""
     now = now or datetime.now(timezone.utc)
     try:
         mode, set_ts = get_trading_override()
-        pauses = get_active_trading_pauses(now)
+        if broker is not None:
+            own = get_broker_trading_override(broker)
+            if own is not None:
+                mode, set_ts = own
+        pauses = get_active_trading_pauses(now, broker)
     except Exception:
         return None
     return evaluate_pause(now, mode, set_ts, pauses)

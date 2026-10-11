@@ -29,7 +29,7 @@ Modes (--mode):
 Manual commands: the Telegram Worker cannot place forex.com orders itself (the order code and its XAU/USD-only locks live here), so
 "buy broker F" / "sell broker F" / "close broker F" are queued in the forex_b_commands table and executed by this loop within one tick
 (and the Worker dispatches forex_watch.yml so a loop exists). A command not picked up within 5 minutes expires, never firing late.
-"stop trading" needs nothing extra: the loop already closes the position and opens nothing while trading_pause_reason() is set.
+"stop trading" needs nothing extra: the loop already closes the position and opens nothing while trading_pause_reason(now, "F") is set (Telegram "stop trading" or "stop trading broker F").
 
 Read-only toward Broker B: this never writes to broker_b_trades / broker_b_blocked, so running it cannot consume or
 change a Broker B touch. A touch it blocks is remembered in memory only.
@@ -80,6 +80,7 @@ from storage import (
     finish_forex_b_command,
     get_pending_forex_b_commands,
     set_forex_b_stop_order,
+    touch_forex_b_heartbeat,
     forex_b_level_history,
     get_last_close_ts_forex_b,
     get_latest_ta_forecast,
@@ -148,7 +149,7 @@ def _message(trade_id: int, text: str, mode: str, marker: str = "") -> str:
 
 def _entry_possible(now: datetime) -> bool:
     """A fresh entry is allowed right now: market open, inside the 7am-5pm ET weekday window, trading not paused."""
-    return not is_market_closed() and _within_entry_window(now) and trading_pause_reason(now) is None
+    return not is_market_closed() and _within_entry_window(now) and trading_pause_reason(now, "F") is None
 
 
 def _commands_pending() -> bool:
@@ -166,6 +167,7 @@ class Watcher:
         self.open_trade = get_open_forex_b_trade()
         self.consumed: dict[str, datetime] = {}  # rule_name -> newest tick time a blocked / stale touch used up
         self.last_quote: dict | None = None
+        self.heartbeat_at = 0.0
         self.context: dict = {}
         self.context_at = 0.0
 
@@ -211,7 +213,7 @@ class Watcher:
         exit_frame = self.feed.side(_exit_side(trade["trade_type"]))
         latest = exit_frame.iloc[-1]
         price_col = "low" if trade["trade_type"] == "Buy" else "high"
-        paused = trading_pause_reason(now) is not None
+        paused = trading_pause_reason(now, "F") is not None
         position = None
         if self.mode == "live":
             position = self._live_position(trade)
@@ -459,7 +461,17 @@ class Watcher:
         """True when there is nothing to watch: no open trade and no entry possible right now."""
         return self.open_trade is None and not _entry_possible(now) and not _commands_pending()
 
+    def _heartbeat(self) -> None:
+        if time.monotonic() - self.heartbeat_at < 60:
+            return
+        self.heartbeat_at = time.monotonic()
+        try:
+            touch_forex_b_heartbeat(self.mode)
+        except Exception:
+            log.exception("heartbeat failed")
+
     def step(self) -> None:
+        self._heartbeat()
         quote = self.client.get_quote()
         fresh = self.feed.add(quote)
         self.last_quote = quote
@@ -497,8 +509,8 @@ class Watcher:
     def _manual_open(self, trade_type: str, now: datetime) -> tuple[str, str]:
         if self.open_trade is not None:
             return "rejected", "a Broker F trade is already open. Close it first."
-        if trading_pause_reason(now) is not None:
-            return "rejected", 'trading is stopped/paused (send "start trading" first).'
+        if trading_pause_reason(now, "F") is not None:
+            return "rejected", 'trading is stopped/paused for Broker F (send "start trading broker F" or "start trading" first).'
         if is_market_closed():
             return "rejected", "the market is closed (Friday 5pm - Sunday 6pm ET)."
         side = _entry_side(trade_type)
