@@ -274,6 +274,29 @@ def init_db() -> None:
             )
             """
         )
+        # brokers: NULL/empty = every broker, else a comma list of letters ("F", "A,B") -- per-broker scheduled pauses.
+        cur.execute("ALTER TABLE trading_pauses ADD COLUMN IF NOT EXISTS brokers TEXT")
+        # Per-broker "stop trading broker F" / "start trading broker F" state (the Worker writes it too); a command without a
+        # broker name writes the same mode to all three rows, so the latest command always wins for each broker.
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS broker_trading_override (
+                broker TEXT PRIMARY KEY,
+                mode TEXT NOT NULL,
+                set_ts TIMESTAMPTZ NOT NULL
+            )
+            """
+        )
+        # Broker F watcher heartbeat, read by the Telegram "broker status" command.
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS forex_b_heartbeat (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                ts TIMESTAMPTZ NOT NULL,
+                mode TEXT NOT NULL
+            )
+            """
+        )
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS threshold_history (
@@ -1516,17 +1539,46 @@ def get_trading_override() -> tuple[str | None, datetime | None]:
     return (row[0], row[1]) if row else (None, None)
 
 
-def get_active_trading_pauses(now: datetime) -> list[tuple[datetime, datetime]]:
-    """(start_ts, end_ts) of every scheduled Telegram pause covering `now`."""
+def get_active_trading_pauses(now: datetime, broker: str | None = None) -> list[tuple[datetime, datetime]]:
+    """(start_ts, end_ts) of every scheduled Telegram pause covering `now`. With `broker` ("A"/"B"/"F") only the pauses that apply to
+    it: those with no broker list (all brokers) or naming it. Without `broker`, every pause."""
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT to_regclass('trading_pauses')")
         if cur.fetchone()[0] is None:
             return []
         cur.execute(
-            "SELECT start_ts, end_ts FROM trading_pauses WHERE start_ts <= %s AND end_ts > %s",
-            (now, now),
+            "SELECT 1 FROM information_schema.columns WHERE table_name = 'trading_pauses' AND column_name = 'brokers'"
         )
+        has_brokers = cur.fetchone() is not None
+        query = "SELECT start_ts, end_ts FROM trading_pauses WHERE start_ts <= %s AND end_ts > %s"
+        params: tuple = (now, now)
+        if broker is not None and has_brokers:
+            query += " AND (brokers IS NULL OR brokers = '' OR %s = ANY(string_to_array(brokers, ',')))"
+            params += (broker,)
+        cur.execute(query, params)
         return [(r[0], r[1]) for r in cur.fetchall()]
+
+
+def get_broker_trading_override(broker: str) -> tuple[str, datetime] | None:
+    """(mode, set_ts) of the per-broker "stop trading broker X" / "start trading broker X" state, or None if that broker has never
+    been given one (the table is created by init_db() or the Worker on first use)."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('broker_trading_override')")
+        if cur.fetchone()[0] is None:
+            return None
+        cur.execute("SELECT mode, set_ts FROM broker_trading_override WHERE broker = %s", (broker,))
+        row = cur.fetchone()
+    return (row[0], row[1]) if row else None
+
+
+def touch_forex_b_heartbeat(mode: str) -> None:
+    """The Broker F watcher is alive right now, in this mode (shown by the Telegram "broker status" command)."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO forex_b_heartbeat (id, ts, mode) VALUES (1, NOW(), %s) "
+            "ON CONFLICT (id) DO UPDATE SET ts = EXCLUDED.ts, mode = EXCLUDED.mode",
+            (mode,),
+        )
 
 
 def get_broker_a_blocked() -> list[dict]:

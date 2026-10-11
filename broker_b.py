@@ -773,7 +773,7 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
 
     # Telegram "stop trading" / scheduled pause (trading_control.py): close anything open at market
     # and open nothing.
-    if trading_pause_reason(now) is not None:
+    if trading_pause_reason(now, "B") is not None:
         if open_trade is not None:
             pnl = _pnl(open_trade, gold_price)
             close_trade_row_b(open_trade["id"], gold_price, now, pnl)

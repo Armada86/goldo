@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { REARM_RE, RUN_TA_RE, SLA_RE, BRA_RE, parseStopLoss, parseTrail, parseCommand, parseControlCommand, etToUtc, formatTs, pnl } from "../src/index.js";
+import { brokerStatus, STATUS_RE, parseBrokerScope, evaluatePause, nextWeekdayBoundary, isMarketClosedAt, inEntryWindow, tradingState, REARM_RE, RUN_TA_RE, SLA_RE, BRA_RE, parseStopLoss, parseTrail, parseCommand, parseControlCommand, etToUtc, formatTs, pnl } from "../src/index.js";
 
 test("parseCommand: open commands, various phrasing", () => {
   assert.deepEqual(parseCommand("sell broker A"), { action: "open", tradeType: "Sell", brokerLetter: "A" });
@@ -54,8 +54,8 @@ test("formatTs: matches broker._format_ts()'s shape (YYYY-MM-DD HH:MM:SS TZ, Ame
 const NOW = new Date("2026-09-30T15:00:00Z");
 
 test("parseControlCommand: start/stop", () => {
-  assert.deepEqual(parseControlCommand("stop trading"), { action: "stop" });
-  assert.deepEqual(parseControlCommand("Start Trading"), { action: "start" });
+  assert.deepEqual(parseControlCommand("stop trading"), { action: "stop", brokers: [] });
+  assert.deepEqual(parseControlCommand("Start Trading"), { action: "start", brokers: [] });
   assert.equal(parseControlCommand("close broker a"), null);
 });
 
@@ -185,4 +185,96 @@ test("start BRA: matches its phrasings only", () => {
   assert.ok(!BRA_RE.test("start SLA"));
   assert.ok(!BRA_RE.test("stop trading"));
   assert.ok(!BRA_RE.test("start trading"));
+});
+
+test("parseBrokerScope: no name = all brokers ([]), a name = only that broker", () => {
+  assert.deepEqual(parseBrokerScope("stop trading"), []);
+  assert.deepEqual(parseBrokerScope("stop trading broker F"), ["F"]);
+  assert.deepEqual(parseBrokerScope("Stop trading F"), ["F"]);
+  assert.deepEqual(parseBrokerScope("start trading for broker b"), ["B"]);
+  assert.deepEqual(parseBrokerScope("stop trading broker A and broker B"), ["A", "B"]);
+  assert.deepEqual(parseBrokerScope("stop trading brokers a, f"), ["A", "F"]);
+  assert.deepEqual(parseBrokerScope("stop trading broker B and F"), ["B", "F"]);
+  assert.deepEqual(parseBrokerScope("stop trading on friday"), []); // "friday" is not a broker letter
+});
+
+test("parseControlCommand: per-broker stop/start/pause", () => {
+  assert.deepEqual(parseControlCommand("stop trading broker F"), { action: "stop", brokers: ["F"] });
+  assert.deepEqual(parseControlCommand("start trading B"), { action: "start", brokers: ["B"] });
+  const r = parseControlCommand("Thursday, 1st of October 2026. Stop trading broker F from 7 till 10", NOW);
+  assert.equal(r.action, "pause");
+  assert.deepEqual(r.brokers, ["F"]);
+  assert.equal(r.start.toISOString(), "2026-10-01T11:00:00.000Z");
+  assert.deepEqual(parseControlCommand("Thursday, 1st of October 2026. Stop trading from 7 till 10", NOW).brokers, []);
+  assert.equal(parseControlCommand("buy broker F"), null); // not a control command
+});
+
+test("STATUS_RE: broker status phrasings", () => {
+  for (const ok of ["broker status", "Brokers status", "broker's status", "brokers' status", "status of brokers", "Status of the brokers"]) {
+    assert.ok(STATUS_RE.test(ok), ok);
+  }
+  for (const no of ["status", "buy broker F", "stop trading", "broker F"]) assert.ok(!STATUS_RE.test(no), no);
+});
+
+const ms = (iso) => new Date(iso).getTime();
+
+test("nextWeekdayBoundary: skips the weekend", () => {
+  // Friday 2026-10-09 22:00 UTC (6pm EDT) -> next 7am ET weekday is Monday 12 Oct 11:00 UTC
+  assert.equal(new Date(nextWeekdayBoundary(ms("2026-10-09T22:00:00Z"), 7)).toISOString(), "2026-10-12T11:00:00.000Z");
+  // Monday 08:00 EDT -> next 5pm ET is the same day, 21:00 UTC
+  assert.equal(new Date(nextWeekdayBoundary(ms("2026-10-12T12:00:00Z"), 17)).toISOString(), "2026-10-12T21:00:00.000Z");
+});
+
+test("evaluatePause: stop lasts to the next 7am, start overrides a pause that began before it", () => {
+  const set = ms("2026-10-12T15:00:00Z"); // Mon 11am ET
+  assert.ok(evaluatePause(ms("2026-10-12T16:00:00Z"), "stopped", set, []));
+  assert.equal(evaluatePause(ms("2026-10-13T11:30:00Z"), "stopped", set, []), null); // Tue 7:30am ET: window reopened
+  const pause = { start: ms("2026-10-12T14:00:00Z"), end: ms("2026-10-12T20:00:00Z") };
+  assert.ok(evaluatePause(ms("2026-10-12T16:00:00Z"), null, null, [pause]));
+  assert.equal(evaluatePause(ms("2026-10-12T16:00:00Z"), "started", set, [pause]), null); // started after the pause began
+});
+
+test("tradingState: market closed / outside hours / paused / trading", () => {
+  assert.match(tradingState(ms("2026-10-11T20:00:00Z"), null, []), /market closed/); // Sunday 4pm ET
+  assert.match(tradingState(ms("2026-10-12T05:00:00Z"), null, []), /outside trading hours/); // Mon 1am ET
+  assert.equal(tradingState(ms("2026-10-12T15:00:00Z"), null, []), null); // Mon 11am ET
+  assert.match(tradingState(ms("2026-10-12T15:00:00Z"), { mode: "stopped", setTs: ms("2026-10-12T14:00:00Z") }, []), /stopped/);
+  assert.ok(isMarketClosedAt(ms("2026-10-09T21:30:00Z")) && !isMarketClosedAt(ms("2026-10-11T22:30:00Z")));
+  assert.ok(inEntryWindow(ms("2026-10-12T11:00:00Z")) && !inEntryWindow(ms("2026-10-12T21:00:00Z")));
+});
+
+// A fake Neon `sql` tag: answers each query by a distinctive fragment of its text.
+function fakeSql(answers) {
+  return async (strings) => {
+    const q = strings.join("?");
+    for (const [needle, rows] of answers) if (q.includes(needle)) return rows;
+    return [];
+  };
+}
+
+test("brokerStatus: per-broker lines, open trade and watcher heartbeat", async () => {
+  const realNow = Date.now;
+  Date.now = () => ms("2026-10-12T15:00:00Z"); // Monday 11am ET: market open, inside trading hours
+  try {
+    const text = await brokerStatus(
+      fakeSql([
+        ["FROM trading_override", []],
+        ["FROM broker_trading_override", [{ broker: "B", mode: "stopped", set_ts: "2026-10-12T14:00:00Z" }]],
+        ["FROM trading_pauses", []],
+        ["to_regclass('forex_b_trades')", [{ t: "forex_b_trades" }]],
+        ["to_regclass('forex_b_heartbeat')", [{ t: "forex_b_heartbeat" }]],
+        ["FROM trades WHERE", []],
+        ["FROM broker_b_trades WHERE", []],
+        ["FROM forex_b_trades WHERE", [{ trade_type: "Buy", entry_price: 4190.87, rule_name: "TA-Zone-buy", mode: "live" }]],
+        ["FROM forex_b_heartbeat", [{ ts: "2026-10-12T14:59:40Z", mode: "live" }]],
+      ])
+    );
+    assert.match(text, /Broker A: ✅ TRADING/);
+    assert.match(text, /Broker B: ⛔ NOT TRADING — stopped by Telegram command/);
+    assert.match(text, /Broker F \(live\): ✅ TRADING/);
+    assert.match(text, /open: Buy 1 oz @ \$4190\.87 \(TA-Zone-buy\)/);
+    assert.match(text, /watcher active 20s ago/);
+  } finally {
+    Date.now = realNow;
+  }
 });

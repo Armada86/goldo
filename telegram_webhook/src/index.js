@@ -36,11 +36,14 @@
  *                                                          of unrealized P/L (unlike the automatic
  *                                                          trailing stop, a manual
  *                                                          close is an unconditional override)
- *   "stop trading"                                     -> close BOTH brokers' open positions at spot and
+ *   "stop trading"                                     -> close ALL brokers' (A, B, F) open positions and
  *                                                          pause all trading until the program's own
  *                                                          trading window next opens (7am ET weekdays)
- *   "start trading"                                    -> resume trading for both brokers until the
+ *   "stop trading broker F" / "stop trading F"         -> the same for ONE broker only ("broker A and B" for two); a
+ *                                                          command without a broker name applies to all three
+ *   "start trading" / "start trading broker F"         -> resume trading (all, or the named broker(s)) until the
  *                                                          program's own window next closes (5pm ET)
+ *   "broker status" / "brokers' status"                -> which brokers are trading and which are not, and why
  *   "<date>. Stop trading from 7 till 10"              -> schedule a pause (times are America/New_York,
  *                                                          e.g. "Thursday, 1st of October 2026. Stop
  *                                                          trading from 7 till 10 o'clock"); no date =
@@ -147,6 +150,29 @@ function parseCommand(text) {
   return { action: "open", tradeType, brokerLetter };
 }
 
+const BROKER_LETTERS = ["A", "B", "F"];
+const BROKER_NAMES = { A: "Broker A", B: "Broker B", F: "Broker F" };
+const BROKER_SCOPE_RE = /\bbrokers?\s+([abf](?:\s*(?:,|&|and)\s*(?:brokers?\s+)?[abf]\b)*)/gi;
+const BROKER_AFTER_TRADING_RE = /\b(?:stop|start)\s+trading\s+(?:for\s+)?([abf])\b/i;
+const STATUS_RE = /\bbrokers?(?:['\u2019]s?)?\s+status\b|\bstatus\s+of\s+(?:the\s+)?brokers?\b/i;
+
+/** Which brokers a trading-control message names: a sorted array of letters, or [] meaning ALL brokers (no name given). */
+function parseBrokerScope(text) {
+  const found = new Set();
+  for (const m of text.matchAll(BROKER_SCOPE_RE)) {
+    for (const l of m[1].matchAll(/\b[abf]\b/gi)) found.add(l[0].toUpperCase());
+  }
+  const after = BROKER_AFTER_TRADING_RE.exec(text);
+  if (after) found.add(after[1].toUpperCase());
+  return BROKER_LETTERS.filter((l) => found.has(l));
+}
+
+function scopeText(brokers) {
+  const list = brokers.length ? brokers : BROKER_LETTERS;
+  const names = list.map((l) => BROKER_NAMES[l]);
+  return names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
 const MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
 const WEEKDAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
 const MONTH_PAT = "(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)";
@@ -190,7 +216,8 @@ function to24h(hour, meridiem) {
  * 7am-5pm ET, so "from 2 till 5" can only mean the afternoon); 7-12 and up as written.
  */
 function parseControlCommand(text, now = new Date()) {
-  if (/\bstart\s+trading\b/i.test(text)) return { action: "start" };
+  const brokers = parseBrokerScope(text);
+  if (/\bstart\s+trading\b/i.test(text)) return { action: "start", brokers };
   if (!/\bstop\s+trading\b/i.test(text)) return null;
 
   let year, month, day, matched;
@@ -215,7 +242,7 @@ function parseControlCommand(text, now = new Date()) {
     if (hasDateWord || /\d/.test(text)) {
       return { action: "error", message: 'Could not read the date. Try e.g. "Thursday, 1st of October 2026. Stop trading from 7 till 10".' };
     }
-    return { action: "stop" };
+    return { action: "stop", brokers };
   }
   if (year === undefined) year = etParts(now.getTime()).year;
   if (month < 1 || day < 1 || day > 31 || new Date(Date.UTC(year, month - 1, day)).getUTCDate() !== day) {
@@ -254,30 +281,48 @@ function parseControlCommand(text, now = new Date()) {
     end = etToUtc(year, month, day, h2, m2);
   }
   if (end <= now) return { action: "error", message: "That window is already in the past. Nothing scheduled." };
-  return { action: "pause", start, end };
+  return { action: "pause", start, end, brokers };
 }
 
 async function ensureControlTables(sql) {
   await sql`CREATE TABLE IF NOT EXISTS trading_override (id INTEGER PRIMARY KEY CHECK (id = 1), mode TEXT NOT NULL, set_ts TIMESTAMPTZ NOT NULL)`;
   await sql`CREATE TABLE IF NOT EXISTS trading_pauses (id SERIAL PRIMARY KEY, start_ts TIMESTAMPTZ NOT NULL, end_ts TIMESTAMPTZ NOT NULL, created_ts TIMESTAMPTZ NOT NULL DEFAULT NOW())`;
+  await sql`ALTER TABLE trading_pauses ADD COLUMN IF NOT EXISTS brokers TEXT`;
+  await sql`CREATE TABLE IF NOT EXISTS broker_trading_override (broker TEXT PRIMARY KEY, mode TEXT NOT NULL, set_ts TIMESTAMPTZ NOT NULL)`;
 }
 
-async function setOverride(sql, mode) {
-  await sql`
-    INSERT INTO trading_override (id, mode, set_ts) VALUES (1, ${mode}, ${new Date().toISOString()})
-    ON CONFLICT (id) DO UPDATE SET mode = EXCLUDED.mode, set_ts = EXCLUDED.set_ts
-  `;
+/**
+ * Records "stopped"/"started". Every named broker (all three when none is named) gets its own row, so the latest command wins per
+ * broker; a command with no broker name also writes the old global row, which brokers with no row of their own still fall back to.
+ */
+async function setOverride(sql, mode, brokers) {
+  const now = new Date().toISOString();
+  for (const letter of brokers.length ? brokers : BROKER_LETTERS) {
+    await sql`
+      INSERT INTO broker_trading_override (broker, mode, set_ts) VALUES (${letter}, ${mode}, ${now})
+      ON CONFLICT (broker) DO UPDATE SET mode = EXCLUDED.mode, set_ts = EXCLUDED.set_ts
+    `;
+  }
+  if (brokers.length === 0) {
+    await sql`
+      INSERT INTO trading_override (id, mode, set_ts) VALUES (1, ${mode}, ${now})
+      ON CONFLICT (id) DO UPDATE SET mode = EXCLUDED.mode, set_ts = EXCLUDED.set_ts
+    `;
+  }
 }
 
-async function stopTrading(sql, apiKey, env) {
+async function stopTrading(sql, apiKey, env, brokers = []) {
   await ensureControlTables(sql);
-  await setOverride(sql, "stopped"); // first, so the poll stops opening things even if a close below fails
-  const lines = ["\u{1F6D1} Trading STOPPED for Broker A, Broker B and Broker F."];
-  const openA = await sql`SELECT id FROM trades WHERE status = 'Open' LIMIT 1`;
-  const openB = await sql`SELECT id FROM broker_b_trades WHERE status = 'Open' LIMIT 1`;
-  if (openA.length > 0) lines.push(await closeBrokerA(sql, apiKey));
-  if (openB.length > 0) lines.push(await closeBrokerB(sql, apiKey));
-  if (await brokerFHasOpenTrade(sql)) {
+  await setOverride(sql, "stopped", brokers); // first, so the poll stops opening things even if a close below fails
+  const scope = brokers.length ? brokers : BROKER_LETTERS;
+  const lines = [`\u{1F6D1} Trading STOPPED for ${scopeText(brokers)}.`];
+  if (scope.includes("A") && (await sql`SELECT id FROM trades WHERE status = 'Open' LIMIT 1`).length > 0) {
+    lines.push(await closeBrokerA(sql, apiKey));
+  }
+  if (scope.includes("B") && (await sql`SELECT id FROM broker_b_trades WHERE status = 'Open' LIMIT 1`).length > 0) {
+    lines.push(await closeBrokerB(sql, apiKey));
+  }
+  if (scope.includes("F") && (await brokerFHasOpenTrade(sql))) {
     // The watcher closes it itself within one tick (trading_pause_reason); make sure a watcher loop is running to do so.
     const dispatchError = await dispatchWorkflow(env, "forex_watch.yml", "the Broker F watcher");
     lines.push(
@@ -285,23 +330,136 @@ async function stopTrading(sql, apiKey, env) {
         (dispatchError ? ` (${dispatchError})` : "")
     );
   }
-  lines.push('No new trades until the next automatic trading window opens (7am ET, weekdays) or you send "start trading".');
+  lines.push(
+    `No new trades for ${scopeText(brokers)} until the next automatic trading window opens (7am ET, weekdays) or you send ` +
+      `"start trading${brokers.length ? " " + brokers.map((l) => "broker " + l).join(" and ") : ""}".`
+  );
   return lines.join("\n");
 }
 
-async function startTrading(sql) {
+async function startTrading(sql, brokers = []) {
   await ensureControlTables(sql);
-  await setOverride(sql, "started");
-  return '\u25B6\uFE0F Trading STARTED for Broker A, Broker B and Broker F. It runs until the program\'s own trading window closes (5pm ET), or until you send "stop trading".';
+  await setOverride(sql, "started", brokers);
+  return (
+    `\u25B6\uFE0F Trading STARTED for ${scopeText(brokers)}. It runs until the program's own trading window closes (5pm ET), ` +
+    'or until you send "stop trading".'
+  );
 }
 
-async function schedulePause(sql, start, end) {
+async function schedulePause(sql, start, end, brokers = []) {
   await ensureControlTables(sql);
-  await sql`INSERT INTO trading_pauses (start_ts, end_ts) VALUES (${start.toISOString()}, ${end.toISOString()})`;
+  const list = brokers.length ? brokers.join(",") : null; // NULL = every broker
+  await sql`INSERT INTO trading_pauses (start_ts, end_ts, brokers) VALUES (${start.toISOString()}, ${end.toISOString()}, ${list})`;
   return (
-    `\u23F8 Pause scheduled for Broker A, Broker B and Broker F:\n${formatTs(start)} -> ${formatTs(end)}\n` +
+    `\u23F8 Pause scheduled for ${scopeText(brokers)}:\n${formatTs(start)} -> ${formatTs(end)}\n` +
     "No new trades in that window; any open position is closed at the first poll (every 5 min) inside it (Broker F: within seconds)."
   );
+}
+
+// ---- "broker status": which brokers are trading right now. Mirrors trading_control.evaluate_pause() / market_hours.py. ----
+
+function etWeekday(ms) {
+  const p = etParts(ms);
+  return new Date(Date.UTC(p.year, p.month - 1, p.day)).getUTCDay(); // 0 = Sunday
+}
+
+/** First weekday `hour`:00 America/New_York strictly after `afterMs` (ms since the epoch). */
+function nextWeekdayBoundary(afterMs, hour) {
+  const base = etParts(afterMs);
+  for (let offset = 0; offset < 8; offset++) {
+    const candidate = etToUtc(base.year, base.month, base.day + offset, hour, 0);
+    const wd = etWeekday(candidate.getTime());
+    if (wd >= 1 && wd <= 5 && candidate.getTime() > afterMs) return candidate.getTime();
+  }
+  throw new Error("no weekday within 8 days");
+}
+
+/** {reason, until} if a broker is paused at `nowMs`, else null. `setTs`: ms of its stop/start command (or null); pauses: [{start, end}] ms. */
+function evaluatePause(nowMs, mode, setTs, pauses) {
+  if (mode === "stopped" && setTs != null) {
+    const resumes = nextWeekdayBoundary(setTs, 7);
+    if (nowMs < resumes) return { reason: "stopped by Telegram command", until: resumes };
+  }
+  const started = mode === "started" && setTs != null && nowMs < nextWeekdayBoundary(setTs, 17);
+  for (const p of pauses) {
+    if (started && setTs >= p.start) continue; // "start trading" came after this pause began -- it wins
+    return { reason: "scheduled pause", until: p.end };
+  }
+  return null;
+}
+
+/** Friday 5pm ET through Sunday 6pm ET (market_hours.is_market_closed()). */
+function isMarketClosedAt(nowMs) {
+  const wd = etWeekday(nowMs);
+  const h = etParts(nowMs).hour;
+  if (wd === 5) return h >= 17;
+  if (wd === 0) return h < 18;
+  return wd === 6;
+}
+
+/** The brokers' entry window: weekdays 7:00am-5:00pm ET (broker._within_entry_window()). */
+function inEntryWindow(nowMs) {
+  const wd = etWeekday(nowMs);
+  const h = etParts(nowMs).hour;
+  return wd >= 1 && wd <= 5 && h >= 7 && h < 17;
+}
+
+function etShort(ms) {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York", weekday: "short", hour: "numeric", minute: "2-digit", hour12: true,
+  }).format(new Date(ms)) + " ET";
+}
+
+/** "NOT TRADING" reasons, in order: paused by command / schedule, market closed, outside the entry window; null = trading. */
+function tradingState(nowMs, override, pauses) {
+  const paused = evaluatePause(nowMs, override?.mode ?? null, override?.setTs ?? null, pauses);
+  if (paused) return `${paused.reason} (until ${etShort(paused.until)} or "start trading")`;
+  if (isMarketClosedAt(nowMs)) return "market closed (reopens Sunday 6:00 PM ET)";
+  if (!inEntryWindow(nowMs)) return "outside trading hours (7:00 AM-5:00 PM ET, weekdays)";
+  return null;
+}
+
+async function brokerStatus(sql) {
+  const now = Date.now();
+  const toMs = (v) => (v == null ? null : new Date(v).getTime());
+  await ensureControlTables(sql);
+  const globalRows = await sql`SELECT mode, set_ts FROM trading_override WHERE id = 1`;
+  const legacy = globalRows[0] ? { mode: globalRows[0].mode, setTs: toMs(globalRows[0].set_ts) } : null;
+  const ownRows = await sql`SELECT broker, mode, set_ts FROM broker_trading_override`;
+  const pauseRows = await sql`SELECT start_ts, end_ts, brokers FROM trading_pauses WHERE start_ts <= ${new Date(now).toISOString()} AND end_ts > ${new Date(now).toISOString()}`;
+  const fExists = (await sql`SELECT to_regclass('forex_b_trades') AS t`)[0].t;
+  const opens = {
+    A: (await sql`SELECT trade_type, entry_price, rule_name FROM trades WHERE status = 'Open' ORDER BY open_ts DESC LIMIT 1`)[0],
+    B: (await sql`SELECT trade_type, entry_price, rule_name FROM broker_b_trades WHERE status = 'Open' ORDER BY open_ts DESC LIMIT 1`)[0],
+    F: fExists ? (await sql`SELECT trade_type, entry_price, rule_name, mode FROM forex_b_trades WHERE status = 'Open' ORDER BY open_ts DESC LIMIT 1`)[0] : undefined,
+  };
+  const hbExists = (await sql`SELECT to_regclass('forex_b_heartbeat') AS t`)[0].t;
+  const heartbeat = hbExists ? (await sql`SELECT ts, mode FROM forex_b_heartbeat WHERE id = 1`)[0] : undefined;
+
+  const prefix = { A: TRADE_ALERT_PREFIX_A, B: TRADE_ALERT_PREFIX_B, F: TRADE_ALERT_PREFIX_F };
+  const lines = [`\u{1F4CB} Broker status (${etShort(now)})`];
+  lines.push(`Market: ${isMarketClosedAt(now) ? "closed" : "open"} \u00B7 Trading hours (7:00 AM-5:00 PM ET, weekdays): ${inEntryWindow(now) ? "open" : "closed"}`);
+  for (const letter of BROKER_LETTERS) {
+    const own = ownRows.find((r) => r.broker === letter);
+    const override = own ? { mode: own.mode, setTs: toMs(own.set_ts) } : legacy;
+    const pauses = pauseRows
+      .filter((r) => !r.brokers || r.brokers.split(",").includes(letter))
+      .map((r) => ({ start: toMs(r.start_ts), end: toMs(r.end_ts) }));
+    const why = tradingState(now, override, pauses);
+    let line = `${prefix[letter]}${BROKER_NAMES[letter]}`;
+    if (letter === "F" && heartbeat) line += ` (${heartbeat.mode})`;
+    line += why ? `: \u26D4 NOT TRADING \u2014 ${why}` : ": \u2705 TRADING";
+    const open = opens[letter];
+    if (open) line += `\n    open: ${open.trade_type} 1 oz @ $${Number(open.entry_price).toFixed(2)} (${open.rule_name})`;
+    if (letter === "F" && !why) {
+      const age = heartbeat ? Math.round((now - toMs(heartbeat.ts)) / 1000) : null;
+      line += age === null || age > 180
+        ? "\n    \u26A0\uFE0F watcher not seen recently \u2014 check that its cron-job.org job is running"
+        : `\n    watcher active ${age}s ago`;
+    }
+    lines.push(line);
+  }
+  return lines.join("\n");
 }
 
 const REARM_RE = /\bre-?arm\s+(?:all\s+)?levels?\b/i;
@@ -673,12 +831,17 @@ export default {
       return new Response("OK", { status: 200 });
     }
 
+    if (STATUS_RE.test(message.text)) {
+      await sendTelegram(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, await brokerStatus(sql));
+      return new Response("OK", { status: 200 });
+    }
+
     const control = parseControlCommand(message.text);
     if (control) {
       let controlReply;
-      if (control.action === "stop") controlReply = await stopTrading(sql, env.TWELVE_DATA_API_KEY, env);
-      else if (control.action === "start") controlReply = await startTrading(sql);
-      else if (control.action === "pause") controlReply = await schedulePause(sql, control.start, control.end);
+      if (control.action === "stop") controlReply = await stopTrading(sql, env.TWELVE_DATA_API_KEY, env, control.brokers);
+      else if (control.action === "start") controlReply = await startTrading(sql, control.brokers);
+      else if (control.action === "pause") controlReply = await schedulePause(sql, control.start, control.end, control.brokers);
       else controlReply = `${REJECT_MARKER}${control.message}`;
       await sendTelegram(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, controlReply);
       return new Response("OK", { status: 200 });
@@ -709,4 +872,4 @@ export default {
   },
 };
 
-export { REARM_RE, RUN_TA_RE, SLA_RE, BRA_RE, parseStopLoss, parseTrail, parseCommand, parseControlCommand, etToUtc, formatTs, pnl }; // exported for the test file only
+export { brokerStatus, STATUS_RE, parseBrokerScope, evaluatePause, nextWeekdayBoundary, isMarketClosedAt, inEntryWindow, tradingState, REARM_RE, RUN_TA_RE, SLA_RE, BRA_RE, parseStopLoss, parseTrail, parseCommand, parseControlCommand, etToUtc, formatTs, pnl }; // exported for the test file only

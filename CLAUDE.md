@@ -553,7 +553,9 @@ both watch the same `status = 'Open'` row. A **close** command is an uncondition
 at whatever the current spot price is, regardless of unrealized P/L, unlike the automatic trailing stop —
 the whole point of a manual close is to not wait for that target.
 
-**Trading on/off commands (`trading_control.py`, both brokers)**: three more messages the Worker understands,
+**Per-broker trading control and `broker status` (11 Oct 2026)**: `stop trading` / `start trading` / the scheduled pause now accept a broker name ("stop trading broker F", "start trading B", "stop trading broker A and B", "... Stop trading broker F from 7 till 10"); **no name = all three brokers (A, B, F)**. Each broker has its own state row (`broker_trading_override`, created by `init_db()` and the Worker); a command with no name writes the same mode to all three rows (and the old global `trading_override` row, which a broker with no row of its own still falls back to), so the latest command wins per broker. Scheduled pauses carry a `trading_pauses.brokers` list (NULL = all). `trading_control.trading_pause_reason(now, "A"|"B"|"F")` is what each engine calls. `broker status` / `brokers' status` makes the Worker reply with the market state, the 7am-5pm ET trading hours, and per broker TRADING / NOT TRADING with the reason, any open trade, and for Broker F its mode and a watcher heartbeat (`forex_b_heartbeat`, written by `forex_watcher.py` every minute); the Worker re-implements `evaluate_pause()` / `is_market_closed()` / the entry window in JS (`tradingState()`), so keep them in step.
+
+**Trading on/off commands (`trading_control.py`, all brokers)**: three more messages the Worker understands,
 all stored in Postgres (`trading_override` single-row table, `trading_pauses` table -- the Worker creates them on
 first use, `init_db()` too) and enforced by the Python poll, not the Worker: `stop trading` closes both brokers'
 open positions at spot and pauses trading until the program's own window next opens (7am ET weekday);
