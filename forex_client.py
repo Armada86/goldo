@@ -421,6 +421,7 @@ class ForexClient:
     # exercises each on a 0.1 oz demo position and must pass before forex_watcher.py is run in live mode.
 
     def _wait_for_position(self, order_id) -> dict:
+        order_id = int(order_id)  # forex.com's ids are numbers; callers may hold them as text (Postgres returns forex_order_id as TEXT)
         position = None
         for attempt in range(POSITION_LOOKUP_ATTEMPTS):
             position = next((p for p in self.get_open_positions() if p.get("OrderId") == order_id), None)
@@ -480,6 +481,7 @@ class ForexClient:
             raise ForexClientError(f"direction must be 'buy' or 'sell', got {direction!r}")
         quantity = TRADE_QUANTITY if quantity is None else quantity
         self._assert_tradable_market()
+        order_id = int(order_id)
         self._wait_for_position(order_id)
         leg = self._stop_leg(stop_price, "sell" if direction == "buy" else "buy", quantity)
         return self._update_stop(order_id, direction, leg, quantity, f"stop {stop_price:.2f} on position {order_id}")
@@ -491,6 +493,7 @@ class ForexClient:
         direction = direction.lower()
         quantity = TRADE_QUANTITY if quantity is None else quantity
         self._assert_tradable_market()
+        order_id, stop_order_id = int(order_id), int(stop_order_id)
         leg = self._stop_leg(stop_price, "sell" if direction == "buy" else "buy", quantity, stop_order_id)
         return self._update_stop(order_id, direction, leg, quantity, f"move stop {stop_order_id} to {stop_price:.2f}")
 
@@ -498,7 +501,7 @@ class ForexClient:
         """Cancels a resting order (e.g. a position's stop) by its OrderId (UNVERIFIED -- see above)."""
         data = self._post_once(
             "order/cancel",
-            {"OrderId": order_id, "TradingAccountId": self._trading_account_id},
+            {"OrderId": int(order_id), "TradingAccountId": self._trading_account_id},
             f"cancel order {order_id}",
         )
         if data.get("Status") not in (None, 1) and not data.get("OrderId"):

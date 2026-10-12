@@ -285,14 +285,14 @@ class Watcher:
         stop = position.get("StopOrder")
         try:
             if not stop:
-                placed = self.client.attach_stop(trade["forex_order_id"], direction, desired_stop)
+                placed = self.client.attach_stop(int(trade["forex_order_id"]), direction, desired_stop)
                 set_forex_b_stop_order(trade["id"], placed["stop_order_id"])
                 send_telegram_message(_message(trade["id"], f"stop was missing -- re-attached at ${placed['stop_price']:.2f}.", self.mode))
                 return
             current = float(stop["TriggerPrice"])
             better = desired_stop - current if is_buy else current - desired_stop
             if better >= MIN_STOP_STEP:
-                moved = self.client.move_stop(trade["forex_order_id"], stop["OrderId"], direction, desired_stop)
+                moved = self.client.move_stop(int(trade["forex_order_id"]), stop["OrderId"], direction, desired_stop)
                 log.info("#%s platform stop %.2f -> %.2f", trade["id"], current, moved["stop_price"])
         except ForexClientError as e:  # incl. ForexOrderUncertainError: the next tick re-reads the position's real stop
             log.warning("could not set the platform stop for #%s: %s", trade["id"], e)
@@ -471,7 +471,7 @@ class Watcher:
         direction = "buy" if trade["trade_type"] == "Buy" else "sell"
         try:
             _crossing, initial_stop = self._exit_inputs({**trade, "open_ts": datetime.now(timezone.utc)})
-            placed = self.client.attach_stop(trade["forex_order_id"], direction, initial_stop)
+            placed = self.client.attach_stop(int(trade["forex_order_id"]), direction, initial_stop)
             set_forex_b_stop_order(trade["id"], placed["stop_order_id"])
             send_telegram_message(_message(trade["id"], f"platform stop set at ${placed['stop_price']:.2f}.", self.mode))
         except ForexClientError as e:
