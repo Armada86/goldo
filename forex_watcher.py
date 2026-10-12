@@ -170,6 +170,20 @@ class Watcher:
         self.heartbeat_at = 0.0
         self.context: dict = {}
         self.context_at = 0.0
+        self.started_at = datetime.now(timezone.utc)
+        self.notified: dict[str, float] = {}  # throttle key -> monotonic time of the last Telegram note
+
+    def _note(self, key: str, text: str, every_minutes: float = 15.0) -> None:
+        """A diagnostic Telegram note (a dropped touch, an error) -- at most one per `key` every `every_minutes`, so a repeating fault
+        cannot flood the chat. These exist because the log of a running GitHub job cannot be read until the run ends."""
+        last = self.notified.get(key)
+        if last is not None and time.monotonic() - last < every_minutes * 60:
+            return
+        self.notified[key] = time.monotonic()
+        try:
+            send_telegram_message(f"{TRADE_PREFIX.rstrip()}\u26A0\uFE0F BROKER F ({self.mode}): {text}")
+        except Exception:
+            log.exception("could not send a diagnostic note")
 
     # --- cached Postgres reads ------------------------------------------------------------------------------------
 
@@ -186,6 +200,8 @@ class Watcher:
             context["last_close_ts"] = get_last_close_ts_forex_b()
         except Exception:
             log.exception("could not refresh forecast / armed levels -- keeping the previous ones")
+            self._note("refresh", "could not read the TA forecast / armed levels from the database -- no entries until it recovers "
+                                  "(an open trade is still managed).")
             context = self.context
         if self.open_trade is not None:
             context["lock_level"] = _fade_lock_level(self.open_trade)
@@ -347,6 +363,14 @@ class Watcher:
             if age > ENTRY_MAX_TOUCH_AGE_SECONDS:
                 self.consumed[rule_name] = latest_ts  # a stale touch: never filled late, the level needs a fresh one
                 log.info("%s touch at %s is %.0fs old -- dropped", rule_name, touch_ts, age)
+                before_start = touch_ts < self.started_at
+                self._note(
+                    f"stale:{rule_name}:{touch_ts:%H%M}",
+                    f"{rule_name} level ${trigger_price:.2f} was touched at {_format_ts(touch_ts)}, {age:.0f}s before it was noticed "
+                    + (f"(the watcher only started at {_format_ts(self.started_at)}) " if before_start else "")
+                    + "-- not filled late; the level needs a fresh touch.",
+                    every_minutes=1,
+                )
                 continue
             if self._try_open(now, touch_ts, trigger_price, trade_type, rule_name, scenario_name, forecast):
                 return
@@ -591,8 +615,9 @@ def run(max_minutes: float, mode: str) -> None:
         started = time.monotonic()
         try:
             watcher.step()
-        except Exception:
+        except Exception as e:
             log.exception("tick failed -- continuing")
+            watcher._note("tick", f"a check failed ({type(e).__name__}: {str(e)[:200]}) -- it keeps running and retries every 10 s.")
         if watcher.idle(datetime.now(timezone.utc)):
             log.info("Nothing left to watch -- exiting")
             return
