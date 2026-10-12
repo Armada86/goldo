@@ -150,6 +150,10 @@ def init_db() -> None:
         # entry_context.py. Nullable; older rows and Telegram-opened trades simply have none.
         cur.execute("ALTER TABLE trades ADD COLUMN IF NOT EXISTS entry_context JSONB")
         cur.execute("ALTER TABLE broker_b_trades ADD COLUMN IF NOT EXISTS entry_context JSONB")
+        # exit_context: RSI/ADX/ATR at the close (12 Oct 2026) -- see entry_context.build_exit_context().
+        cur.execute("ALTER TABLE trades ADD COLUMN IF NOT EXISTS exit_context JSONB")
+        cur.execute("ALTER TABLE broker_b_trades ADD COLUMN IF NOT EXISTS exit_context JSONB")
+        cur.execute("ALTER TABLE forex_b_trades ADD COLUMN IF NOT EXISTS exit_context JSONB")
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS broker_a_blocked (
@@ -541,11 +545,13 @@ def insert_trade(
         return cur.fetchone()[0]
 
 
-def close_trade_row(trade_id: int, exit_price: float, close_ts: datetime, pnl: float) -> None:
+def close_trade_row(
+    trade_id: int, exit_price: float, close_ts: datetime, pnl: float, exit_context: dict | None = None
+) -> None:
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "UPDATE trades SET exit_price = %s, close_ts = %s, pnl = %s, status = 'Closed' WHERE id = %s",
-            (exit_price, close_ts, pnl, trade_id),
+            "UPDATE trades SET exit_price = %s, close_ts = %s, pnl = %s, exit_context = %s, status = 'Closed' WHERE id = %s",
+            (exit_price, close_ts, pnl, Json(exit_context) if exit_context else None, trade_id),
         )
 
 
@@ -1076,12 +1082,14 @@ def insert_trade_b(
         return cur.fetchone()[0]
 
 
-def close_trade_row_b(trade_id: int, exit_price: float, close_ts: datetime, pnl: float) -> None:
+def close_trade_row_b(
+    trade_id: int, exit_price: float, close_ts: datetime, pnl: float, exit_context: dict | None = None
+) -> None:
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "UPDATE broker_b_trades SET exit_price = %s, close_ts = %s, pnl = %s, status = 'Closed' "
+            "UPDATE broker_b_trades SET exit_price = %s, close_ts = %s, pnl = %s, exit_context = %s, status = 'Closed' "
             "WHERE id = %s",
-            (exit_price, close_ts, pnl, trade_id),
+            (exit_price, close_ts, pnl, Json(exit_context) if exit_context else None, trade_id),
         )
 
 
@@ -1155,14 +1163,15 @@ def insert_forex_b_trade(
 
 def close_forex_b_trade(
     trade_id: int, exit_price: float, close_ts: datetime, pnl: float, stop_level: float | None, exit_reason: str,
-    forex_close_order_id=None,
+    forex_close_order_id=None, exit_context: dict | None = None,
 ) -> None:
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
             "UPDATE forex_b_trades SET exit_price = %s, close_ts = %s, pnl = %s, stop_level = %s, exit_reason = %s, "
-            "forex_close_order_id = %s, status = 'Closed' WHERE id = %s",
+            "forex_close_order_id = %s, exit_context = %s, status = 'Closed' WHERE id = %s",
             (exit_price, close_ts, pnl, stop_level, exit_reason,
-             None if forex_close_order_id is None else str(forex_close_order_id), trade_id),
+             None if forex_close_order_id is None else str(forex_close_order_id),
+             Json(exit_context) if exit_context else None, trade_id),
         )
 
 

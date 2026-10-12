@@ -340,7 +340,7 @@ poll, minutes between the touch and the poll that acted on it, and the distance 
 zone). It is descriptive only -- nothing gates, changes or delays a trade -- and every field is best-effort (a
 failed fetch leaves it out, never raises). Purpose: judge which rules and conditions actually work without
 re-deriving them afterward, e.g. `SELECT rule_name, (entry_context->>'rsi14')::float, pnl FROM broker_b_trades`.
-Trades from before this, and Telegram-opened ones, have a NULL context.
+Trades from before this, and Telegram-opened ones, have a NULL context. **Exit context (12 Oct 2026)**: when a Broker A / Broker B / Broker F trade closes through the poll or the watcher, `exit_context` (JSONB, same tables, added by `init_db()`) stores `rsi14`, `adx14`, `atr14`, `adx_rising` (live forming 15-min candle), `hour_et` and `held_minutes` (`entry_context.build_exit_context()`; best-effort, never raises, one extra candle fetch per close). Descriptive only -- added so an RSI/ADX-keyed exit rule (e.g. tighten a breakout's stop when RSI goes oversold while ADX is weak; an 11-trade backtest was inconclusive) can be judged on real trades later. Trades closed by the Telegram Worker have a NULL exit context.
 
 **Broker B automated paper-trading (`broker_b.py`)**: `check_broker_b_trades()`, also called from
 `main.poll_once()` (right after Broker A, wrapped in its own `try/except` so a problem here can't

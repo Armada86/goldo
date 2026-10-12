@@ -159,7 +159,7 @@ from data_fetcher import (
     gold_rsi_adx_atr_from_candles,
     gold_adx_rising_from_candles,
 )
-from entry_context import build_entry_context, level_distances
+from entry_context import build_entry_context, build_exit_context, level_distances
 from price_bars import fetch_gold_bars
 from notifier import send_telegram_message
 from storage import (
@@ -776,7 +776,7 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
     if trading_pause_reason(now, "B") is not None:
         if open_trade is not None:
             pnl = _pnl(open_trade, gold_price)
-            close_trade_row_b(open_trade["id"], gold_price, now, pnl)
+            close_trade_row_b(open_trade["id"], gold_price, now, pnl, build_exit_context(now, opened_at=open_trade["open_ts"]))
             send_telegram_message(_close_message(open_trade, gold_price, now, pnl))
         return
 
@@ -786,7 +786,7 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
         )
         if exit_result is not None:
             exit_price, exit_ts, pnl = exit_result
-            close_trade_row_b(open_trade["id"], exit_price, exit_ts, pnl)
+            close_trade_row_b(open_trade["id"], exit_price, exit_ts, pnl, build_exit_context(now, opened_at=open_trade["open_ts"]))
             send_telegram_message(_close_message(open_trade, exit_price, exit_ts, pnl))
             _notify_crossed_during_trade(open_trade, exit_price, exit_ts)
             open_trade = None

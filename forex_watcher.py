@@ -71,7 +71,7 @@ from broker_b import (
 )
 from config import ADX_PERIOD, ATR_PERIOD, RSI_PERIOD
 from data_fetcher import fetch_gold_candles, gold_adx_rising_from_candles, gold_rsi_adx_atr_from_candles
-from entry_context import build_entry_context, level_distances
+from entry_context import build_entry_context, build_exit_context, level_distances
 from forex_client import TRADABLE_MARKET_ID, ForexClient, ForexClientError, ForexOrderUncertainError
 from market_hours import is_market_closed
 from notifier import send_telegram_message
@@ -259,7 +259,10 @@ class Watcher:
 
     def _finish(self, trade, exit_price, exit_ts, stop_level, reason, close_order_id=None, note="") -> None:
         pnl = _pnl(trade, exit_price)
-        close_forex_b_trade(trade["id"], exit_price, exit_ts, pnl, stop_level, reason, close_order_id)
+        close_forex_b_trade(
+            trade["id"], exit_price, exit_ts, pnl, stop_level, reason, close_order_id,
+            build_exit_context(datetime.now(timezone.utc), opened_at=trade["open_ts"]),
+        )
         stop_text = f" (stop level ${stop_level:.2f}, slipped ${abs(exit_price - stop_level):.2f})" if stop_level is not None else ""
         send_telegram_message(_message(
             trade["id"],

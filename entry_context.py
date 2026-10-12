@@ -121,6 +121,34 @@ def build_entry_context(
     return ctx
 
 
+def build_exit_context(now: datetime, *, opened_at: datetime | None = None) -> dict:
+    """Snapshot of gold's momentum at the moment a trade closes (12 Oct 2026): rsi14 / adx14 / atr14 and whether ADX is rising,
+    from the live (still-forming) 15-min candle -- the same reading the entry filters use -- plus hour_et and the minutes the
+    trade was held. Descriptive only, never raises; a failed fetch leaves those fields out. Stored as `exit_context` JSONB on
+    `trades` / `broker_b_trades` / `forex_b_trades` so an exit rule keyed on RSI / ADX (e.g. tightening a breakout's stop when RSI
+    goes oversold while ADX is weak) can be judged on real trades, next to `entry_context`."""
+    ctx: dict = {}
+    try:
+        local = now.astimezone(DISPLAY_TZ)
+        ctx["hour_et"] = local.hour
+        ctx["minute_et"] = local.minute
+        if opened_at is not None:
+            ctx["held_minutes"] = round((now - opened_at).total_seconds() / 60, 1)
+    except Exception:
+        pass
+    try:
+        from data_fetcher import compute_adx, compute_atr, compute_rsi, fetch_gold_candles, gold_adx_rising_from_candles
+
+        candles = fetch_gold_candles()
+        ctx["rsi14"] = _num(compute_rsi(candles["close"], period=RSI_PERIOD).dropna().iloc[-1], 2)
+        ctx["adx14"] = _num(compute_adx(candles, period=RSI_PERIOD).dropna().iloc[-1], 2)
+        ctx["atr14"] = _num(compute_atr(candles, period=RSI_PERIOD).dropna().iloc[-1], 2)
+        ctx["adx_rising"] = gold_adx_rising_from_candles(candles, period=RSI_PERIOD)
+    except Exception as e:
+        log.info("exit_context: RSI/ADX/ATR unavailable (%s)", e)
+    return ctx
+
+
 def level_distances(entry_price: float, forecast: dict | None) -> dict:
     """Distance from `entry_price` to the nearest forecast resistance zone above and support zone below
     (near edges), for Broker B's context."""
