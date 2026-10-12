@@ -296,6 +296,14 @@ class Watcher:
                 log.info("#%s platform stop %.2f -> %.2f", trade["id"], current, moved["stop_price"])
         except ForexClientError as e:  # incl. ForexOrderUncertainError: the next tick re-reads the position's real stop
             log.warning("could not set the platform stop for #%s: %s", trade["id"], e)
+            action = "attach" if not stop else "move"
+            state = "missing" if not stop else "still at $%.2f" % float(stop["TriggerPrice"])
+            self._note(
+                f"stop-sync-{trade['id']}",
+                f"#{trade['id']}: could NOT {action} the platform stop to ${desired_stop:.2f} ({e}) -- the stop on forex.com is {state}; "
+                f"the watcher retries every tick and closes at market if its own stop is crossed.",
+                every_minutes=5.0,
+            )
 
     def _close_at_market(self, trade: dict, position: dict) -> tuple[float, object] | None:
         """Cancels the platform stop (so it cannot fire against the close) and closes at market. Returns (fill price, close
