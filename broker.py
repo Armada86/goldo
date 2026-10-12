@@ -73,7 +73,7 @@ from config import (
     RSI_PERIOD,
 )
 from data_fetcher import fetch_gold_rsi_adx
-from entry_context import build_entry_context
+from entry_context import build_entry_context, build_exit_context
 from price_bars import fetch_gold_bars
 from notifier import send_telegram_message
 from trading_control import trading_pause_reason
@@ -548,7 +548,7 @@ def check_broker_trades(prices: dict[str, float]) -> None:
     if trading_pause_reason(now, "A") is not None:
         if open_trade is not None:
             pnl = _pnl(open_trade, gold_price)
-            close_trade_row(open_trade["id"], gold_price, now, pnl)
+            close_trade_row(open_trade["id"], gold_price, now, pnl, build_exit_context(now, opened_at=open_trade["open_ts"]))
             send_telegram_message(_close_message(open_trade, gold_price, now, pnl))
         return
 
@@ -556,7 +556,7 @@ def check_broker_trades(prices: dict[str, float]) -> None:
         exit_result = _find_exit(open_trade, gold_price, now)
         if exit_result is not None:
             exit_price, exit_ts, pnl = exit_result
-            close_trade_row(open_trade["id"], exit_price, exit_ts, pnl)
+            close_trade_row(open_trade["id"], exit_price, exit_ts, pnl, build_exit_context(now, opened_at=open_trade["open_ts"]))
             send_telegram_message(_close_message(open_trade, exit_price, exit_ts, pnl))
             open_trade = None
 
