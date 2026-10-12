@@ -626,7 +626,7 @@ when the advice is CHANGE the job writes the new stop loss / trailing stop strai
 `set_trailing_stop_override()`, the same rows `make SL` / `make trail` write; if the write fails the message says so and gives the commands). Method, grid, advice rule and limits: `docs/stop-loss-analysis.md`.
 
 **`run TA` command**: the Worker dispatches `.github/workflows/ta_forecast.yml` through GitHub's `workflow_dispatch`
-API (`runTa()`), so a manual run is the exact same job as the 6:55am/9:55am/1:55pm cron-job.org ones -- it grades the previous row,
+API (`runTa()`), so a manual run is the exact same job as the 7:00am/10:00am/2:00pm cron-job.org ones -- it grades the previous row,
 writes a new `ta_forecasts` row and sends it to Telegram. That row is the latest by `ts`, so it is automatically the
 "active" forecast for Broker B (`get_latest_ta_forecast()`) and the dashboard (its run picker lists every row of the day). Needs one extra Worker secret, `GITHUB_DISPATCH_TOKEN` (fine-grained token, Actions: read & write on this
 repo; the one cron-job.org uses works); optional `GITHUB_REPO` var (default `Armada86/goldo`).
@@ -805,7 +805,7 @@ the "today" case), but that's a cache/audit copy only -- `dashboard.py` never re
 needs the ability to re-render with a candle for a past date and would otherwise need two code paths.
 `--dry-run` prints the text without any DB read/write or diagram render, and is how the
 read-only `technical-analyst` subagent can run it. Triggered through `.github/workflows/ta_forecast.yml`
-(`workflow_dispatch` only; three cron-job.org entries fire it weekdays at 6:55am, 9:55am and 1:55pm (since 6 Oct 2026; before that 6:45am and 11:45am, and 7:00am/12:00pm until 4 Oct 2026)
+(`workflow_dispatch` only; three cron-job.org entries fire it weekdays at 7:00am, 10:00am and 2:00pm (since 12 Oct 2026; 6:55am/9:55am/1:55pm from 6 Oct; before that 6:45am and 11:45am, and 7:00am/12:00pm until 4 Oct 2026)
 America/New_York — moved from midnight to 7am 25 Sep 2026, closer to trading hours, without adding a
 third daily run). The header labels each run Morning or Midday by its ET hour (`session_label()`, also
 stored as `levels.session`); each run grades whichever row came before it, so the midday run grades the
@@ -928,7 +928,7 @@ picked per-name (`DOLLAR_UNIT_NAMES`) the same way `rules.py` picks it for alert
 and an "Exits" line with the stop loss and trailing stop in force at that time. The exit numbers come from `stop_settings_history` (`storage.insert_stop_settings_history()` /
 `get_stop_settings_as_of()`): a display-only, append-only log (a NULL column = unchanged) written by the stop loss analysis job when it applies its advice and by the Worker's
 `make SL` / `make trail`, because the brokers' own `stop_loss_setting` / `trailing_stop_setting` tables only keep the latest value; `broker.py` defaults apply if nothing is logged yet.
-Both are looked up as of each forecast run's time, so with SLA (6:15) and BRA (6:30) running before the 6:55 TA run, every TA page of a date shows that morning's values. Shown for every forecast
+Both are looked up as of each forecast run's time, so with SLA (6:15) and BRA (6:30) running before the 7:00 TA run, every TA page of a date shows that morning's values. Shown for every forecast
 run whose ET date is on or after `BROKER_B_RULES_SHOWN_FROM` (Monday 5 Oct 2026) -- earlier sessions traded under different rules, so they show nothing. A last "Fade exit" line (9 Oct 2026) states the fade exit rule (stop capped at `config.FADE_STOP_LOSS_CAP`, no trailing stop before an opposite level within `FADE_NO_TRAIL_MAX_LOCK_DISTANCE`, then the `FADE_LOCK_TRAIL_DISTANCE` lock; values read from `config.py`) and only appears for runs from `FADE_EXIT_RULE_SHOWN_FROM` (the 9:55 AM ET TA2 run of 9 Oct, the first whose levels traded under it).
 
 **Responsive laptop/desktop layout**: everything above is the mobile-first *default*, unconditional in
@@ -990,7 +990,7 @@ directly, in `America/New_York`, without any code in this repo.
 `.github/workflows/release_watch_adp.yml`/`release_watch_nfp.yml` follow the same pattern for
 `release_watch_job.py` (see "Same-minute release detection" above), weekdays at 8:14am/8:29am
 America/New_York respectively. `.github/workflows/ta_forecast.yml` follows the same pattern for `ta_forecast_job.py` (see "XAU/USD
-technical forecast" above), weekdays at 6:55am, 9:55am and 1:55pm America/New_York (three cron-job.org
+technical forecast" above), weekdays at 7:00am, 10:00am and 2:00pm America/New_York (three cron-job.org
 entries for the same workflow; three runs since 6 Oct 2026, earlier 6:45am/11:45am). `.github/workflows/oil_weekly_watch.yml` follows the same pattern again
 for `oil_weekly_job.py` (see "API Weekly Crude Oil Stock data" above), but triggered *repeatedly* —
 roughly every 10 minutes across a Tuesday-evening window (~3pm-6pm ET) — rather than once, since that
@@ -999,8 +999,7 @@ cron-job.org job pointed at their `workflow_dispatch` endpoint — that setup (i
 exclusion, the two release-watch workflows' specific 8:14am/8:29am trigger times, and the oil-weekly
 workflow's Tuesday-only repeated-trigger window) lives in the cron-job.org account, not in this repo.
 **Weekday morning sequence (4 Oct 2026)**: cron-job.org fires, in America/New_York, weekdays only: 6:00 `frequency_check.yml`, 6:15 `stop_loss_analysis.yml`
-(auto-applies its stop settings), 6:30 `block_rules_analysis.yml` (writes a `block_rules` row), 6:55 `ta_forecast.yml` (first TA run of the day, before the
-7:00 trading window opens; the others run at 9:55 and 13:55). The order matters: BRA replays trades with the stop settings SLA just set, and the TA run's levels come after
+(auto-applies its stop settings), 6:30 `block_rules_analysis.yml` (writes a `block_rules` row), 7:00 `ta_forecast.yml` (first TA run of the day, from 12 Oct 2026 at the same moment the 7:00 trading window opens -- until its row lands, `broker_b.armed_candidates()` arms nothing because the latest row is not from today's ET date; the others run at 10:00 and 14:00). The order matters: BRA replays trades with the stop settings SLA just set, and the TA run's levels come after
 both. These cron-job.org entries live in the cron-job.org account, not in this repo.
 `telegram_webhook/` (see "Inbound Telegram commands" above) is the one exception to this whole
 scheduling section — it's not a GitHub Actions job at all, so it has no cron-job.org entry; Telegram
