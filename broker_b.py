@@ -299,7 +299,14 @@ def _prior_forecasts(forecast: dict) -> list:
 def armed_candidates(forecast: dict, history_fn=None) -> list:
     """(scenario_name, trade_type, rule_name, scenario) for every level of `forecast` that may still trade: not retired by a
     stop-out and under MAX_TRADES_PER_LEVEL, counting the history carried over from earlier same-day rows that kept the level.
-    Shared with forex_watcher.py so the two engines arm exactly the same levels; `history_fn` picks whose trades are counted."""
+    Shared with forex_watcher.py so the two engines arm exactly the same levels; `history_fn` picks whose trades are counted.
+
+    Nothing is armed unless the forecast was written on today's ET date (12 Oct 2026): the first TA run of the day lands a
+    minute or two after the 7am window opens, and until then the latest row is yesterday's, whose levels no longer fit
+    price. The same guard stops a failed TA job from leaving the engines on day-old levels."""
+    forecast_date = forecast.get("forecast_date")
+    if forecast_date is not None and forecast_date != datetime.now(DISPLAY_TZ).date():
+        return []
     scenarios = {s["name"]: s for s in (forecast.get("levels") or {}).get("scenarios", [])}
     candidates = []
     prior = _prior_forecasts(forecast)
