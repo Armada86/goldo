@@ -95,7 +95,8 @@ from trading_control import trading_pause_reason
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger("forex-watcher")
 
-TICK_SECONDS = 10  # one quote (two ~0.5 s forex.com calls) per tick
+TICK_SECONDS = 10  # one look every 10 s: the last TICKS_PER_LOOK ticks (two ~0.5 s forex.com calls)
+TICKS_PER_LOOK = 100  # ticks arrive ~2-3 per second, so 100 covers ~35 s: a look sees every tick since the previous one, wicks included
 SEED_MINUTES = 30  # 1-minute bars loaded at start so a fresh process already knows which side of a level price was on
 CONTEXT_REFRESH_SECONDS = 60  # forecast / armed levels / DXY readings / lock level are re-read from Postgres this often
 # A touch is acted on only if it is at most this old when seen. 1-minute seed bars carry their minute's start time, so
@@ -126,13 +127,22 @@ class Feed:
 
     def add(self, quote: dict) -> bool:
         """Appends the quote as a tick row on both sides; False (nothing added) if it is the tick already seen."""
-        if self.last_ts is not None and quote["ts"] <= self.last_ts:
+        return self.add_ticks([quote])
+
+    def add_ticks(self, ticks: list[dict]) -> bool:
+        """Appends every tick newer than the last one seen (oldest first) as a row on both sides; False if there was nothing new.
+        Logs a warning when the batch starts after the last tick seen, i.e. ticks fell between two calls."""
+        new = [t for t in ticks if self.last_ts is None or t["ts"] > self.last_ts]
+        if not new:
             return False
-        self.last_ts = quote["ts"]
+        if self.last_ts is not None and ticks[0]["ts"] > self.last_ts:
+            log.warning("tick history starts at %s, after the last tick seen (%s): some ticks were missed", ticks[0]["ts"], self.last_ts)
+        self.last_ts = new[-1]["ts"]
         for side in ("bid", "ask"):
-            price = quote[side]
-            row = pd.DataFrame([[pd.Timestamp(quote["ts"]), price, price, price, price]], columns=COLUMNS)
-            self.frames[side] = pd.concat([self.frames[side], row], ignore_index=True)
+            times = [pd.Timestamp(t["ts"]) for t in new]
+            prices = [t[side] for t in new]
+            rows = pd.DataFrame({"datetime": times, "open": prices, "high": prices, "low": prices, "close": prices})[COLUMNS]
+            self.frames[side] = pd.concat([self.frames[side], rows], ignore_index=True)
         return True
 
     def side(self, side: str) -> pd.DataFrame:
@@ -541,8 +551,9 @@ class Watcher:
 
     def step(self) -> None:
         self._heartbeat()
-        quote = self.client.get_quote()
-        fresh = self.feed.add(quote)
+        ticks = self.client.get_ticks(TICKS_PER_LOOK)
+        fresh = self.feed.add_ticks(ticks)
+        quote = ticks[-1]
         self.last_quote = quote
         now = datetime.now(timezone.utc)
         self._handle_commands(now)  # Telegram "buy/sell/close broker F", even when the price has not ticked

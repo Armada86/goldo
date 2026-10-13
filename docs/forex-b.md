@@ -83,3 +83,11 @@ A new process seeds the last 30 minutes of 1-minute bars, so it can see touches 
 had evaluated (written every minute and once more on exit); a new process drops touches that ended before that tick silently
 (the previous process already judged them, e.g. while a position was open) and only sends the "not filled late" notice for a touch
 in a real gap. The workflow also caches pip downloads.
+
+## Every tick, not one sample per look (13 Oct 2026)
+
+Broker B opened `TA-Breakout-buy` #76 at 4158.00 off a 1-minute ask bar whose low was 4157.82 (a $0.18 dip under the trigger, then up).
+Broker F, sampling one price every 10 s, never saw a tick below the trigger, so the approach-side rule never let a touch count. The watcher
+now asks for the last `TICKS_PER_LOOK` (100) ticks each look (`ForexClient.get_ticks()`; ticks arrive ~2-3 per second, BID and ASK share
+TickDates) and appends every new one to the feed, so wicks between two looks are in the history the entry and exit scans use. A warning is
+logged if a look's history starts after the last tick seen (more than ~35 s of ticks missed).

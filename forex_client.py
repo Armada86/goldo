@@ -226,6 +226,37 @@ class ForexClient:
         }
 
     @with_retries()
+    def get_ticks(self, count: int = 100, market_name: str | None = None) -> list[dict]:
+        """The most recent `count` ticks as [{"bid", "ask", "ts"}, ...] oldest first (UTC `ts`), from two /market/{id}/tickhistory
+        calls (BID and ASK, read-only). Ticks arrive ~2-3 per second and the BID and ASK series carry identical TickDates (confirmed
+        live 13 Oct 2026: 200 ticks = ~77 s), so a watcher that asks every ~10 s with count=100 sees every tick, including a wick of
+        a second or two that a single latest-quote sample would miss."""
+        market_id = self._market_id_for(market_name or MARKET_NAME)
+        series = {}
+        for price_type in ("BID", "ASK"):
+            response = requests.get(
+                f"{BASE_URL}/market/{market_id}/tickhistory",
+                headers=self._headers(),
+                params={"PriceTicks": count, "priceType": price_type},
+                timeout=10,
+            )
+            response.raise_for_status()
+            ticks = response.json().get("PriceTicks") or []
+            if not ticks:
+                raise ForexClientError(f"No {price_type} ticks returned for market {market_id}")
+            series[price_type] = {t["TickDate"]: float(t["Price"]) for t in ticks if t.get("TickDate")}
+        out = []
+        for tick_date, bid in series["BID"].items():
+            ask = series["ASK"].get(tick_date)
+            ts = _parse_ms_date(tick_date)
+            if ask is not None and ts is not None:
+                out.append({"bid": bid, "ask": ask, "ts": ts})
+        if not out:
+            raise ForexClientError(f"No matching BID/ASK ticks returned for market {market_id}")
+        out.sort(key=lambda t: t["ts"])
+        return out
+
+    @with_retries()
     def get_bars(self, count: int, price_type: str, market_name: str | None = None):
         """The most recent `count` one-minute OHLC bars for `market_name` (default MARKET_NAME) as a
         DataFrame (`datetime` UTC, `open`/`high`/`low`/`close`, ascending), priced on `price_type`
