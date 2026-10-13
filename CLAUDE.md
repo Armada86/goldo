@@ -1066,6 +1066,7 @@ never edits code or settings. The analysis runs as a Claude Code Routine (the sa
 release watcher, since a subagent can't run inside a GitHub Actions job); `broker_review.py trades` gives it the day's data and
 `broker_review.py save` is its only write path (it talks to Neon over its HTTPS SQL endpoint, `https://<pooler host>/sql`, not psycopg2: a Routine's cloud sandbox only has an HTTPS proxy, so a raw Postgres connection on port 5432 hangs there even with full network access) (saves first, then sends; no-op if the date already has a row, so a re-fire can't
 duplicate). No trades that day = nothing sent. Procedure: the "End-of-day review workflow" in `.claude/agents/broker.md`.
+**Broker F review (13 Oct 2026)**: Broker F gets its own review, not mixed into the A/B one: `broker_review.py trades-f [date]` lists that ET day's live `forex_b_trades` (with `exit_reason`, `stop_level`), `broker_review.py save-f DATE FILE` saves to `broker_f_daily_reviews` (same columns as `broker_daily_reviews`, created on first use) and sends it to Telegram prefixed 🟪 `BROKER F DAILY REVIEW`. Same JSON format and procedure as above; no Routine is scheduled for it yet, so it runs on request.
 
 `.claude/agents/fundamental-analyst.md` defines a subagent (no `Edit`/`Write` tools, same as
 `technical-analyst` and `broker`) for analyzing scheduled macro data releases (NFP, CPI, PPI, retail

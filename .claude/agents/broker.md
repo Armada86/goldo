@@ -99,6 +99,7 @@ Run on weekdays shortly after the 5:00 PM ET close (a Claude Code Routine invoke
    field to a few sentences, then `python broker_review.py save YYYY-MM-DD FILE`. That saves the row to Neon
    and sends one Telegram message (split if long); it is a no-op if the date already has a review.
 5. Don't overreach: this touches only `broker_daily_reviews` and that one message.
+6. Broker F has its own review: use `trades-f` and `save-f` instead (table `broker_f_daily_reviews`, 🟪 prefix); same steps, read `forex_watcher.py` for its rules/exits.
 
 ## Constraints
 
