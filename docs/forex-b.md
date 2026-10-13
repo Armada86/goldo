@@ -91,3 +91,7 @@ Broker F, sampling one price every 10 s, never saw a tick below the trigger, so 
 now asks for the last `TICKS_PER_LOOK` (100) ticks each look (`ForexClient.get_ticks()`; ticks arrive ~2-3 per second, BID and ASK share
 TickDates) and appends every new one to the feed, so wicks between two looks are in the history the entry and exit scans use. A warning is
 logged if a look's history starts after the last tick seen (more than ~35 s of ticks missed).
+
+Feed-lag warning: if the newest tick is more than `FEED_LAG_WARN_SECONDS` (60) older than the clock, the watcher logs it and sends one
+Telegram note (at most every 15 minutes). On 13 Oct ~19:10 UTC the tick history stalled for over a minute while the 1-minute bars kept
+moving, which delays touch and stop detection.
