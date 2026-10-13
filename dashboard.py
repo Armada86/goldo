@@ -518,18 +518,15 @@ def load_alerts() -> pd.DataFrame:
 
 
 def load_trades() -> pd.DataFrame:
-    """Broker A's `trades`, Broker B's `broker_b_trades` and Broker F's `forex_b_trades` (live demo-account trades only, not the
-    shadow-mode records), merged into one timeline (not separate tables) via UNION ALL, most recent 20 combined by `open_ts` -- a
-    `broker` column (added here, not a real column on any table) says which engine opened each row, since `rule_name` alone doesn't
-    make that obvious at a glance (Broker A's Consensus5of7-buy/-sell vs. Broker B's/F's TA-Zone-*/TA-Breakout-*)."""
+    """Broker B's `broker_b_trades` and Broker F's `forex_b_trades` (live demo-account trades only, not the shadow-mode records),
+    merged into one timeline (not separate tables) via UNION ALL, most recent 20 combined by `open_ts` -- a `broker` column (added
+    here, not a real column on either table) says which engine opened each row. Broker A is deliberately not shown (user request,
+    13 Oct 2026)."""
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT to_regclass('forex_b_trades')")
             has_f = cur.fetchone()[0] is not None  # created by init_db(); absent before Broker F first runs
         query = (
-            "SELECT 'Broker A' AS broker, rule_name, trade_type, entry_price, open_ts, "
-            "triggering_alerts, exit_price, close_ts, pnl, status FROM trades "
-            "UNION ALL "
             "SELECT 'Broker B' AS broker, rule_name, trade_type, entry_price, open_ts, "
             "triggering_alerts, exit_price, close_ts, pnl, status FROM broker_b_trades "
         )
