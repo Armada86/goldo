@@ -73,3 +73,13 @@ forex.com's API reference is login-gated, so each of these needs a 1 oz demo tes
 
 Not yet decided: whether Broker F should also be controllable by the Telegram `stop trading` / `make` commands for the real position
 (`stop trading` is already honoured: the shadow watcher closes and opens nothing while paused).
+
+## Restarts and the stale-touch notice (13 Oct 2026)
+
+The watcher runs as back-to-back 25-minute GitHub Actions loops (`forex_watch.yml`); the concurrency group keeps one run waiting, so
+4 of every 5 cron-job.org dispatches show as "cancelled" -- that is the design. Each handoff leaves ~30 s with no watcher.
+A new process seeds the last 30 minutes of 1-minute bars, so it can see touches from before it started. Touches older than
+`ENTRY_MAX_TOUCH_AGE_SECONDS` are never filled. Since 13 Oct the heartbeat row also stores `tick_ts`, the newest tick the watcher
+had evaluated (written every minute and once more on exit); a new process drops touches that ended before that tick silently
+(the previous process already judged them, e.g. while a position was open) and only sends the "not filled late" notice for a touch
+in a real gap. The workflow also caches pip downloads.

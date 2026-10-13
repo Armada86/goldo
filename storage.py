@@ -301,6 +301,9 @@ def init_db() -> None:
             )
             """
         )
+        # Newest price-tick time the watcher had evaluated at its last heartbeat: a restarted watcher uses it to tell a touch the
+        # previous process already judged from one that fell in a real gap.
+        cur.execute("ALTER TABLE forex_b_heartbeat ADD COLUMN IF NOT EXISTS tick_ts TIMESTAMPTZ")
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS threshold_history (
@@ -1580,14 +1583,24 @@ def get_broker_trading_override(broker: str) -> tuple[str, datetime] | None:
     return (row[0], row[1]) if row else None
 
 
-def touch_forex_b_heartbeat(mode: str) -> None:
-    """The Broker F watcher is alive right now, in this mode (shown by the Telegram "broker status" command)."""
+def touch_forex_b_heartbeat(mode: str, tick_ts=None) -> None:
+    """The Broker F watcher is alive right now, in this mode (shown by the Telegram "broker status" command). `tick_ts` is the
+    newest price tick it has evaluated; None leaves the stored value unchanged."""
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO forex_b_heartbeat (id, ts, mode) VALUES (1, NOW(), %s) "
-            "ON CONFLICT (id) DO UPDATE SET ts = EXCLUDED.ts, mode = EXCLUDED.mode",
-            (mode,),
+            "INSERT INTO forex_b_heartbeat (id, ts, mode, tick_ts) VALUES (1, NOW(), %s, %s) "
+            "ON CONFLICT (id) DO UPDATE SET ts = EXCLUDED.ts, mode = EXCLUDED.mode, "
+            "tick_ts = COALESCE(EXCLUDED.tick_ts, forex_b_heartbeat.tick_ts)",
+            (mode, tick_ts),
         )
+
+
+def get_forex_b_heartbeat() -> dict | None:
+    """{"ts", "mode", "tick_ts"} of the last Broker F watcher heartbeat, or None if there never was one."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT ts, mode, tick_ts FROM forex_b_heartbeat WHERE id = 1")
+        row = cur.fetchone()
+    return {"ts": row[0], "mode": row[1], "tick_ts": row[2]} if row else None
 
 
 def get_broker_a_blocked() -> list[dict]:

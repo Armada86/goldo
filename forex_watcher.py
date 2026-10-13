@@ -78,6 +78,7 @@ from notifier import send_telegram_message
 from storage import (
     close_forex_b_trade,
     finish_forex_b_command,
+    get_forex_b_heartbeat,
     get_pending_forex_b_commands,
     set_forex_b_stop_order,
     touch_forex_b_heartbeat,
@@ -184,7 +185,24 @@ class Watcher:
         self.context: dict = {}
         self.context_at = 0.0
         self.started_at = datetime.now(timezone.utc)
+        self.previous_tick_ts = self._previous_tick_ts()  # read before our own first heartbeat overwrites it
         self.notified: dict[str, float] = {}  # throttle key -> monotonic time of the last Telegram note
+
+    def _previous_tick_ts(self):
+        """Newest tick the previous watcher process had evaluated (its last heartbeat), or None. Touches up to then were already judged
+        by that process, so this one need not report them as missed."""
+        try:
+            beat = get_forex_b_heartbeat()
+        except Exception:
+            log.exception("could not read the previous watcher heartbeat")
+            return None
+        if not beat or beat.get("mode") != self.mode or beat.get("tick_ts") is None:
+            return None
+        return pd.Timestamp(beat["tick_ts"])
+
+    def _already_judged(self, touch_ts) -> bool:
+        """True if the previous process had watched ticks past the end of this 1-minute bar (bars carry their start time)."""
+        return self.previous_tick_ts is not None and pd.Timestamp(touch_ts) + pd.Timedelta(minutes=1) <= self.previous_tick_ts
 
     def _note(self, key: str, text: str, every_minutes: float = 15.0) -> None:
         """A diagnostic Telegram note (a dropped touch, an error) -- at most one per `key` every `every_minutes`, so a repeating fault
@@ -387,6 +405,9 @@ class Watcher:
             if age > ENTRY_MAX_TOUCH_AGE_SECONDS:
                 self.consumed[rule_name] = latest_ts  # a stale touch: never filled late, the level needs a fresh one
                 log.info("%s touch at %s is %.0fs old -- dropped", rule_name, touch_ts, age)
+                if self._already_judged(touch_ts):
+                    log.info("%s touch at %s was already judged by the previous watcher process -- no notice", rule_name, touch_ts)
+                    continue
                 before_start = touch_ts < self.started_at
                 self._note(
                     f"stale:{rule_name}:{touch_ts:%H%M}",
@@ -509,12 +530,12 @@ class Watcher:
         """True when there is nothing to watch: no open trade and no entry possible right now."""
         return self.open_trade is None and not _entry_possible(now) and not _commands_pending()
 
-    def _heartbeat(self) -> None:
-        if time.monotonic() - self.heartbeat_at < 60:
+    def _heartbeat(self, force: bool = False) -> None:
+        if not force and time.monotonic() - self.heartbeat_at < 60:
             return
         self.heartbeat_at = time.monotonic()
         try:
-            touch_forex_b_heartbeat(self.mode)
+            touch_forex_b_heartbeat(self.mode, self.feed.last_ts)
         except Exception:
             log.exception("heartbeat failed")
 
@@ -635,17 +656,20 @@ def run(max_minutes: float, mode: str) -> None:
         return
     watcher = Watcher(client, mode)
     log.info("Broker F watcher started (%s mode); open trade: %s", mode, watcher.open_trade and watcher.open_trade["id"])
-    while time.monotonic() < deadline:
-        started = time.monotonic()
-        try:
-            watcher.step()
-        except Exception as e:
-            log.exception("tick failed -- continuing")
-            watcher._note("tick", f"a check failed ({type(e).__name__}: {str(e)[:200]}) -- it keeps running and retries every 10 s.")
-        if watcher.idle(datetime.now(timezone.utc)):
-            log.info("Nothing left to watch -- exiting")
-            return
-        time.sleep(max(0.0, TICK_SECONDS - (time.monotonic() - started)))
+    try:
+        while time.monotonic() < deadline:
+            started = time.monotonic()
+            try:
+                watcher.step()
+            except Exception as e:
+                log.exception("tick failed -- continuing")
+                watcher._note("tick", f"a check failed ({type(e).__name__}: {str(e)[:200]}) -- it keeps running and retries every 10 s.")
+            if watcher.idle(datetime.now(timezone.utc)):
+                log.info("Nothing left to watch -- exiting")
+                return
+            time.sleep(max(0.0, TICK_SECONDS - (time.monotonic() - started)))
+    finally:
+        watcher._heartbeat(force=True)  # records the last evaluated tick for the next process
 
 
 if __name__ == "__main__":
