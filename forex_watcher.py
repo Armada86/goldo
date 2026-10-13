@@ -96,6 +96,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger("forex-watcher")
 
 TICK_SECONDS = 10  # one look every 10 s: the last TICKS_PER_LOOK ticks (two ~0.5 s forex.com calls)
+FEED_LAG_WARN_SECONDS = 60  # newest tick older than this = the price feed is behind: entries and stops are being judged on stale prices
 TICKS_PER_LOOK = 100  # ticks arrive ~2-3 per second, so 100 covers ~35 s: a look sees every tick since the previous one, wicks included
 SEED_MINUTES = 30  # 1-minute bars loaded at start so a fresh process already knows which side of a level price was on
 CONTEXT_REFRESH_SECONDS = 60  # forecast / armed levels / DXY readings / lock level are re-read from Postgres this often
@@ -540,6 +541,19 @@ class Watcher:
         """True when there is nothing to watch: no open trade and no entry possible right now."""
         return self.open_trade is None and not _entry_possible(now) and not _commands_pending()
 
+    def _check_feed_lag(self, newest_tick_ts, now: datetime) -> None:
+        """Warns (Telegram, at most one per 15 min) when the newest tick is more than FEED_LAG_WARN_SECONDS old. Seen 13 Oct 2026: the
+        FOREX.com tick history stalled for over a minute while the 1-minute bars kept moving, so touches and stops are noticed late."""
+        lag = (now - newest_tick_ts).total_seconds()
+        if lag <= FEED_LAG_WARN_SECONDS:
+            return
+        log.warning("price feed is %.0f s behind (newest tick %s)", lag, newest_tick_ts)
+        self._note(
+            "feed-lag",
+            f"the price feed is {lag:.0f} s behind (newest tick {_format_ts(newest_tick_ts)}). Touches and stops are judged on "
+            f"that older price until it catches up.",
+        )
+
     def _heartbeat(self, force: bool = False) -> None:
         if not force and time.monotonic() - self.heartbeat_at < 60:
             return
@@ -556,6 +570,7 @@ class Watcher:
         quote = ticks[-1]
         self.last_quote = quote
         now = datetime.now(timezone.utc)
+        self._check_feed_lag(quote["ts"], now)
         self._handle_commands(now)  # Telegram "buy/sell/close broker F", even when the price has not ticked
         if not fresh:
             return  # no new tick since the last look
