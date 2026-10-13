@@ -419,14 +419,7 @@ class Watcher:
                 if self._already_judged(touch_ts):
                     log.info("%s touch at %s was already judged by the previous watcher process -- no notice", rule_name, touch_ts)
                     continue
-                before_start = touch_ts < self.started_at
-                self._note(
-                    f"stale:{rule_name}:{touch_ts:%H%M}",
-                    f"{rule_name} level ${trigger_price:.2f} was touched at {_format_ts(touch_ts)}, {age:.0f}s before it was noticed "
-                    + (f"(the watcher only started at {_format_ts(self.started_at)}) " if before_start else "")
-                    + "-- not filled late; the level needs a fresh touch.",
-                    every_minutes=1,
-                )
+                # No Telegram notice for stale touches (13 Oct 2026, user request); the log line above is the record.
                 continue
             if self._try_open(now, touch_ts, trigger_price, trade_type, rule_name, scenario_name, forecast):
                 return
