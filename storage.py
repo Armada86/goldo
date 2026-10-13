@@ -1,5 +1,6 @@
 """Postgres time-series store for polled prices (shared by the cloud poll job and dashboard)."""
 
+import json
 import os
 from datetime import date, datetime, timezone
 
@@ -304,6 +305,21 @@ def init_db() -> None:
         # Newest price-tick time the watcher had evaluated at its last heartbeat: a restarted watcher uses it to tell a touch the
         # previous process already judged from one that fell in a real gap.
         cur.execute("ALTER TABLE forex_b_heartbeat ADD COLUMN IF NOT EXISTS tick_ts TIMESTAMPTZ")
+        # Broker F watcher lease: exactly one watcher process trades at a time (`holder`), a second may wait warm in `standby` and takes
+        # over without a gap; `state` carries what the next holder needs (used-up touches, last tick evaluated).
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS forex_b_lease (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                holder TEXT,
+                expires_at TIMESTAMPTZ,
+                ends_at TIMESTAMPTZ,
+                standby TEXT,
+                standby_expires_at TIMESTAMPTZ,
+                state JSONB
+            )
+            """
+        )
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS threshold_history (
@@ -1601,6 +1617,79 @@ def get_forex_b_heartbeat() -> dict | None:
         cur.execute("SELECT ts, mode, tick_ts FROM forex_b_heartbeat WHERE id = 1")
         row = cur.fetchone()
     return {"ts": row[0], "mode": row[1], "tick_ts": row[2]} if row else None
+
+
+LEASE_TTL_SECONDS = 20  # the holder renews every few seconds; a crashed holder is replaced once this has passed
+
+
+def forex_lease_acquire(holder: str, ends_at, state: dict | None = None, ttl: int = LEASE_TTL_SECONDS) -> dict | None:
+    """Takes the Broker F watcher lease if it is free, expired or already ours, or renews it. Returns {"state": ...} when we hold it
+    afterwards, None when another live process does. `ends_at` is when this holder plans to stop; `state` (JSON-able) replaces the
+    stored state when given. A standby that becomes the holder clears its standby slot."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO forex_b_lease (id, holder, expires_at, ends_at, state) "
+            "VALUES (1, %s, NOW() + make_interval(secs => %s), %s, %s::jsonb) "
+            "ON CONFLICT (id) DO UPDATE SET holder = EXCLUDED.holder, expires_at = EXCLUDED.expires_at, ends_at = EXCLUDED.ends_at, "
+            "state = COALESCE(EXCLUDED.state, forex_b_lease.state), "
+            "standby = CASE WHEN forex_b_lease.standby = EXCLUDED.holder THEN NULL ELSE forex_b_lease.standby END "
+            "WHERE forex_b_lease.holder IS NULL OR forex_b_lease.holder = EXCLUDED.holder OR forex_b_lease.expires_at < NOW() "
+            "RETURNING state",
+            (holder, ttl, ends_at, json.dumps(state) if state is not None else None),
+        )
+        row = cur.fetchone()
+    return {"state": row[0] or {}} if row else None
+
+
+def forex_legacy_watcher_alive() -> bool:
+    """True if a Broker F watcher WITHOUT the lease (the pre-13-Oct-2026 version) seems to be running: a heartbeat younger than 90 s that
+    was written clearly after the lease last expired (v2 watchers only write heartbeats while they hold the lease, and the final one
+    just before releasing it). Used so a v2 process never trades alongside an old one during the roll-out."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT (h.ts > NOW() - interval '90 seconds') AND (l.expires_at IS NULL OR h.ts > l.expires_at + interval '10 seconds') "
+            "FROM forex_b_heartbeat h LEFT JOIN forex_b_lease l ON l.id = 1 WHERE h.id = 1"
+        )
+        row = cur.fetchone()
+    return bool(row and row[0])
+
+
+def forex_lease_status() -> dict | None:
+    """{"holder", "alive", "ends_in", "standby", "standby_alive"} of the lease; alive = the holder's lease has not expired, ends_in =
+    seconds until the holder plans to stop (None if unknown), standby_alive = a live standby is registered. None if no row yet."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT holder, expires_at > NOW(), EXTRACT(EPOCH FROM (ends_at - NOW())), standby, standby_expires_at > NOW() "
+            "FROM forex_b_lease WHERE id = 1"
+        )
+        row = cur.fetchone()
+    if not row:
+        return None
+    return {
+        "holder": row[0], "alive": bool(row[1]), "ends_in": float(row[2]) if row[2] is not None else None,
+        "standby": row[3], "standby_alive": bool(row[4]),
+    }
+
+
+def forex_lease_register_standby(holder: str, ttl: int = LEASE_TTL_SECONDS) -> bool:
+    """Registers (or renews) this process as the one warm standby. False if another live standby is registered or there is no lease row."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE forex_b_lease SET standby = %s, standby_expires_at = NOW() + make_interval(secs => %s) "
+            "WHERE id = 1 AND (standby IS NULL OR standby = %s OR standby_expires_at < NOW()) RETURNING 1",
+            (holder, ttl, holder),
+        )
+        return cur.fetchone() is not None
+
+
+def forex_lease_release(holder: str, state: dict | None = None) -> None:
+    """Hands the lease over now (only if we hold it): marks it expired and stores the final state for the next holder."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE forex_b_lease SET expires_at = NOW() - interval '1 second', ends_at = NULL, "
+            "state = COALESCE(%s::jsonb, state) WHERE id = 1 AND holder = %s",
+            (json.dumps(state) if state is not None else None, holder),
+        )
 
 
 def get_broker_a_blocked() -> list[dict]:

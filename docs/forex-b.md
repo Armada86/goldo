@@ -95,3 +95,27 @@ logged if a look's history starts after the last tick seen (more than ~35 s of t
 Feed-lag warning: if the newest tick is more than `FEED_LAG_WARN_SECONDS` (60) older than the clock, the watcher logs it and sends one
 Telegram note (at most every 15 minutes). On 13 Oct ~19:10 UTC the tick history stalled for over a minute while the 1-minute bars kept
 moving, which delays touch and stop detection.
+
+
+## Watcher v2: streaming prices, overlapping runs, one lease (13 Oct 2026)
+
+Measured that day: the REST tick history (`tickhistory`) and 1-minute bars are refreshed by FOREX.com in ~1-minute batches, so the "latest tick"
+was 34-130 s old (tick 19:58:12 stayed latest until 20:00:02, then jumped to 19:59:59). The old watcher dropped any touch more than 40 s older
+than its newest tick, i.e. about two thirds of touches (B #76's 4158.00 breakout was never seen). The CIAPI also offers a streaming feed
+(Lightstreamer, `https://push.cityindex.com`, adapter set `STREAMINGALL`, item `PRICE.<MarketId>`, user = login name, password = the session
+token), confirmed from this repo's sandbox: ~4 ticks/s, tick time within ~50 ms of the wall clock.
+
+* `forex_stream.py` -- `PriceStream` (queue of `{bid, ask, ts}`), watchdog helpers. `forex_watcher.py` -- event-driven loop: every tick is added to the
+  `Feed` (raw ticks for the last 5 minutes, older ones rolled into 1-minute bars so the scanners stay small) and the exit / entry checks run on
+  it within ~0.25 s. The position and platform stop on forex.com are read every 3 s (and at once when our own stop is crossed). A touch is filled
+  only if it is at most 15 s old (feed time) and the newest tick is at most 20 s old (wall clock). RSI/ADX/ATR (Twelve Data) are refreshed only
+  while price is within $4 of an armed level (the allowance is 800 calls/day), and the entry context is built from values the watcher already
+  has, so the platform stop is attached within a second of the fill instead of 2-5 s later. The 15-minute range for the spike gate comes from the live feed.
+* Lease: table `forex_b_lease` (`holder`, `expires_at`, `ends_at`, `standby`, `standby_expires_at`, `state`). The holder renews every 5 s (TTL 20 s);
+  if it cannot renew for 14 s it stops acting. Handover: the active run releases at its planned end if a standby is registered; the standby
+  polls every 2 s. `state` carries the used-up touches. Two overlapping runs can never both place orders.
+* Fallbacks: stream silent 20 s -> new login + reconnect (Telegram note, throttled); silent 30 s -> REST ticks are also polled every 10 s so an
+  open trade's stop is still judged (late); the platform stop on forex.com protects the position throughout.
+* Roll-out guard: `storage.forex_legacy_watcher_alive()` -- a heartbeat younger than 90 s written after the lease last expired means a pre-lease watcher is still running
+  (v2 only writes heartbeats while it holds the lease), and a v2 process then exits instead of trading beside it.
+* Rollback: revert the merge commit of this change (`forex_watch.yml` returns to the queued 25-minute runs); `forex_b_lease` stays, harmlessly.
