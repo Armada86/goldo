@@ -143,6 +143,19 @@ def _exit_side(trade_type: str) -> str:
     return "bid" if trade_type == "Buy" else "ask"
 
 
+def _send(text: str) -> None:
+    """Telegram is a notification, never a precondition: a failed send (retried once) is logged and swallowed, so a Telegram
+    outage right after a trade is recorded can't skip the platform stop, the consumed-touch bookkeeping or the context refresh."""
+    for attempt in (1, 2):
+        try:
+            send_telegram_message(text)
+            return
+        except Exception:
+            log.exception("Telegram send failed (attempt %d)", attempt)
+            if attempt == 1:
+                time.sleep(1)
+
+
 def _message(trade_id: int, text: str, mode: str, marker: str = "") -> str:
     return f"{TRADE_PREFIX.rstrip()}{marker}BROKER F ({mode}) #{trade_id}: {text}"
 
@@ -264,7 +277,7 @@ class Watcher:
             build_exit_context(datetime.now(timezone.utc), opened_at=trade["open_ts"]),
         )
         stop_text = f" (stop level ${stop_level:.2f}, slipped ${abs(exit_price - stop_level):.2f})" if stop_level is not None else ""
-        send_telegram_message(_message(
+        _send(_message(
             trade["id"],
             f"closed {trade['trade_type']} 1 oz XAU/USD @ ${exit_price:.2f}{stop_text} (opened @ ${trade['entry_price']:.2f}, "
             f"rule {trade['rule_name']}) -- {'profit' if pnl >= 0 else 'loss'} of ${abs(pnl):.2f}{note}\nFilled: {_format_ts(exit_ts)}",
@@ -290,7 +303,7 @@ class Watcher:
             if not stop:
                 placed = self.client.attach_stop(int(trade["forex_order_id"]), direction, desired_stop)
                 set_forex_b_stop_order(trade["id"], placed["stop_order_id"])
-                send_telegram_message(_message(trade["id"], f"stop was missing -- re-attached at ${placed['stop_price']:.2f}.", self.mode))
+                _send(_message(trade["id"], f"stop was missing -- re-attached at ${placed['stop_price']:.2f}.", self.mode))
                 return
             current = float(stop["TriggerPrice"])
             better = desired_stop - current if is_buy else current - desired_stop
@@ -320,11 +333,11 @@ class Watcher:
         try:
             result = self.client.close_position(trade["trade_type"])
         except ForexClientError as e:
-            send_telegram_message(_message(trade["id"], f"market close NOT confirmed ({e}) -- CHECK THE DEMO ACCOUNT.", self.mode))
+            _send(_message(trade["id"], f"market close NOT confirmed ({e}) -- CHECK THE DEMO ACCOUNT.", self.mode))
             return None
         leftovers = [p for p in self.client.get_open_positions() if p.get("MarketId") == TRADABLE_MARKET_ID]
         if leftovers:
-            send_telegram_message(_message(
+            _send(_message(
                 trade["id"],
                 f"after the market close forex.com still shows {len(leftovers)} open XAU/USD position(s) -- CHECK THE DEMO ACCOUNT "
                 f"(the close may have opened an opposite position instead of netting).", self.mode,
@@ -406,7 +419,7 @@ class Watcher:
             scenario_name, trade_type, dxy_readings, rsi_value, adx_value, adx_rising, atr_value, range_15m, rules
         )
         if not ok:
-            send_telegram_message(
+            _send(
                 f"{TRADE_PREFIX.rstrip()}{BLOCKED_MARKER}BROKER F ({self.mode}): {rule_name} level ${trigger_price:.2f} "
                 f"reached but blocked -- {reasons}."
             )
@@ -441,7 +454,7 @@ class Watcher:
             entry_context, forex_order_id=order_id,
         )
         self.open_trade = get_open_forex_b_trade()
-        send_telegram_message(_message(
+        _send(_message(
             trade_id,
             f"opened {trade_type} 1 oz XAU/USD @ ${fill_price:.2f} (rule {rule_name}; level ${trigger_price:.2f}, "
             f"{'slippage' if slippage >= 0 else 'price improvement'} ${abs(slippage):.2f}).\n"
@@ -469,12 +482,12 @@ class Watcher:
             except Exception:
                 positions = None
             if positions is not None and len(positions) == 1:
-                send_telegram_message(_message(0, f"{rule_name} order outcome was unknown; adopted the single open position {positions[0]['OrderId']}.", self.mode))
+                _send(_message(0, f"{rule_name} order outcome was unknown; adopted the single open position {positions[0]['OrderId']}.", self.mode))
                 return float(positions[0]["Price"]), positions[0]["OrderId"]
-            send_telegram_message(_message(0, f"{rule_name} order outcome UNKNOWN and positions are unclear -- CHECK THE DEMO ACCOUNT. Not retried.", self.mode))
+            _send(_message(0, f"{rule_name} order outcome UNKNOWN and positions are unclear -- CHECK THE DEMO ACCOUNT. Not retried.", self.mode))
             return None
         except ForexClientError as e:
-            send_telegram_message(_message(0, f"{rule_name} order rejected, nothing opened: {e}", self.mode))
+            _send(_message(0, f"{rule_name} order rejected, nothing opened: {e}", self.mode))
             return None
 
     def _protect(self, trade: dict) -> None:
@@ -484,9 +497,9 @@ class Watcher:
             _crossing, initial_stop = self._exit_inputs({**trade, "open_ts": datetime.now(timezone.utc)})
             placed = self.client.attach_stop(int(trade["forex_order_id"]), direction, initial_stop)
             set_forex_b_stop_order(trade["id"], placed["stop_order_id"])
-            send_telegram_message(_message(trade["id"], f"platform stop set at ${placed['stop_price']:.2f}.", self.mode))
+            _send(_message(trade["id"], f"platform stop set at ${placed['stop_price']:.2f}.", self.mode))
         except ForexClientError as e:
-            send_telegram_message(_message(
+            _send(_message(
                 trade["id"], f"could NOT attach the platform stop ({e}) -- position is UNPROTECTED on forex.com; the watcher manages it.", self.mode,
             ))
 
@@ -530,7 +543,7 @@ class Watcher:
                 status, result = "failed", repr(e)
             finish_forex_b_command(cmd["id"], status, result)
             if status != "done":
-                send_telegram_message(f"{TRADE_PREFIX.rstrip()}{BLOCKED_MARKER}BROKER F ({self.mode}): '{cmd['command']}' not done -- {result}")
+                _send(f"{TRADE_PREFIX.rstrip()}{BLOCKED_MARKER}BROKER F ({self.mode}): '{cmd['command']}' not done -- {result}")
             log.info("command %s -> %s (%s)", cmd["command"], status, result)
 
     def _run_command(self, command: str, now: datetime) -> tuple[str, str]:
@@ -566,7 +579,7 @@ class Watcher:
             {"spread": round(float(self.last_quote["ask"] - self.last_quote["bid"]), 2)}, forex_order_id=order_id,
         )
         self.open_trade = get_open_forex_b_trade()
-        send_telegram_message(_message(
+        _send(_message(
             trade_id,
             f"opened {trade_type} 1 oz XAU/USD @ ${fill_price:.2f} (rule {rule_name}).\nTrigger: Manual (Telegram command)\nFilled: {_format_ts(now)}",
             self.mode,
@@ -602,7 +615,7 @@ def _live_ready(client: ForexClient) -> bool:
     positions = [p for p in client.get_open_positions() if p.get("MarketId") == TRADABLE_MARKET_ID]
     extra = [p for p in positions if tracked is None or str(p.get("OrderId")) != str(tracked["forex_order_id"])]
     if extra:
-        send_telegram_message(
+        _send(
             f"{TRADE_PREFIX.rstrip()}BROKER F (live): not trading -- the demo account already has {len(extra)} untracked XAU/USD "
             f"position(s) ({', '.join(str(p.get('OrderId')) for p in extra)}). Close them or switch to shadow mode."
         )
