@@ -3,7 +3,7 @@
 Why this exists: broker_b.py runs once per 5-minute GitHub poll and reads 1-minute bars, so it notices a level touch
 up to several minutes after it happened and fills it at the level price a resting order WOULD have got. On a real
 account a market order is sent when the price is there, and fills at the live bid/ask. This loop watches the live
-quote every TICK_SECONDS (10 s) so the touch is noticed within seconds, the trade enters at the actual fill price,
+live tick stream (see Watcher v2 below) so the touch is noticed within a second, the trade enters at the actual fill price,
 and the stop (trailing stop, fade lock) is evaluated on every tick instead of every poll.
 
 No rule is re-implemented here -- every decision calls the code Broker B already uses:
@@ -34,15 +34,30 @@ Manual commands: the Telegram Worker cannot place forex.com orders itself (the o
 Read-only toward Broker B: this never writes to broker_b_trades / broker_b_blocked, so running it cannot consume or
 change a Broker B touch. A touch it blocks is remembered in memory only.
 
-Run: `python forex_watcher.py --max-minutes 5` (one burst, what .github/workflows/forex_watch.yml does) or with a large
---max-minutes on any always-on host. It exits at once when there is nothing to watch (market closed, outside the
-7am-5pm ET entry window, trading paused) and nothing open.
+Run: `python forex_watcher.py --max-minutes 25` (what .github/workflows/forex_watch.yml does) or with a large --max-minutes on any
+always-on host. It exits at once when there is nothing to watch (market closed, outside the 7am-5pm ET entry window, trading paused)
+and nothing open.
+
+Watcher v2 (13 Oct 2026) -- why the loop is event-driven and runs two processes at a handover:
+  * Prices come from FOREX.com's STREAMING feed (forex_stream.py, ~4 ticks/s, ~50 ms behind the market). The REST tick history it
+    used before is refreshed by the server in ~1-minute batches, so its "latest tick" was 60-130 s old and about two thirds of
+    touches were dropped as stale (B #76's 4158.00 breakout was never seen). Every tick is checked as it arrives (entry touches, the
+    trailing/lock stop, platform stop moves). If the stream goes silent the process reconnects with a fresh login and meanwhile
+    falls back to REST polling; no entry is made on a tick older than ENTRY_MAX_FEED_AGE_SECONDS.
+  * One process trades at a time. A Postgres lease (storage.forex_lease_*, table forex_b_lease) names the active holder; it renews
+    every few seconds and a crashed holder is replaced after LEASE_TTL_SECONDS. The next run (cron-job.org dispatches every 5 min,
+    forex_watch.yml no longer queues them) starts during the last STANDBY_LEAD_SECONDS of the active one, streams and builds the
+    same price history, but never trades; when the active run reaches its end it releases the lease (with the used-up touches in
+    the lease state) and the standby takes over within ~2 s -- no gap, no cold start. Runs that find a healthy active watcher with
+    plenty of time left exit at once. If no standby appeared the active run keeps going up to HARD_EXTRA_SECONDS past its end.
 """
 
 import argparse
 import logging
+import os
 import time
-from datetime import datetime, timezone
+import uuid
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 
@@ -69,15 +84,22 @@ from broker_b import (
     armed_candidates,
     evaluate_gates,
 )
-from config import ADX_PERIOD, ATR_PERIOD, RSI_PERIOD
+from config import ADX_PERIOD, ATR_PERIOD, INTRAHOUR_SWING_ALERT_THRESHOLD, RSI_PERIOD
 from data_fetcher import fetch_gold_candles, gold_adx_rising_from_candles, gold_rsi_adx_atr_from_candles
-from entry_context import build_entry_context, build_exit_context, level_distances
+from entry_context import DISPLAY_TZ as ENTRY_TZ
+from entry_context import _num, build_exit_context, level_distances
 from forex_client import TRADABLE_MARKET_ID, ForexClient, ForexClientError, ForexOrderUncertainError
+from forex_stream import PriceStream
 from market_hours import is_market_closed
 from notifier import send_telegram_message
 from storage import (
+    LEASE_TTL_SECONDS,
     close_forex_b_trade,
     finish_forex_b_command,
+    forex_lease_acquire,
+    forex_lease_register_standby,
+    forex_lease_release,
+    forex_lease_status,
     get_forex_b_heartbeat,
     get_pending_forex_b_commands,
     set_forex_b_stop_order,
@@ -95,15 +117,30 @@ from trading_control import trading_pause_reason
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger("forex-watcher")
 
-TICK_SECONDS = 10  # one look every 10 s: the last TICKS_PER_LOOK ticks (two ~0.5 s forex.com calls)
-FEED_LAG_WARN_SECONDS = 60  # newest tick older than this = the price feed is behind: entries and stops are being judged on stale prices
-TICKS_PER_LOOK = 100  # ticks arrive ~2-3 per second, so 100 covers ~35 s: a look sees every tick since the previous one, wicks included
+LOOP_SECONDS = 0.25  # the main loop waits this long for a tick; a tick that arrives is handled at once
 SEED_MINUTES = 30  # 1-minute bars loaded at start so a fresh process already knows which side of a level price was on
+SEED_TICKS = 300  # REST ticks loaded at start (~2 min, the freshest the REST history has)
 CONTEXT_REFRESH_SECONDS = 60  # forecast / armed levels / DXY readings / lock level are re-read from Postgres this often
-# A touch is acted on only if it is at most this old when seen. 1-minute seed bars carry their minute's start time, so
-# this is a little over one tick; anything older (a touch from before the process started, or one a filter already
-# consumed) is dropped, never filled late -- the same "no retroactive fills" rule as Broker B.
-ENTRY_MAX_TOUCH_AGE_SECONDS = 40
+# A touch is acted on only if it is at most this old (feed time) when seen. With the stream a touch is seen within a second; older ones
+# (seeded history, a reconnect gap) are dropped, never filled late -- the same "no retroactive fills" rule as Broker B.
+ENTRY_MAX_TOUCH_AGE_SECONDS = 15
+ENTRY_MAX_FEED_AGE_SECONDS = 20  # no entry is judged while the newest tick is older than this on the wall clock (stale feed)
+FEED_LAG_WARN_SECONDS = 30  # newest tick older than this = Telegram note
+STREAM_SILENT_RECONNECT_SECONDS = 20  # no tick for this long: log in again and reconnect the stream
+STREAM_RESTART_MIN_SECONDS = 30  # but not more often than this
+REST_FALLBACK_AFTER_SECONDS = 30  # stream silent this long: also poll the (laggy) REST tick history so exits are still judged
+REST_FALLBACK_EVERY_SECONDS = 10
+POSITION_CHECK_SECONDS = 3  # how often the open position / platform stop is read from forex.com while no stop crossing is pending
+COMMAND_CHECK_SECONDS = 2  # how often queued Telegram commands are read
+GATE_CACHE_SECONDS = 5  # trading pause / entry-window checks (Postgres) are cached this long
+LEASE_RENEW_SECONDS = 5
+STANDBY_LEAD_SECONDS = 420  # a new run becomes the standby only when the active one ends within this many seconds
+STANDBY_MAX_WAIT_SECONDS = 780  # a standby gives up after this long without taking over
+STANDBY_REGISTER_SECONDS = 8
+GATE_INPUT_FRESH_SECONDS = 90  # RSI/ADX/ATR (Twelve Data 15-min candles) older than this are fetched again at a touch
+GATE_INPUT_PREFETCH_SECONDS = 45  # ... and refreshed this often while price is within NEAR_LEVEL_DOLLARS of an armed level
+NEAR_LEVEL_DOLLARS = 4.0
+HARD_EXTRA_SECONDS = 360  # an active run with no standby waiting keeps going this long past its planned end
 TRADE_PREFIX = "\U0001f7ea "  # purple square -- Broker B is blue, A is a blue circle
 BLOCKED_MARKER = "⛔ "
 PROFIT_MARKER = "\U0001f7e9 "
@@ -115,39 +152,72 @@ COLUMNS = ["datetime", "open", "high", "low", "close"]
 
 
 class Feed:
-    """Entry/exit-side price history as bar-shaped frames (columns of get_bars()): the seeded 1-minute bars, then one
-    row per new tick with open = high = low = close = that tick's price. The existing bar scanners work on this
-    unchanged, so a tick that is already through a level counts exactly like a bar that reached it."""
+    """Entry/exit-side price history as bar-shaped frames (columns of get_bars()). Older history is 1-minute bars (the REST seed, then
+    ticks older than RECENT_SECONDS rolled up into minute bars); the last RECENT_SECONDS are kept as one row per tick with
+    open = high = low = close = that tick's price. The existing bar scanners work on this unchanged, so a tick that is already through
+    a level counts exactly like a bar that reached it. side() returns both parts as one time-sorted frame."""
 
-    def __init__(self, client: ForexClient):
-        self.frames = {
-            side: client.get_bars(SEED_MINUTES, side.upper())[COLUMNS]
-            for side in ("bid", "ask")
-        }
+    RECENT_SECONDS = 300
+
+    def __init__(self, client: ForexClient | None):
+        if client is not None:
+            self.history = {side: client.get_bars(SEED_MINUTES, side.upper())[COLUMNS] for side in ("bid", "ask")}
+        else:
+            self.history = {side: pd.DataFrame(columns=COLUMNS) for side in ("bid", "ask")}
+        self.ticks: list[tuple] = []  # (ts, bid, ask), oldest first
         self.last_ts = None
+        self._frames: dict = {}
+        self._rolled_at = time.monotonic()
 
     def add(self, quote: dict) -> bool:
-        """Appends the quote as a tick row on both sides; False (nothing added) if it is the tick already seen."""
         return self.add_ticks([quote])
 
     def add_ticks(self, ticks: list[dict]) -> bool:
-        """Appends every tick newer than the last one seen (oldest first) as a row on both sides; False if there was nothing new.
-        Logs a warning when the batch starts after the last tick seen, i.e. ticks fell between two calls."""
-        new = [t for t in ticks if self.last_ts is None or t["ts"] > self.last_ts]
+        """Appends every tick newer than the last one seen (oldest first); False if there was nothing new."""
+        new = sorted((t for t in ticks if self.last_ts is None or t["ts"] > self.last_ts), key=lambda t: t["ts"])
         if not new:
             return False
-        if self.last_ts is not None and ticks[0]["ts"] > self.last_ts:
-            log.warning("tick history starts at %s, after the last tick seen (%s): some ticks were missed", ticks[0]["ts"], self.last_ts)
+        self.ticks.extend((t["ts"], t["bid"], t["ask"]) for t in new)
         self.last_ts = new[-1]["ts"]
-        for side in ("bid", "ask"):
-            times = [pd.Timestamp(t["ts"]) for t in new]
-            prices = [t[side] for t in new]
-            rows = pd.DataFrame({"datetime": times, "open": prices, "high": prices, "low": prices, "close": prices})[COLUMNS]
-            self.frames[side] = pd.concat([self.frames[side], rows], ignore_index=True)
+        self._frames = {}
+        if time.monotonic() - self._rolled_at >= 60:
+            self._roll()
         return True
 
+    def _roll(self) -> None:
+        """Turns ticks older than RECENT_SECONDS (to the minute) into 1-minute bars, so the frames the scanners walk stay small."""
+        self._rolled_at = time.monotonic()
+        if not self.ticks:
+            return
+        cutoff = (pd.Timestamp(self.last_ts) - pd.Timedelta(seconds=self.RECENT_SECONDS)).floor("min")
+        n_old = sum(1 for t in self.ticks if pd.Timestamp(t[0]) < cutoff)
+        if n_old == 0:
+            return
+        old = pd.DataFrame(self.ticks[:n_old], columns=["ts", "bid", "ask"])
+        old["minute"] = pd.to_datetime(old["ts"], utc=True).dt.floor("min")
+        for side in ("bid", "ask"):
+            g = old.groupby("minute")[side].agg(open="first", high="max", low="min", close="last").reset_index()
+            g = g.rename(columns={"minute": "datetime"})[COLUMNS]
+            self.history[side] = pd.concat([self.history[side], g], ignore_index=True)
+        self.ticks = self.ticks[n_old:]
+        self._frames = {}
+
     def side(self, side: str) -> pd.DataFrame:
-        return self.frames[side]
+        frame = self._frames.get(side)
+        if frame is None:
+            idx = 1 if side == "bid" else 2
+            rows = pd.DataFrame(
+                {
+                    "datetime": [pd.Timestamp(t[0]) for t in self.ticks],
+                    "open": [t[idx] for t in self.ticks], "high": [t[idx] for t in self.ticks],
+                    "low": [t[idx] for t in self.ticks], "close": [t[idx] for t in self.ticks],
+                }
+            )[COLUMNS]
+            parts = [p for p in (self.history[side], rows) if len(p)]
+            frame = pd.concat(parts, ignore_index=True) if parts else rows
+            frame = frame.sort_values("datetime", kind="mergesort").reset_index(drop=True)
+            self._frames[side] = frame
+        return frame
 
 
 def _exit_side(trade_type: str) -> str:
@@ -185,11 +255,12 @@ def _commands_pending() -> bool:
 
 
 class Watcher:
-    def __init__(self, client: ForexClient, mode: str):
+    def __init__(self, client: ForexClient, mode: str, feed: Feed | None = None):
         self.client = client
         self.mode = mode
-        self.feed = Feed(client)
-        self.open_trade = get_open_forex_b_trade()
+        self.feed = feed if feed is not None else Feed(client)
+        self.role = "standby"  # "active" trades; "standby" only keeps the feed warm (see activate())
+        self.open_trade = None
         self.consumed: dict[str, datetime] = {}  # rule_name -> newest tick time a blocked / stale touch used up
         self.last_quote: dict | None = None
         self.heartbeat_at = 0.0
@@ -198,6 +269,58 @@ class Watcher:
         self.started_at = datetime.now(timezone.utc)
         self.previous_tick_ts = self._previous_tick_ts()  # read before our own first heartbeat overwrites it
         self.notified: dict[str, float] = {}  # throttle key -> monotonic time of the last Telegram note
+        self.position_checked_at = 0.0
+        self.commands_at = 0.0
+        self._paused_at = -1e9
+        self._paused_value = False
+        self._gate_at = -1e9
+        self._gate_value = False
+        self.stream_restart_at = 0.0
+        self._gate_inputs = None  # (rsi, adx, atr, adx_rising) of gold's 15-min candles
+        self._gate_inputs_at = -1e9
+
+    # --- role ------------------------------------------------------------------------------------------------------
+
+    def activate(self, state: dict | None = None) -> None:
+        """This process now holds the lease: load the used-up touches the previous holder left, and its open trade from the database."""
+        self.role = "active"
+        self.consumed = {}
+        for rule_name, ts in ((state or {}).get("consumed") or {}).items():
+            try:
+                self.consumed[rule_name] = pd.Timestamp(ts)
+            except Exception:
+                log.warning("ignoring unreadable consumed touch %s=%s", rule_name, ts)
+        self.open_trade = get_open_forex_b_trade()
+        self._refresh_context(force=True)
+        self.position_checked_at = 0.0
+        log.info("this watcher is now ACTIVE (open trade: %s, used-up touches: %s)", self.open_trade and self.open_trade["id"], list(self.consumed))
+
+    def demote(self) -> None:
+        """The lease was lost to another process: stop acting (that process now trades), keep the feed warm."""
+        self.role = "standby"
+        self.open_trade = None
+        log.warning("this watcher lost the lease and is now STANDBY")
+
+    def lease_state(self) -> dict:
+        return {
+            "consumed": {k: pd.Timestamp(v).isoformat() for k, v in self.consumed.items()},
+            "tick_ts": self.feed.last_ts.isoformat() if self.feed.last_ts is not None else None,
+        }
+
+    # --- cached gates ----------------------------------------------------------------------------------------------
+
+    def _paused(self, now: datetime) -> bool:
+        if time.monotonic() - self._paused_at >= GATE_CACHE_SECONDS:
+            self._paused_value = trading_pause_reason(now, "F") is not None
+            self._paused_at = time.monotonic()
+        return self._paused_value
+
+    def _entry_ok(self, now: datetime) -> bool:
+        """_entry_possible() with the Postgres-backed pause check cached for GATE_CACHE_SECONDS (called on every tick)."""
+        if time.monotonic() - self._gate_at >= GATE_CACHE_SECONDS:
+            self._gate_value = not is_market_closed() and _within_entry_window(now) and not self._paused(now)
+            self._gate_at = time.monotonic()
+        return self._gate_value
 
     def _previous_tick_ts(self):
         """Newest tick the previous watcher process had evaluated (its last heartbeat), or None. Touches up to then were already judged
@@ -271,14 +394,18 @@ class Watcher:
         exit_frame = self.feed.side(_exit_side(trade["trade_type"]))
         latest = exit_frame.iloc[-1]
         price_col = "low" if trade["trade_type"] == "Buy" else "high"
-        paused = trading_pause_reason(now, "F") is not None
+        paused = self._paused(now)
+        crossing, next_stop = (None, None) if paused else self._exit_inputs(trade)
         position = None
-        if self.mode == "live":
+        # The stop is judged locally on every tick. The position / platform stop on forex.com is read every POSITION_CHECK_SECONDS,
+        # and at once when our own stop is crossed or trading is paused (so a close is never sent for a position that is already gone).
+        due = time.monotonic() - self.position_checked_at >= POSITION_CHECK_SECONDS
+        if self.mode == "live" and (crossing is not None or paused or due):
             position = self._live_position(trade)
+            self.position_checked_at = time.monotonic()
             if position is None:
                 self._record_platform_close(trade, now)  # forex.com's own stop closed it
                 return
-        crossing, next_stop = (None, None) if paused else self._exit_inputs(trade)
         if crossing is None and not paused:
             if position is not None:
                 self._sync_platform_stop(trade, position, next_stop)
@@ -294,7 +421,8 @@ class Watcher:
         if self.mode == "live":
             closed = self._close_at_market(trade, position)
             if closed is None:
-                return  # not confirmed closed: the next tick re-reads the position and decides
+                self.position_checked_at = 0.0  # not confirmed closed: re-read the position on the next tick and decide again
+                return
             exit_price, close_order_id = closed
             exit_ts = datetime.now(timezone.utc)
         self._finish(trade, exit_price, exit_ts, stop_level, reason, close_order_id)
@@ -395,8 +523,11 @@ class Watcher:
     def _check_entry(self, now: datetime) -> None:
         context = self._refresh_context()
         forecast, candidates = context.get("forecast"), context.get("candidates") or []
-        if not candidates:
+        if not candidates or self.feed.last_ts is None:
             return
+        if (now - self.feed.last_ts).total_seconds() > ENTRY_MAX_FEED_AGE_SECONDS:
+            return  # the newest tick is too old on the wall clock: judge nothing (and consume nothing) until the feed is live again
+        self._maybe_prefetch(candidates)
         floor = pd.Timestamp(forecast["ts"])
         if context.get("last_close_ts") is not None:
             floor = max(floor, pd.Timestamp(context["last_close_ts"]))
@@ -432,19 +563,74 @@ class Watcher:
                 return
             self.consumed[rule_name] = latest_ts
 
-    def _try_open(self, now, touch_ts, trigger_price, trade_type, rule_name, scenario_name, forecast) -> bool:
-        side = _entry_side(trade_type)
-        # Slow inputs are fetched only now, at a real touch, not every tick (Twelve Data's 15-min candles).
+    def _gate_input_values(self, max_age: float) -> tuple:
+        """(rsi, adx, atr, adx_rising) from Twelve Data's 15-min candles, reused while younger than `max_age` s. The fetch takes ~1 s and the
+        daily Twelve Data allowance is small, so it is done only near an armed level (_maybe_prefetch) or at a touch, never per tick."""
+        if self._gate_inputs is not None and time.monotonic() - self._gate_inputs_at < max_age:
+            return self._gate_inputs
         try:
             candles = fetch_gold_candles()
             rsi_value, adx_value, atr_value = gold_rsi_adx_atr_from_candles(candles, RSI_PERIOD, ADX_PERIOD, ATR_PERIOD)
-            adx_rising = gold_adx_rising_from_candles(candles, ADX_PERIOD)
+            values = (rsi_value, adx_value, atr_value, gold_adx_rising_from_candles(candles, ADX_PERIOD))
         except Exception:
-            rsi_value = adx_value = atr_value = adx_rising = None
+            values = (None, None, None, None)
+        self._gate_inputs, self._gate_inputs_at = values, time.monotonic()
+        return values
+
+    def _maybe_prefetch(self, candidates: list) -> None:
+        """Keeps the gate inputs fresh while price is near an armed level, so a touch can be judged and ordered without a ~1 s fetch."""
+        if self._gate_inputs is not None and time.monotonic() - self._gate_inputs_at < GATE_INPUT_PREFETCH_SECONDS:
+            return
+        for _name, trade_type, _rule, scenario_item in candidates:
+            try:
+                trigger = _entry_price_and_invalidation(_name, scenario_item)[0]
+                last = float(self.feed.side(_entry_side(trade_type)).iloc[-1]["close"])
+            except Exception:
+                continue
+            if abs(last - trigger) <= NEAR_LEVEL_DOLLARS:
+                self._gate_input_values(0)
+                return
+
+    def _range_15m(self, side: str):
+        """High-low range of the last 15 one-minute entry-side bars, from the live feed (the REST bars lag by 1-2 minutes, which is
+        exactly when a spike would be missed); None when fewer than 10 minutes of history exist (fail open)."""
+        frame = self.feed.side(side)
+        if frame.empty:
+            return None
+        minute = pd.to_datetime(frame["datetime"], utc=True).dt.floor("min")
+        bars = frame.groupby(minute).agg(high=("high", "max"), low=("low", "min"))
+        return _entry_range(bars)
+
+    def _entry_context(self, now, rsi_value, adx_value, atr_value, dxy_readings, forecast, extra: dict) -> dict:
+        """The same snapshot entry_context.build_entry_context() makes, built from values this process already has (cached gate inputs,
+        the live feed) instead of fetching candles and bars again: that fetch took 2-5 s while the new position sat on the platform
+        without its stop. Never raises."""
+        ctx: dict = {}
         try:
-            range_15m = _entry_range(self.client.get_bars(20, side.upper()))
+            local = now.astimezone(ENTRY_TZ)
+            ctx.update(hour_et=local.hour, minute_et=local.minute, weekday=local.strftime("%a"))
+            for key, value in (("rsi14", rsi_value), ("adx14", adx_value), ("atr14", atr_value)):
+                if value is not None:
+                    ctx[key] = _num(value, 2)
+            if dxy_readings and len(dxy_readings) >= 2:
+                ctx["dxy_change_15m"] = _num(dxy_readings[-1][1] - dxy_readings[0][1])
+            ctx["dxy_threshold_15m"] = _num(INTRAHOUR_SWING_ALERT_THRESHOLD["dxy"][DXY_CONFIRM_WINDOW_MINUTES])
+            levels = (forecast or {}).get("levels") or {}
+            ctx.update(bias_score=_num(levels.get("bias_score"), 1), bias=levels.get("bias"), session=levels.get("session"),
+                       forecast_id=(forecast or {}).get("id"))
+            for side in ("bid", "ask"):
+                value = self._range_15m(side)
+                if value is not None:
+                    ctx[f"range_15m_{side}"] = _num(value, 2)
         except Exception:
-            range_15m = None
+            log.exception("entry context incomplete")
+        ctx.update({k: v for k, v in (extra or {}).items() if v is not None})
+        return ctx
+
+    def _try_open(self, now, touch_ts, trigger_price, trade_type, rule_name, scenario_name, forecast) -> bool:
+        side = _entry_side(trade_type)
+        rsi_value, adx_value, atr_value, adx_rising = self._gate_input_values(GATE_INPUT_FRESH_SECONDS)
+        range_15m = self._range_15m(side)
         rules = get_block_rules()
         dxy_readings = self.context.get("dxy_readings")
         ok, _dedup, reasons = evaluate_gates(
@@ -467,12 +653,9 @@ class Watcher:
         slippage = fill_price - trigger_price if trade_type == "Buy" else trigger_price - fill_price  # + = worse than the level
         session = forecast["levels"].get("session", "?")
         trigger_text = f"{session} TA forecast {forecast['forecast_date']}, {scenario_name} @ ${trigger_price:.2f}"
-        entry_context = build_entry_context(
-            now,
-            rsi_value=rsi_value,
-            dxy_readings=_trailing_readings(dxy_readings, DXY_CONFIRM_WINDOW_MINUTES),
-            forecast=forecast,
-            extra={
+        entry_context = self._entry_context(
+            now, rsi_value, adx_value, atr_value, _trailing_readings(dxy_readings, DXY_CONFIRM_WINDOW_MINUTES), forecast,
+            {
                 "scenario": scenario_name,
                 "trigger_price": round(float(trigger_price), 2),
                 "slippage": round(slippage, 2),
@@ -539,22 +722,44 @@ class Watcher:
 
     def idle(self, now: datetime) -> bool:
         """True when there is nothing to watch: no open trade and no entry possible right now."""
-        return self.open_trade is None and not _entry_possible(now) and not _commands_pending()
+        return self.open_trade is None and not self._entry_ok(now) and not _commands_pending()
 
     def _check_feed_lag(self, newest_tick_ts, now: datetime) -> None:
-        """Warns (Telegram, at most one per 15 min) when the newest tick is more than FEED_LAG_WARN_SECONDS old. Seen 13 Oct 2026: the
-        FOREX.com tick history stalled for over a minute while the 1-minute bars kept moving, so touches and stops are noticed late."""
+        """Warns (Telegram, at most one per 15 min) when the newest tick is more than FEED_LAG_WARN_SECONDS old."""
         lag = (now - newest_tick_ts).total_seconds()
         if lag <= FEED_LAG_WARN_SECONDS:
             return
         log.warning("price feed is %.0f s behind (newest tick %s)", lag, newest_tick_ts)
-        self._note(
-            "feed-lag",
-            f"the price feed is {lag:.0f} s behind (newest tick {_format_ts(newest_tick_ts)}). Touches and stops are judged on "
-            f"that older price until it catches up.",
-        )
+        if self.role == "active":
+            self._note(
+                "feed-lag",
+                f"the price feed is {lag:.0f} s behind (newest tick {_format_ts(newest_tick_ts)}). Touches and stops are judged on "
+                f"that older price until it catches up.",
+            )
+
+    def watch_stream(self, stream: PriceStream, now: datetime) -> None:
+        """Watchdog: reconnects (with a fresh login) when the stream has been silent too long, and reports a lagging feed."""
+        silent = stream.seconds_since_tick()
+        if silent > STREAM_SILENT_RECONNECT_SECONDS and time.monotonic() - self.stream_restart_at >= STREAM_RESTART_MIN_SECONDS:
+            self.stream_restart_at = time.monotonic()
+            log.warning("stream silent for %.0f s (status %s, last error %s) -- logging in again and reconnecting", silent, stream.status, stream.last_error)
+            if self.role == "active":
+                self._note("stream-silent", f"the live price stream was silent for {silent:.0f} s ({stream.status}) -- reconnecting; "
+                                            f"REST prices (delayed ~1-2 min) are used meanwhile and no new entry is made on stale prices.")
+            try:
+                self.client.refresh_session()
+            except Exception:
+                log.exception("could not log in again")
+            try:
+                stream.restart()
+            except Exception:
+                log.exception("could not restart the stream")
+        if self.feed.last_ts is not None:
+            self._check_feed_lag(self.feed.last_ts, now)
 
     def _heartbeat(self, force: bool = False) -> None:
+        if self.role != "active":
+            return
         if not force and time.monotonic() - self.heartbeat_at < 60:
             return
         self.heartbeat_at = time.monotonic()
@@ -563,20 +768,18 @@ class Watcher:
         except Exception:
             log.exception("heartbeat failed")
 
-    def step(self) -> None:
+    def step(self, now: datetime, fresh: bool) -> None:
+        """One pass of the active watcher: queued Telegram commands (every COMMAND_CHECK_SECONDS), then -- when new ticks arrived --
+        the exit check for an open trade or the entry check for the armed levels."""
         self._heartbeat()
-        ticks = self.client.get_ticks(TICKS_PER_LOOK)
-        fresh = self.feed.add_ticks(ticks)
-        quote = ticks[-1]
-        self.last_quote = quote
-        now = datetime.now(timezone.utc)
-        self._check_feed_lag(quote["ts"], now)
-        self._handle_commands(now)  # Telegram "buy/sell/close broker F", even when the price has not ticked
-        if not fresh:
-            return  # no new tick since the last look
+        if time.monotonic() - self.commands_at >= COMMAND_CHECK_SECONDS:
+            self.commands_at = time.monotonic()
+            self._handle_commands(now)
+        if not fresh or self.last_quote is None:
+            return
         if self.open_trade is not None:
             self._check_exit(now)
-        elif _entry_possible(now):
+        elif self._entry_ok(now):
             self._check_entry(now)
 
     # --- manual commands (Telegram "buy broker F" / "sell broker F" / "close broker F") ----------------------------------
@@ -671,31 +874,144 @@ def _live_ready(client: ForexClient) -> bool:
     return True
 
 
+def _decide_role(holder: str, ends_at: datetime) -> tuple[str, dict] | None:
+    """("active", lease state) if this process may trade now, ("standby", {}) if it should wait warm for the active one to finish,
+    None if it is not needed (a healthy watcher has plenty of time left, or a standby is already waiting)."""
+    acquired = forex_lease_acquire(holder, ends_at)
+    if acquired is not None:
+        return "active", acquired["state"]
+    status = forex_lease_status()
+    if status is None or not status["alive"]:
+        acquired = forex_lease_acquire(holder, ends_at)  # the holder released between our two reads
+        if acquired is not None:
+            return "active", acquired["state"]
+        status = forex_lease_status()
+    if status and status["alive"] and status["ends_in"] is not None and status["ends_in"] > STANDBY_LEAD_SECONDS:
+        log.info("another watcher is active and ends in %.0f s -- not needed yet, exiting", status["ends_in"])
+        return None
+    if forex_lease_register_standby(holder):
+        return "standby", {}
+    log.info("a standby watcher is already waiting -- exiting")
+    return None
+
+
 def run(max_minutes: float, mode: str) -> None:
-    deadline = time.monotonic() + max_minutes * 60
+    started = time.monotonic()
     init_db()
     if get_open_forex_b_trade() is None and not _entry_possible(datetime.now(timezone.utc)) and not _commands_pending():
         log.info("Nothing to watch (market closed, outside the entry window, or paused) -- exiting")
         return
-    client = ForexClient()
-    if mode == "live" and not _live_ready(client):
+    holder = f"{os.environ.get('GITHUB_RUN_ID', 'local')}-{uuid.uuid4().hex[:6]}"
+    soft = started + max_minutes * 60  # planned end; an active run with no standby waiting goes on until `hard`
+    hard = soft + HARD_EXTRA_SECONDS
+
+    def ends_at_now() -> datetime:
+        return datetime.now(timezone.utc) + timedelta(seconds=max(0.0, soft - time.monotonic()))
+
+    decided = _decide_role(holder, ends_at_now())
+    if decided is None:
         return
-    watcher = Watcher(client, mode)
-    log.info("Broker F watcher started (%s mode); open trade: %s", mode, watcher.open_trade and watcher.open_trade["id"])
+    role, lease_state = decided
+    client = ForexClient()
+    if role == "active" and mode == "live" and not _live_ready(client):
+        forex_lease_release(holder)
+        return
+    feed = Feed(client)
     try:
-        while time.monotonic() < deadline:
-            started = time.monotonic()
-            try:
-                watcher.step()
-            except Exception as e:
-                log.exception("tick failed -- continuing")
-                watcher._note("tick", f"a check failed ({type(e).__name__}: {str(e)[:200]}) -- it keeps running and retries every 10 s.")
-            if watcher.idle(datetime.now(timezone.utc)):
-                log.info("Nothing left to watch -- exiting")
-                return
-            time.sleep(max(0.0, TICK_SECONDS - (time.monotonic() - started)))
+        feed.add_ticks(client.get_ticks(SEED_TICKS))  # the freshest REST history (~2 min old); the stream continues from there
+    except Exception:
+        log.exception("could not seed REST ticks")
+    stream = PriceStream(client.username, lambda: client.session_token, client.market_id())
+    stream.start()
+    watcher = Watcher(client, mode, feed)
+    if feed.ticks:
+        watcher.last_quote = {"ts": feed.ticks[-1][0], "bid": feed.ticks[-1][1], "ask": feed.ticks[-1][2]}
+    if role == "active":
+        watcher.activate(lease_state)
+    log.info("Broker F watcher started (%s mode, holder %s, role %s)", mode, holder, role)
+    registered_at = last_renew = last_renew_ok = last_register = last_acquire = last_rest = last_idle = started
+    try:
+        while True:
+            batch = stream.drain(LOOP_SECONDS)
+            nowm = time.monotonic()
+            if stream.seconds_since_tick() > REST_FALLBACK_AFTER_SECONDS and nowm - last_rest >= REST_FALLBACK_EVERY_SECONDS:
+                last_rest = nowm  # the stream is down: the laggy REST history still lets an open trade's stop be judged
+                try:
+                    batch = batch + client.get_ticks(SEED_TICKS)
+                except Exception:
+                    log.exception("REST fallback failed")
+            fresh = feed.add_ticks(batch) if batch else False
+            if fresh:
+                watcher.last_quote = {"ts": feed.ticks[-1][0], "bid": feed.ticks[-1][1], "ask": feed.ticks[-1][2]}
+            now = datetime.now(timezone.utc)
+            watcher.watch_stream(stream, now)
+
+            if watcher.role == "active":
+                if nowm - last_renew >= LEASE_RENEW_SECONDS:
+                    last_renew = nowm
+                    try:
+                        renewed = forex_lease_acquire(holder, ends_at_now(), watcher.lease_state())
+                    except Exception:
+                        log.exception("lease renewal failed")
+                        renewed = "error"
+                    if renewed is None or (renewed == "error" and nowm - last_renew_ok > LEASE_TTL_SECONDS - 6):
+                        watcher.demote()  # another process holds it, or we cannot prove we still do: stop acting
+                        registered_at = nowm
+                        continue
+                    if renewed != "error":
+                        last_renew_ok = nowm
+                try:
+                    watcher.step(now, fresh)
+                except Exception as e:
+                    log.exception("step failed -- continuing")
+                    watcher._note("tick", f"a check failed ({type(e).__name__}: {str(e)[:200]}) -- it keeps running.")
+                if nowm - last_idle >= 2:
+                    last_idle = nowm
+                    if watcher.idle(now):
+                        log.info("Nothing left to watch -- exiting")
+                        return
+                if nowm >= soft:
+                    try:
+                        status = forex_lease_status()
+                    except Exception:
+                        status = None
+                    if nowm >= hard or (status and status["standby_alive"]):
+                        log.info("planned end reached -- handing over (%s)", "standby waiting" if status and status["standby_alive"] else "hard limit")
+                        return
+            else:
+                if nowm - last_register >= STANDBY_REGISTER_SECONDS:
+                    last_register = nowm
+                    try:
+                        forex_lease_register_standby(holder)
+                    except Exception:
+                        log.exception("standby registration failed")
+                if nowm - last_acquire >= 2:
+                    last_acquire = nowm
+                    try:
+                        got = forex_lease_acquire(holder, datetime.now(timezone.utc) + timedelta(seconds=max_minutes * 60))
+                    except Exception:
+                        log.exception("lease acquire failed")
+                        got = None
+                    if got is not None:
+                        soft = nowm + max_minutes * 60
+                        hard = soft + HARD_EXTRA_SECONDS
+                        last_renew = last_renew_ok = nowm
+                        if mode == "live" and not _live_ready(client):
+                            forex_lease_release(holder)
+                            return
+                        watcher.activate(got["state"])
+                        continue
+                if nowm - registered_at > STANDBY_MAX_WAIT_SECONDS:
+                    log.info("standby waited too long without taking over -- exiting")
+                    return
     finally:
-        watcher._heartbeat(force=True)  # records the last evaluated tick for the next process
+        try:
+            watcher._heartbeat(force=True)  # records the last evaluated tick for the next process
+            if watcher.role == "active":
+                forex_lease_release(holder, watcher.lease_state())
+        except Exception:
+            log.exception("could not hand the lease over cleanly")
+        stream.stop()
 
 
 if __name__ == "__main__":

@@ -155,6 +155,22 @@ class ForexClient:
             raise ForexClientError(f"No trading accounts on this login: {account_data}")
         self._trading_account_id = trading_accounts[0].get("TradingAccountId")
 
+    def refresh_session(self) -> None:
+        """Logs in again (new session token), e.g. when the streaming feed has to be reconnected."""
+        self._login()
+
+    @property
+    def session_token(self) -> str | None:
+        return self._session_token
+
+    @property
+    def username(self) -> str:
+        return USERNAME
+
+    def market_id(self) -> int:
+        """MarketId of XAU/USD (the one market this client trades)."""
+        return self._market_id_for(MARKET_NAME)
+
     @with_retries()
     def _market_id_for(self, market_name: str) -> int:
         if market_name in self._market_ids:

@@ -1,14 +1,14 @@
 name: Broker F watcher
 
-# Fast (10 s) tick watcher for the Broker F engine -- see forex_watcher.py and docs/forex-b.md. Triggered externally by
-# cron-job.org (workflow_dispatch), like poll.yml. Each run loops for max_minutes (default 25) and exits at once when there is nothing
-# to watch (market closed, outside the 7am-5pm ET entry window, trading paused, nothing open).
+# Live tick watcher for the Broker F engine -- see forex_watcher.py and docs/forex-b.md. Triggered externally by cron-job.org
+# (workflow_dispatch), like poll.yml, every 5 minutes, weekdays 7:00am-5:55pm America/New_York (runs after 5pm only matter while a
+# trade is open; otherwise they exit at once).
 #
-# Intended trigger: every 5 minutes (a restart mechanism, not the price frequency: the 10 s ticks happen inside a run), weekdays 7:00am-5:55pm America/New_York (runs after 5pm only matter while a trade is open;
-# otherwise they exit at once). The concurrency group queues at most one
-# waiting run behind the running one, so the loops follow each other instead of overlapping (two watchers at once could
-# both open the same touch). The mode comes from the repo VARIABLE FOREX_B_MODE (Settings > Secrets and variables > Actions >
-# Variables): unset or "shadow" = record only, no order; "live" = real orders on the FOREX.com DEMO account. Run
+# Runs deliberately OVERLAP (no concurrency group): the watcher takes a lease in Postgres, so only one run trades at a time. Each run
+# loops for max_minutes (default 25). A dispatch that finds a healthy active run with more than 7 minutes left exits at once; one that
+# lands in its last 7 minutes becomes the warm standby (streams prices, never trades) and takes over the instant the active run
+# finishes, so there is no gap between runs. The mode comes from the repo VARIABLE FOREX_B_MODE (Settings > Secrets and variables >
+# Actions > Variables): unset or "shadow" = record only, no order; "live" = real orders on the FOREX.com DEMO account. Run
 # forex_live_check.yml successfully before setting it to live.
 on:
   workflow_dispatch:
@@ -17,14 +17,10 @@ on:
         description: "How long to loop before exiting"
         default: "25"
 
-concurrency:
-  group: forex-watch
-  cancel-in-progress: false
-
 jobs:
   watch:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
 
