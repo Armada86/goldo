@@ -1641,6 +1641,19 @@ def forex_lease_acquire(holder: str, ends_at, state: dict | None = None, ttl: in
     return {"state": row[0] or {}} if row else None
 
 
+def forex_legacy_watcher_alive() -> bool:
+    """True if a Broker F watcher WITHOUT the lease (the pre-13-Oct-2026 version) seems to be running: a heartbeat younger than 90 s that
+    was written clearly after the lease last expired (v2 watchers only write heartbeats while they hold the lease, and the final one
+    just before releasing it). Used so a v2 process never trades alongside an old one during the roll-out."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT (h.ts > NOW() - interval '90 seconds') AND (l.expires_at IS NULL OR h.ts > l.expires_at + interval '10 seconds') "
+            "FROM forex_b_heartbeat h LEFT JOIN forex_b_lease l ON l.id = 1 WHERE h.id = 1"
+        )
+        row = cur.fetchone()
+    return bool(row and row[0])
+
+
 def forex_lease_status() -> dict | None:
     """{"holder", "alive", "ends_in", "standby", "standby_alive"} of the lease; alive = the holder's lease has not expired, ends_in =
     seconds until the holder plans to stop (None if unknown), standby_alive = a live standby is registered. None if no row yet."""

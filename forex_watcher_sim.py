@@ -137,6 +137,7 @@ def l_release(holder, state=None):
             LEASE["expires"] = time.time() - 1; LEASE["ends"] = None
             if state is not None: LEASE["state"] = state
             EVENTS.append((round(now_s(), 2), "RELEASE", threading.current_thread().name))
+fw.forex_legacy_watcher_alive = lambda: False
 fw.forex_lease_acquire, fw.forex_lease_status = l_acquire, l_status
 fw.forex_lease_register_standby, fw.forex_lease_release = l_register, l_release
 

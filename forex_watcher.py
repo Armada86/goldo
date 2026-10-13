@@ -97,6 +97,7 @@ from storage import (
     close_forex_b_trade,
     finish_forex_b_command,
     forex_lease_acquire,
+    forex_legacy_watcher_alive,
     forex_lease_register_standby,
     forex_lease_release,
     forex_lease_status,
@@ -877,6 +878,12 @@ def _live_ready(client: ForexClient) -> bool:
 def _decide_role(holder: str, ends_at: datetime) -> tuple[str, dict] | None:
     """("active", lease state) if this process may trade now, ("standby", {}) if it should wait warm for the active one to finish,
     None if it is not needed (a healthy watcher has plenty of time left, or a standby is already waiting)."""
+    try:
+        if forex_legacy_watcher_alive():
+            log.info("a watcher without the lease (the previous version) is still running -- not trading alongside it, exiting")
+            return None
+    except Exception:
+        log.exception("could not check for a previous-version watcher")
     acquired = forex_lease_acquire(holder, ends_at)
     if acquired is not None:
         return "active", acquired["state"]

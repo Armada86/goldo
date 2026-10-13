@@ -116,4 +116,6 @@ token), confirmed from this repo's sandbox: ~4 ticks/s, tick time within ~50 ms 
   polls every 2 s. `state` carries the used-up touches. Two overlapping runs can never both place orders.
 * Fallbacks: stream silent 20 s -> new login + reconnect (Telegram note, throttled); silent 30 s -> REST ticks are also polled every 10 s so an
   open trade's stop is still judged (late); the platform stop on forex.com protects the position throughout.
+* Roll-out guard: `storage.forex_legacy_watcher_alive()` -- a heartbeat younger than 90 s written after the lease last expired means a pre-lease watcher is still running
+  (v2 only writes heartbeats while it holds the lease), and a v2 process then exits instead of trading beside it.
 * Rollback: revert the merge commit of this change (`forex_watch.yml` returns to the queued 25-minute runs); `forex_b_lease` stays, harmlessly.
