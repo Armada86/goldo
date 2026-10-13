@@ -292,28 +292,21 @@ def pause_note_html(pauses: list[tuple]) -> str:
 
 
 def load_broker_pnl_for_date(d) -> dict:
-    """Broker A (`trades`) + Broker B (`broker_b_trades`) (+ Broker F, shown separately) realized P&L for trades that *closed* within
-    one ET calendar day -- a trade opened the day before but closed today counts as today's, matching
-    how a daily P&L total is normally read. Summed separately per engine plus combined, for the
-    top-of-dashboard daily total tied to the same selected date as the forecast navigator below."""
+    """Broker B (`broker_b_trades`) and Broker F (`forex_b_trades`, live demo-account trades only) realized P&L, each on its own, for
+    trades that *closed* within one ET calendar day -- a trade opened the day before but closed today counts as today's. Broker A is
+    deliberately not part of any dashboard calculation (user request, 13 Oct 2026), and there is no combined total. Tied to the same
+    selected date as the forecast navigator below."""
     start = pd.Timestamp(d, tz=DISPLAY_TZ)
     end = start + pd.Timedelta(days=1)
     start_utc, end_utc = start.tz_convert("UTC"), end.tz_convert("UTC")
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "SELECT COALESCE(SUM(pnl), 0) FROM trades WHERE status = 'Closed' "
-            "AND close_ts >= %s AND close_ts < %s",
-            (start_utc, end_utc),
-        )
-        broker_a = cur.fetchone()[0]
-        cur.execute(
             "SELECT COALESCE(SUM(pnl), 0) FROM broker_b_trades WHERE status = 'Closed' "
             "AND close_ts >= %s AND close_ts < %s",
             (start_utc, end_utc),
         )
-        broker_b = cur.fetchone()[0]
-        # Broker F (forex_b_trades, the FOREX.com demo account) trades Broker B's rules, so it is shown beside the total but NOT
-        # added to it (that would count the same rules twice). The table only exists once init_db() has run with it.
+        broker_b = float(cur.fetchone()[0])
+        # The table only exists once init_db() has run with it.
         broker_f = 0.0
         cur.execute("SELECT to_regclass('forex_b_trades')")
         if cur.fetchone()[0] is not None:
@@ -323,10 +316,7 @@ def load_broker_pnl_for_date(d) -> dict:
                 (start_utc, end_utc),
             )
             broker_f = float(cur.fetchone()[0])
-    return {
-        "broker_a": float(broker_a), "broker_b": float(broker_b), "broker_f": broker_f,
-        "total": float(broker_a) + float(broker_b),
-    }
+    return {"broker_b": broker_b, "broker_f": broker_f}
 
 
 try:
@@ -423,15 +413,16 @@ if min_forecast_date is not None:
         st.error(f"Could not load broker P&L for {selected_date}: {e}")
         pnl = None
     if pnl is not None:
-        total_color = "#1a7f37" if pnl["total"] > 0 else ("#cf222e" if pnl["total"] < 0 else "#888")
+        def pnl_color(value: float) -> str:
+            return "#1a7f37" if value > 0 else ("#cf222e" if value < 0 else "#888")
+
         # Plain "$" here, not "\$" -- unlike a plain-text st.caption()/st.markdown() string (see the
         # LaTeX gotcha noted below), this whole line is one HTML block (starts with "<div"), which
         # CommonMark passes through verbatim rather than scanning for a $-pair to treat as math.
         st.markdown(
-            f"<div style='font-size:12px;color:#444;'>Broker P&amp;L ({selected_date:%b %d}): "
-            f"Broker A <b>${pnl['broker_a']:+,.2f}</b> · Broker B <b>${pnl['broker_b']:+,.2f}</b> · "
-            f"Total <b style='color:{total_color};font-size:24px;'>${pnl['total']:+,.2f}</b> "
-            f"· Broker F (demo account) <b>${pnl['broker_f']:+,.2f}</b></div>",
+            f"<div style='font-size:12px;color:#444;'>P&amp;L ({selected_date:%b %d}): "
+            f"Broker B <b style='color:{pnl_color(pnl['broker_b'])};font-size:24px;'>${pnl['broker_b']:+,.2f}</b> · "
+            f"Broker F <b style='color:{pnl_color(pnl['broker_f'])};font-size:24px;'>${pnl['broker_f']:+,.2f}</b></div>",
             unsafe_allow_html=True,
         )
 
