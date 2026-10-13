@@ -16,8 +16,8 @@ scan is checked in the tests/verification, not assumed.
 Broker B fades (TA-Zone-* trades, 9 Oct 2026) use a different exit, which the replay models for the paths flagged `fade`
 (see TradePath, build_path() and broker._scan_exit_crossing(fade=True)): the hard stop is capped at FADE_STOP_LOSS_CAP and, when
 the trade's lock level (the opposite fade level) is known and within FADE_NO_TRAIL_MAX_LOCK_DISTANCE of the entry, the ordinary trailing
-stop is OFF until a bar reaches that level; from the next bar the stop is at least that level's profit and trails
-FADE_LOCK_TRAIL_DISTANCE behind the best price. A fade whose lock level is unknown or further away keeps the ordinary trail (with the
+stop is OFF until a bar reaches that level; from the next bar the stop trails
+FADE_LOCK_TRAIL_DISTANCE behind the best price (no floor at the level, 13 Oct 2026). A fade whose lock level is unknown or further away keeps the ordinary trail (with the
 capped stop, and still the lock at that level when known). The grid's activation / distance therefore only drive the other trades.
 
 One position at a time: the brokers only ever hold one trade each (Broker A and Broker B are independent), so
@@ -121,9 +121,7 @@ def replay(path: TradePath, stop_loss: float, activation: float, distance: float
         reached = fav >= path.lock_profit
         if reached.any():  # the lock applies from the bar AFTER the first one that reached the level
             first = int(np.argmax(reached)) + 1
-            offset[first:] = np.maximum(
-                np.maximum(offset[first:], path.lock_profit), peak_before[first:] - FADE_LOCK_TRAIL_DISTANCE
-            )
+            offset[first:] = np.maximum(offset[first:], peak_before[first:] - FADE_LOCK_TRAIL_DISTANCE)
     stop_hit = adv >= -offset
     stop_i = int(np.argmax(stop_hit)) if stop_hit.any() else n
     tp_i = n

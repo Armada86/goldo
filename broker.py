@@ -108,8 +108,8 @@ TRAILING_STOP_DISTANCE = 7.0
 # check. See _scan_exit_crossing() / module docstring.
 # FADE_LOCK_TRAIL_DISTANCE and FADE_STOP_LOSS_CAP (Broker B fade exit rule, imported from config.py so the stop loss / block rules
 # analyses share them without importing this module): once a fade reaches its OPPOSITE fade level (a TA-Zone-sell reaching the
-# forecast's first support, a TA-Zone-buy its first resistance, 5 Oct 2026) the stop jumps to that level and trails
-# FADE_LOCK_TRAIL_DISTANCE behind the best price; before that (9 Oct 2026, after #61 was trailed out at -$6.21 by a $3/$10 trail
+# forecast's first support, a TA-Zone-buy its first resistance, 5 Oct 2026) the stop starts trailing
+# FADE_LOCK_TRAIL_DISTANCE behind the best price (13 Oct 2026: it used to be floored at that level too, now it is a plain trail from the touch); before that (9 Oct 2026, after #61 was trailed out at -$6.21 by a $3/$10 trail
 # just before gold fell $14 to the support) a fade has no ordinary trailing stop and its hard stop is capped at FADE_STOP_LOSS_CAP.
 # A fade whose lock level is unknown, or more than FADE_NO_TRAIL_MAX_LOCK_DISTANCE away, keeps the ordinary trail. Replay of B #54-61: +$0.31 -> +$42 (docs/broker-b.md).
 EXIT_CANDLE_LOOKBACK_MINUTES = 20
@@ -392,11 +392,11 @@ def _scan_exit(
     (stop_price, bar_time) for the first bar that touched the stop, or None. Each bar is checked
     against the stop as it stood BEFORE that bar's own high/low can raise the peak, the conservative
     ordering when a single bar spans both. `lock_level` (Broker B fade trades, see FADE_LOCK_TRAIL_DISTANCE): once a bar has
-    reached that price (the opposite fade level), from the NEXT bar on the stop is at least that level and trails
-    FADE_LOCK_TRAIL_DISTANCE behind the best price, whichever is better for the trade. `fade` (Broker B TA-Zone-* trades, see
+    reached that price (the opposite fade level), from the NEXT bar on the stop trails
+    FADE_LOCK_TRAIL_DISTANCE behind the best price (a plain trail from the touch, 13 Oct 2026; no floor at the level). `fade` (Broker B TA-Zone-* trades, see
     FADE_STOP_LOSS_CAP): the hard stop is capped at FADE_STOP_LOSS_CAP and, when there is a valid lock level within
     FADE_NO_TRAIL_MAX_LOCK_DISTANCE of the entry, the ordinary trailing stop is switched off -- the hard stop alone protects the
-    trade until the lock level is reached. A further lock level keeps the ordinary trail (and still locks at that level)."""
+    trade until the lock level is reached. A further lock level keeps the ordinary trail (and still trails from that level)."""
     if stop_loss_distance is None:
         stop_loss_distance = stop_loss_threshold()
     if activation is None or distance is None:
@@ -418,7 +418,7 @@ def _scan_exit(
     def stop_now() -> float:
         offset = _exit_stop_offset(peak, stop_loss_distance, activation, distance)
         if locked:
-            offset = max(offset, lock_profit, peak - FADE_LOCK_TRAIL_DISTANCE)
+            offset = max(offset, peak - FADE_LOCK_TRAIL_DISTANCE)
         return entry + offset if is_buy else entry - offset
 
     for _, bar in candles.iterrows():
