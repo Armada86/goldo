@@ -75,7 +75,7 @@ ordinary trail.
 **Fades with a near lock level skip the ordinary trail (from 9 Oct 2026; near-only since 9 Oct, fade rules only):** B #61 sold the 4183.93 resistance and was
 trailed out at -$6.21 (the $3/$10 trail had tightened the $20 stop to about $6 after a +$4 move) before gold fell $14 to the support. So a `TA-Zone-*` trade whose
 opposite (lock) level is **within $15 of the entry** (`config.FADE_NO_TRAIL_MAX_LOCK_DISTANCE`) has **no ordinary trailing stop**: only the hard stop protects it
-until price reaches that level, then the lock above takes over. A fade whose lock level is further away, or can't be read, keeps the ordinary trail (and, when known,
+until price reaches that level, then the lock above takes over (since 13 Oct 2026 the lock is a plain $5 trail behind the best price, with no floor at the level). A fade whose lock level is further away, or can't be read, keeps the ordinary trail (and, when known,
 still locks at that level). Every fade's hard stop is **capped at $15** (`broker.FADE_STOP_LOSS_CAP`; `min(stop loss, 15)`, so `make SL` below 15 still applies).
 Breakouts and Telegram-opened trades are unchanged.
 

@@ -175,8 +175,8 @@ def broker_b_entry_rules_html(as_of=None) -> str:
             (
                 "Fade exit",
                 f"Fade trades (TA-Zone) only: stop loss capped at &minus;${FADE_STOP_LOSS_CAP:g}; if the opposite fade level is within "
-                f"${FADE_NO_TRAIL_MAX_LOCK_DISTANCE:g} of entry there is no trailing stop until price reaches it, then the stop locks at that level and "
-                f"follows ${FADE_LOCK_TRAIL_DISTANCE:g} behind the best price. A further level keeps the normal trailing stop.",
+                f"${FADE_NO_TRAIL_MAX_LOCK_DISTANCE:g} of entry there is no trailing stop until price reaches it, then the stop follows "
+                f"${FADE_LOCK_TRAIL_DISTANCE:g} behind the best price. A further level keeps the normal trailing stop.",
             )
         )
     body = "".join(f"<div><b>{name}</b> &mdash; {text}</div>" for name, text in rows)
