@@ -17,7 +17,7 @@ zone" scenarios (`sell_resistance`/`buy_support`) *and* their mirrored breakout 
 mapping. Only one trade open at a time, across all four rules, same as Broker A -- a fresh entry is
 never opened while a Broker B position is already open, no matter which of the four levels it is.
 **Each level re-arms after a win**: up to MAX_TRADES_PER_LEVEL (2) trades per (forecast, level), but
-the first stop-out (or win under REARM_MIN_WIN_PNL, $3) at a level retires it for that forecast (trade_b_level_history()); a later forecast row of the same ET day that keeps the same level inherits that history (_carried_level_history(), 6 Oct 2026). A re-arm only
+the first stop-out (or win under REARM_MIN_WIN_PNL, $3) at a level retires it for that forecast (trade_b_level_history()); every new forecast row re-arms all levels with a fresh budget, even an unchanged level (15 Oct 2026). A re-arm only
 fires on a genuine fresh touch -- price must be observed back on the away side of the trigger at
 some point after the previous trade closed before the next touch counts (see
 _scan_zone_entry()'s approach-side check). Without this, a level that broke out and kept running
@@ -172,7 +172,6 @@ from storage import (
     insert_trade_b,
     get_last_blocked_touch_ts_b,
     record_broker_b_blocked_if_new,
-    get_prior_ta_forecasts,
     trade_b_level_history,
 )
 
@@ -259,46 +258,11 @@ def _entry_price_and_invalidation(scenario_name: str, scenario: dict) -> tuple[f
     return scenario["trigger"], None  # bull_breakout / bear_breakdown
 
 
-def _carried_level_history(
-    forecast: dict, scenario_name: str, rule_name: str, scenario: dict, prior: list, history_fn=None
-) -> dict:
-    """trade_b_level_history() for this level, plus the history of every earlier forecast row of the same ET day that
-    kept the SAME trigger price for this scenario, walking back until a row changes it (6 Oct 2026): a new TA run that
-    reproduces a level must not give it a fresh trade budget, so a level retired by a stop-out stays retired and the
-    two-trades cap isn't reset by a run that changed nothing. `prior` is storage.get_prior_ta_forecasts(), newest first.
-    `history_fn` (default trade_b_level_history, Broker B's own trades) lets the Forex engine count its own trades instead."""
-    history_fn = history_fn or trade_b_level_history
-    history = dict(history_fn(forecast["id"], rule_name, REARM_MIN_WIN_PNL))
-    try:
-        trigger = round(float(_entry_price_and_invalidation(scenario_name, scenario)[0]), 2)
-    except Exception:
-        return history
-    for row in prior:
-        earlier = {s["name"]: s for s in (row["levels"] or {}).get("scenarios", [])}.get(scenario_name)
-        try:
-            if earlier is None or round(float(_entry_price_and_invalidation(scenario_name, earlier)[0]), 2) != trigger:
-                break
-            past = history_fn(row["id"], rule_name, REARM_MIN_WIN_PNL)
-        except Exception:
-            break
-        history["count"] += past["count"]
-        history["stopped_out"] = history["stopped_out"] or past["stopped_out"]
-        closes = [t for t in (history["last_close_ts"], past["last_close_ts"]) if t is not None]
-        history["last_close_ts"] = max(closes) if closes else None
-    return history
-
-
-def _prior_forecasts(forecast: dict) -> list:
-    """Earlier rows of the same ET day for _carried_level_history(); empty (no carry-over) if they can't be read."""
-    try:
-        return get_prior_ta_forecasts(forecast)
-    except Exception:
-        return []
-
-
 def armed_candidates(forecast: dict, history_fn=None) -> list:
     """(scenario_name, trade_type, rule_name, scenario) for every level of `forecast` that may still trade: not retired by a
-    stop-out and under MAX_TRADES_PER_LEVEL, counting the history carried over from earlier same-day rows that kept the level.
+    stop-out and under MAX_TRADES_PER_LEVEL, counting only trades under this forecast row: every new TA run re-arms all four
+    levels with a fresh budget, even a level whose price is unchanged (15 Oct 2026; before that an unchanged level inherited the
+    earlier rows' trades and stop-outs, which retired TA-Zone-sell silently after two trades at 4158 across TA1 and TA2).
     Shared with forex_watcher.py so the two engines arm exactly the same levels; `history_fn` picks whose trades are counted.
 
     Nothing is armed unless the forecast was written on today's ET date (12 Oct 2026): the first TA run of the day lands a
@@ -309,12 +273,12 @@ def armed_candidates(forecast: dict, history_fn=None) -> list:
         return []
     scenarios = {s["name"]: s for s in (forecast.get("levels") or {}).get("scenarios", [])}
     candidates = []
-    prior = _prior_forecasts(forecast)
+    history_fn = history_fn or trade_b_level_history
     for scenario_name, (trade_type, rule_name) in ZONE_SCENARIOS.items():
         scenario = scenarios.get(scenario_name)
         if scenario is None:
             continue
-        history = _carried_level_history(forecast, scenario_name, rule_name, scenario, prior, history_fn)
+        history = history_fn(forecast["id"], rule_name, REARM_MIN_WIN_PNL)
         if history["stopped_out"] or history["count"] >= MAX_TRADES_PER_LEVEL:
             continue
         candidates.append((scenario_name, trade_type, rule_name, scenario))
@@ -717,12 +681,11 @@ def _notify_crossed_during_trade(
             return
         scenarios = {s["name"]: s for s in forecast["levels"].get("scenarios", [])}
         armed = []
-        prior = _prior_forecasts(forecast)
         for scenario_name, (_trade_type, rule_name) in ZONE_SCENARIOS.items():
             scenario = scenarios.get(scenario_name)
             if scenario is None or rule_name == trade["rule_name"]:
                 continue
-            history = _carried_level_history(forecast, scenario_name, rule_name, scenario, prior)
+            history = trade_b_level_history(forecast["id"], rule_name, REARM_MIN_WIN_PNL)
             if history["stopped_out"] or history["count"] >= MAX_TRADES_PER_LEVEL:
                 continue
             armed.append((scenario_name, rule_name, scenario))

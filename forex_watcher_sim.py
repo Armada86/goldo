@@ -83,7 +83,6 @@ fw.stop_loss_threshold = lambda: 4.0
 fw.trailing_stop_params = lambda: (3.0, 2.0)
 fw._fade_lock_level = lambda trade: None
 fw.forex_b_level_history = lambda *a, **k: {"count": 0, "stopped_out": False, "last_open_ts": None}
-broker_b._prior_forecasts = lambda f: []
 FORECAST = {"id": 99, "forecast_date": datetime.now(fw.DISPLAY_TZ).date() if hasattr(fw, "DISPLAY_TZ") else None,
             "ts": utcnow() - timedelta(hours=1),
             "levels": {"session": "TA3", "price": 4159, "scenarios": [
