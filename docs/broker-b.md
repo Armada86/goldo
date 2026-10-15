@@ -56,8 +56,8 @@ DXY / ADX / RSI / ATR values below are the defaults from `config.py`; the live v
 
 A level trades at most **2 times** per forecast. It re-arms only after a **real win**: a closed trade of at least **+$3**
 (`broker_b.REARM_MIN_WIN_PNL`, since 6 Oct 2026, $5 until 7 Oct). Any smaller close, a loss, breakeven or a trail that locked a sliver,
-retires the level like a stop-out until a TA run changes it. (B #46 trailed out at +$1.13 and re-armed #47, which lost the full $15.)
-A later TA run of the same ET day that keeps a level's trigger price unchanged inherits its earlier trades and retirement.
+retires the level like a stop-out until the next TA run. (B #46 trailed out at +$1.13 and re-armed #47, which lost the full $15.)
+Every new TA run re-arms all four levels with a fresh budget, even a level whose price is unchanged (15 Oct 2026; before that an unchanged level inherited its earlier trades and retirement, which silently retired Broker F's 4158 sell after two trades across TA1 and TA2).
 
 ## Exit
 

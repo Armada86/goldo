@@ -1047,17 +1047,6 @@ def get_ta_forecasts_since(since: datetime) -> list[dict]:
         return [{"id": r[0], "ts": r[1], "levels": r[2]} for r in cur.fetchall()]
 
 
-def get_prior_ta_forecasts(forecast: dict) -> list[dict]:
-    """Earlier ta_forecasts rows from the same ET forecast_date as `forecast`, newest first, as {id, levels}. Used by
-    broker_b.py to carry a level's trade history over to a later run that kept the same level."""
-    with get_connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            "SELECT id, levels FROM ta_forecasts WHERE forecast_date = %s AND ts < %s ORDER BY ts DESC",
-            (forecast["forecast_date"], forecast["ts"]),
-        )
-        return [{"id": r[0], "levels": r[1]} for r in cur.fetchall()]
-
-
 def get_open_trade_b() -> dict | None:
     """Broker B's single open imaginary trade, if any -- see broker_b.py. Entirely separate from
     Broker A's `trades` table/get_open_trade()."""
