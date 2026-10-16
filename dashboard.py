@@ -25,6 +25,8 @@ from config import (
     DASHBOARD_INDICATOR_NAMES,
     DOLLAR_UNIT_NAMES,
     FADE_LOCK_TRAIL_DISTANCE,
+    FADE_NEAR_TRAIL_ACTIVATION,
+    FADE_NEAR_TRAIL_DISTANCE,
     FADE_NO_TRAIL_MAX_LOCK_DISTANCE,
     FADE_STOP_LOSS_CAP,
     TECHNICAL_READING_NAMES,
@@ -175,7 +177,8 @@ def broker_b_entry_rules_html(as_of=None) -> str:
             (
                 "Fade exit",
                 f"Fade trades (TA-Zone) only: stop loss capped at &minus;${FADE_STOP_LOSS_CAP:g}; if the opposite fade level is within "
-                f"${FADE_NO_TRAIL_MAX_LOCK_DISTANCE:g} of entry there is no trailing stop until price reaches it, then the stop follows "
+                f"${FADE_NO_TRAIL_MAX_LOCK_DISTANCE:g} of entry the stop trails ${FADE_NEAR_TRAIL_DISTANCE:g} behind the best price once "
+                f"${FADE_NEAR_TRAIL_ACTIVATION:g} in profit (from 16 Oct 2026; no trail before), and from the moment price reaches that level "
                 f"${FADE_LOCK_TRAIL_DISTANCE:g} behind the best price. A further level keeps the normal trailing stop.",
             )
         )
