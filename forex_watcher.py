@@ -144,6 +144,7 @@ NEAR_LEVEL_DOLLARS = 4.0
 HARD_EXTRA_SECONDS = 360  # an active run with no standby waiting keeps going this long past its planned end
 TRADE_PREFIX = "\U0001f7ea "  # purple square -- Broker B is blue, A is a blue circle
 BLOCKED_MARKER = "⛔ "
+BLOCKED_NOTICE_MIN_SECONDS = 60  # per rule/level: one blocked-entry Telegram notice per minute
 PROFIT_MARKER = "\U0001f7e9 "
 LOSS_MARKER = "\U0001f7e5 "
 
@@ -638,10 +639,14 @@ class Watcher:
             scenario_name, trade_type, dxy_readings, rsi_value, adx_value, adx_rising, atr_value, range_15m, rules
         )
         if not ok:
-            _send(
-                f"{TRADE_PREFIX.rstrip()}{BLOCKED_MARKER}BROKER F ({self.mode}): {rule_name} level ${trigger_price:.2f} "
-                f"reached but blocked -- {reasons}."
-            )
+            # A level chopping around its trigger is touched many times a minute: at most one notice per level per minute.
+            last = self.notified.get(f"blocked:{rule_name}")
+            if last is None or time.monotonic() - last >= BLOCKED_NOTICE_MIN_SECONDS:
+                self.notified[f"blocked:{rule_name}"] = time.monotonic()
+                _send(
+                    f"{TRADE_PREFIX.rstrip()}{BLOCKED_MARKER}BROKER F ({self.mode}): {rule_name} level ${trigger_price:.2f} "
+                    f"reached but blocked -- {reasons}."
+                )
             log.info("%s blocked: %s", rule_name, reasons)
             return False
         fill_price = float(self.feed.side(side).iloc[-1]["close"])  # a Buy fills on the ask, a Sell on the bid
