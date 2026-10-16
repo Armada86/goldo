@@ -187,6 +187,11 @@ FADE_STOP_LOSS_CAP = 15.0
 # whose opposite level is further away keeps the ordinary trail (plus the lock and the capped stop). Replay of 60 trades: +$62 with no trail
 # at any distance, +$187 with the ordinary trail always, +$194.5 with this $15 cutoff (docs/broker-b.md).
 FADE_NO_TRAIL_MAX_LOCK_DISTANCE = 15.0
+# ... and for such a near-lock fade the ordinary `make trail` settings are replaced (16 Oct 2026) by this fixed trail: once the trade is
+# FADE_NEAR_TRAIL_ACTIVATION in profit the stop follows FADE_NEAR_TRAIL_DISTANCE behind the best price (before that only the capped hard
+# stop protects it; the lock at the opposite level still applies on top). Before 16 Oct 2026 a near-lock fade had no trail at all.
+FADE_NEAR_TRAIL_ACTIVATION = 10.0
+FADE_NEAR_TRAIL_DISTANCE = 5.0
 # Spike gate (live since 8 Oct 2026, Broker B, split by rule type): blocks an entry when the last 15 one-minute bars' entry-side
 # high-low range is at/above this multiple of ATR(14) on 15-min candles -- ATR lags a sudden spike (B #48: range 12.5 vs ATR 6.08
 # = 2.06x, lost the full stop). Fades (TA-Zone-*) trade the reversal AFTER a run into the level, so they get the looser gate (only

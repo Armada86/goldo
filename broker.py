@@ -65,6 +65,8 @@ from config import (
     ADX_CHOP_THRESHOLD,
     ADX_PERIOD,
     FADE_LOCK_TRAIL_DISTANCE,
+    FADE_NEAR_TRAIL_ACTIVATION,
+    FADE_NEAR_TRAIL_DISTANCE,
     FADE_NO_TRAIL_MAX_LOCK_DISTANCE,
     FADE_STOP_LOSS_CAP,
     INTRAHOUR_SWING_ALERT_THRESHOLD,
@@ -395,8 +397,9 @@ def _scan_exit(
     reached that price (the opposite fade level), from the NEXT bar on the stop trails
     FADE_LOCK_TRAIL_DISTANCE behind the best price (a plain trail from the touch, 13 Oct 2026; no floor at the level). `fade` (Broker B TA-Zone-* trades, see
     FADE_STOP_LOSS_CAP): the hard stop is capped at FADE_STOP_LOSS_CAP and, when there is a valid lock level within
-    FADE_NO_TRAIL_MAX_LOCK_DISTANCE of the entry, the ordinary trailing stop is switched off -- the hard stop alone protects the
-    trade until the lock level is reached. A further lock level keeps the ordinary trail (and still trails from that level)."""
+    FADE_NO_TRAIL_MAX_LOCK_DISTANCE of the entry, the ordinary trailing stop is replaced (16 Oct 2026) by a fixed one: once $FADE_NEAR_TRAIL_ACTIVATION
+    in profit it follows FADE_NEAR_TRAIL_DISTANCE behind the best price (the hard stop alone protects the trade before that), and the
+    lock still applies at the opposite level. A further lock level keeps the ordinary trail (and still trails from that level)."""
     if stop_loss_distance is None:
         stop_loss_distance = stop_loss_threshold()
     if activation is None or distance is None:
@@ -412,7 +415,7 @@ def _scan_exit(
         if lock_profit <= 0:
             lock_profit = None  # the level is not in the trade's favour: nothing to lock
     if fade and lock_profit is not None and lock_profit <= FADE_NO_TRAIL_MAX_LOCK_DISTANCE:
-        activation = distance = float("inf")  # a near lock level: no ordinary trail before it, the lock takes over there
+        activation, distance = FADE_NEAR_TRAIL_ACTIVATION, FADE_NEAR_TRAIL_DISTANCE  # a near lock level: fixed $10/$5 trail instead of make trail's, lock on top
     locked = False
 
     def stop_now() -> float:
