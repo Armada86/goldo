@@ -206,7 +206,7 @@ def load_forecast_runs_for_date(d) -> list[dict]:
 
 
 def load_broker_b_outcomes(forecast_id: int) -> dict[str, dict]:
-    """Broker B's actual trade record against this forecast row's four scenarios -- the diagram's
+    """Broker F's (live `forex_b_trades`, never Broker B's) actual trade record against this forecast row's four scenarios -- the diagram's
     per-level outcome markers (see `render_diagram_svg()`'s `scenario_outcomes` docstring). Keyed by
     *scenario* name (`sell_resistance`/`buy_support`/`bull_breakout`/`bear_breakdown`), translated from
     `broker_b_trades.rule_name` via `broker_b.ZONE_SCENARIOS`, the same mapping `broker_b.py` itself
@@ -216,8 +216,12 @@ def load_broker_b_outcomes(forecast_id: int) -> dict[str, dict]:
     result yet is left out."""
     rule_to_scenario = {rule_name: name for name, (_, rule_name) in broker_b.ZONE_SCENARIOS.items()}
     with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('forex_b_trades')")
+        if cur.fetchone()[0] is None:
+            return {}
         cur.execute(
-            "SELECT rule_name, pnl, status FROM broker_b_trades WHERE ta_forecast_id = %s ORDER BY open_ts",
+            "SELECT rule_name, pnl, status FROM forex_b_trades "
+            "WHERE ta_forecast_id = %s AND mode = 'live' ORDER BY open_ts",
             (forecast_id,),
         )
         rows = cur.fetchall()
