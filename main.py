@@ -27,6 +27,7 @@ from rules import (
     check_value_change_alerts,
 )
 from storage import init_db, save_alert, save_readings
+from ta_rerun_shadow import check_ta_rerun_shadow
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger("gold-monitor")
@@ -118,6 +119,13 @@ def poll_once() -> None:
         check_forex_closes(prices)
     except Exception:
         log.exception("Forex close check failed")
+
+    # Log-only (17 Oct 2026): records when an automatic mid-day TA re-run WOULD have fired and the fade levels it would have produced.
+    # Starts no TA run and sends nothing; see ta_rerun_shadow.py. Isolated so it can never break the poll.
+    try:
+        check_ta_rerun_shadow(prices, candles)
+    except Exception:
+        log.exception("TA re-run shadow check failed")
 
 
 def main() -> None:
