@@ -179,6 +179,13 @@ ADX_CHOP_FLOOR = 20
 # (ATR was ~$5-10 on earlier days, $11-13 on all five of Friday's trades). Blocks every Broker B rule.
 ATR_PERIOD = 14
 ATR_HIGH_VOLATILITY_THRESHOLD = 12.0
+# TA re-run shadow log (17 Oct 2026, ta_rerun_shadow.py): LOG-ONLY. When gold is this many ATR(14, 15-min) away from both fade levels in
+# force, the poll records the TA run it would have started and the fade levels that run would have produced (no TA run, no Telegram, no
+# effect on any broker). Reviewed after a week against the 17 Oct simulation (docs/studies.md) before anything is built for real.
+TA_RERUN_SHADOW_ATR_MULTIPLE = 2.0
+TA_RERUN_SHADOW_COOLDOWN_MINUTES = 60  # minimum gap after the last TA run or logged event
+TA_RERUN_SHADOW_MAX_PER_DAY = 3
+TA_RERUN_SHADOW_MIN_LEVEL_CHANGE = 3.0  # $; the would-be fade levels count as "different" only if one moved by at least this
 # Broker B fade exit rule (see broker.py): once a TA-Zone-* trade reaches its opposite fade level its stop locks there and trails
 # this many $ behind the best price; before that it has no ordinary trailing stop and its hard stop is capped at the second value.
 FADE_LOCK_TRAIL_DISTANCE = 5.0

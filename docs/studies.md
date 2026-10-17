@@ -73,6 +73,27 @@ missing. Add new ones at the bottom of their section (or under "Open / to repeat
     - Not testable from stored trades: level-generation fixes (intraday levels, automatic re-runs when price leaves the
       ladder, grading levels by touch).
 
+28. **Level-gap fix: simulated re-run with extra intraday levels** (5-16 Oct, 1-minute bars, the real zone code; the sim
+    reproduced all 32 published level sets exactly and scored the published levels at 45 trades, +$61 against +$112 live
+    with the entry filters). The idea: add 1h swings, shorter 4h swings, session high/low and $25 round numbers to the
+    level pool, and re-run the TA when gold is more than 2x ATR(15-min) from both fade levels.
+    - Extra levels at the scheduled runs: noisy and inconsistent (all four +$25, single types -$4 to +$148, last week -$22).
+    - Re-run only, no new levels: +$50. It cannot help: nothing nearby to pick.
+    - Re-run with extra levels, scheduled runs left as published: +$47 to +$100 across 15 settings. The 12 that skip
+      round-25 all beat the baseline by +$4 to +$39 (average about +$21). Wednesday 14 Oct itself improved by only $17-21.
+    - Caveats: small sample, no entry filters, mid prices, and re-runs often picked identical levels (four in a row on
+      Tue 13 Oct), which live would spam Telegram and re-arm each level's trade budget.
+    - Decision: not built. Shadow logging added instead (study 29).
+29. **TA re-run shadow log** (started 17 Oct 2026, `ta_rerun_shadow.py`, see `CLAUDE.md`). Log only: when gold is more
+    than 2x ATR(15-min) from both fade levels, the poll records the re-run it would have started and the levels it would
+    have produced (1h swings and session high/low added). It runs nothing and sends nothing. Read it with
+    `python ta_rerun_shadow.py report 7`. Compare the real events with study 28: how often it fires, how often the
+    levels would actually change, and whether price then traded at the would-be levels.
+
 ## Open / to repeat
-- **Re-run study 25-27 in about two weeks (around 31 Oct 2026)** with more trades, before changing the bias gate, the
-  stops or the levels. Also decide then whether to build the level-gap fix.
+- **Review the re-run shadow log on about 24 Oct 2026 (one week of data).** Run `python ta_rerun_shadow.py report 7`,
+  check how many events fired, how many had `differs`, and how price behaved around the would-be levels. Then decide
+  whether to build a real re-run (narrow version: scheduled runs unchanged, re-run only with 1h swings and session
+  high/low, 60-minute cooldown, at most 3 a day, only when the levels change).
+- **Re-run studies 25-27 in about two weeks (around 31 Oct 2026)** with more trades, before changing the bias gate, the
+  stops or the levels.

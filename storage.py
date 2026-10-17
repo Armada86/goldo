@@ -171,6 +171,28 @@ def init_db() -> None:
         # signal_ts: the newest alert behind the blocked signal (30 Sep 2026) -- see
         # get_last_blocked_signal_ts_a(). Added after the table already existed, hence the ALTER.
         cur.execute("ALTER TABLE broker_a_blocked ADD COLUMN IF NOT EXISTS signal_ts TIMESTAMPTZ")
+        # Log-only record of the TA re-runs the poll WOULD have started (17 Oct 2026, ta_rerun_shadow.py).
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ta_rerun_shadow (
+                id SERIAL PRIMARY KEY,
+                ts TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                price DOUBLE PRECISION NOT NULL,
+                atr15 DOUBLE PRECISION NOT NULL,
+                multiple DOUBLE PRECISION NOT NULL,
+                ref_source TEXT NOT NULL,
+                forecast_id INTEGER,
+                ref_r DOUBLE PRECISION NOT NULL,
+                ref_s DOUBLE PRECISION NOT NULL,
+                dist_r DOUBLE PRECISION NOT NULL,
+                dist_s DOUBLE PRECISION NOT NULL,
+                new_r DOUBLE PRECISION,
+                new_s DOUBLE PRECISION,
+                differs BOOLEAN NOT NULL,
+                new_labels JSONB
+            )
+            """
+        )
         # Manual trading control from Telegram (see trading_control.py). The Worker creates these too.
         cur.execute(
             """
@@ -1036,6 +1058,15 @@ def get_latest_ta_forecast() -> dict | None:
     }
 
 
+def get_latest_ta_forecast_levels() -> dict | None:
+    """Like get_latest_ta_forecast() but without the analysis text and diagram (the big columns): {id, forecast_date, ts, levels}.
+    For per-poll callers that only need the levels (ta_rerun_shadow.py), so they don't re-read the diagram every 5 minutes."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT id, forecast_date, ts, levels FROM ta_forecasts ORDER BY ts DESC LIMIT 1")
+        row = cur.fetchone()
+    return None if row is None else {"id": row[0], "forecast_date": row[1], "ts": row[2], "levels": row[3]}
+
+
 def get_ta_forecasts_since(since: datetime) -> list[dict]:
     """Every ta_forecasts row written at or after `since` minus a day (so the row in force at `since` is included), oldest
     first, as {id, ts, levels}. Used by the stop loss / block rules analyses to find a fade trade's lock level."""
@@ -1498,6 +1529,31 @@ def get_broker_b_blocked() -> list[dict]:
         }
         for r in rows
     ]
+
+
+def insert_ta_rerun_shadow(row: dict) -> int:
+    """Log one would-be TA re-run (ta_rerun_shadow.py). Log only: nothing reads this table except the review report."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO ta_rerun_shadow (price, atr15, multiple, ref_source, forecast_id, ref_r, ref_s, dist_r, dist_s, "
+            "new_r, new_s, differs, new_labels) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+            (row["price"], row["atr15"], row["multiple"], row["ref_source"], row["forecast_id"], row["ref_r"], row["ref_s"],
+             row["dist_r"], row["dist_s"], row["new_r"], row["new_s"], row["differs"], Json(row.get("new_labels"))),
+        )
+        return cur.fetchone()[0]
+
+
+def get_ta_rerun_shadow_since(since: datetime) -> list[dict]:
+    """Logged would-be re-runs at or after `since`, oldest first."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, ts, price, atr15, multiple, ref_source, forecast_id, ref_r, ref_s, dist_r, dist_s, new_r, new_s, differs, "
+            "new_labels FROM ta_rerun_shadow WHERE ts >= %s ORDER BY ts",
+            (since,),
+        )
+        cols = ("id", "ts", "price", "atr15", "multiple", "ref_source", "forecast_id", "ref_r", "ref_s", "dist_r", "dist_s",
+                "new_r", "new_s", "differs", "new_labels")
+        return [dict(zip(cols, r)) for r in cur.fetchall()]
 
 
 def record_broker_a_blocked_if_new(
