@@ -209,6 +209,10 @@ FADE_NEAR_TRAIL_DISTANCE = 5.0
 SPIKE_FADE_ATR_MULTIPLE = 3.0
 SPIKE_BREAKOUT_ATR_MULTIPLE = 2.0
 SPIKE_RANGE_BARS = 15  # one-minute bars in the range window
+# Absolute ceiling on that range, all four Broker B rules (21 Oct 2026): the ATR multiples above never bit in Broker F's first 30 live trades
+# (3.0x ATR is $15-27). The 8 entries with a 15-min range >= $10 won 2 and lost $52.11 (the 22 others made +$53.09), 4 of the 6 full-stop
+# losses among them. Hand-picked from 30 trades -- not in block_rules, so BRA does not tune it.
+SPIKE_RANGE_MAX_DOLLARS = 10.0
 # RSI(14) exhaustion on the two FADE rules (the breakout rules already use RSI_OVERBOUGHT/OVERSOLD above):
 # TA-Zone-sell blocked at/above the first, TA-Zone-buy at/below the second (both 68-and-up fade-sells lost).
 FADE_RSI_OVERBOUGHT_THRESHOLD = 68

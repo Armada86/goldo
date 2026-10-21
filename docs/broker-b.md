@@ -92,6 +92,7 @@ in the trade's favour is ignored).
 
 ## Good to know
 
+- **Spike dollar ceiling (21 Oct 2026):** the spike gate also blocks all four rules when the 15-min entry-side range is >= `config.SPIKE_RANGE_MAX_DOLLARS` ($10), ATR or not. Broker F's first 30 live trades (12-21 Oct): the 8 entries at >= $10 won 2 and lost $52.11, the other 22 made +$53.09 (4 of the 6 full $15 stops were in the 8). Hand-picked cutoff, not in `block_rules`.
 - **Spike gate (live since 8 Oct 2026):** `broker_b._spike_confirms()` blocks an entry when the last 15 one-minute bars' entry-side range is at least
   `spike_fade` x ATR(14) for the fade rules (default 3.0) or `spike_breakout` x ATR(14) for the breakout rules (default 2.0). **`spike_fade` raised 2.5 -> 3.0 on 9 Oct 2026**: a 4170.60 support fade (range $15.89 = 2.59x ATR, mostly the drop into the level) was blocked and the bounce was +$13 (replayed +$13.33); 3.0 still blocks the one real spike in B #54-61 (#59, 3.28x). ATR lags a sudden spike
   (B #48: range 12.5 vs ATR 6.08); fades get the looser multiple because they enter after a run into the level and want the reversal. The two
