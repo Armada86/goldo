@@ -89,6 +89,22 @@ missing. Add new ones at the bottom of their section (or under "Open / to repeat
     have produced (1h swings and session high/low added). It runs nothing and sends nothing. Read it with
     `python ta_rerun_shadow.py report 7`. Compare the real events with study 28: how often it fires, how often the
     levels would actually change, and whether price then traded at the would-be levels.
+30. **Flip study: reverse a fade through the breakout level** (21 Oct 2026, one-off script, not in the repo). Question: when a
+    fade (TA-Zone-sell/buy) is wrong and price keeps going through the scenario's `stop` (= the opposite breakout trigger,
+    median $10 from the entry), would flipping to the other side make money? Replayed 99 fade trades from Broker B and
+    Broker F (24 Sep-21 Oct) on Twelve Data 1-minute mid prices, $0.60 spread per simulated trade, current stops ($20
+    initial, capped at $15 for fades; 3/10 trail). Simulated baseline +$151.82 (recorded +$93.57).
+    - **Stop and reverse** (close the fade at the level, open the opposite there): worse in all 24 combinations of flip
+      stop (8/10/15/20) and trail, with a $0 or $2 confirmation buffer: $196-$354 below baseline. With a $4 buffer
+      $108 worse (9 flips, 3 wins); with $6 nothing flips.
+    - Why: 23 of 99 fades crossed the level while open. 15 lost (-$214) but 8 recovered and won (+$95), net -$119 left
+      alone; closing them at the level makes it -$251, and the flips lose on top.
+    - **Flip after the fade's own loss** (fade runs its normal exit, flip at that price): 26 flips after a loss over $5,
+      7-14 wins, added P/L -$21 to -$127 in every combination; after a loss over $10, 15 flips, -$35 to -$104.
+    - Caveats: small sample, mid prices, each trade scored on its own (no one-position-at-a-time overlap), entry filters
+      (RSI, ADX, spike gate) not applied to the flips.
+    - Decision: not built. Consistent with Broker F's live breakouts (5 trades, -$10.22): consider turning the breakout
+      rules off, to be re-checked with more trades.
 
 ## Open / to repeat
 - **Review the re-run shadow log on about 24 Oct 2026 (one week of data).** Run `python ta_rerun_shadow.py report 7`,
