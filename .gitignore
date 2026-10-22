@@ -4,3 +4,4 @@ __pycache__/
 .env
 market_data.db
 streamlit.log
+broker_k_gold1m.pkl
