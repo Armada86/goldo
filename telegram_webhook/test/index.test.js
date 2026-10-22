@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { brokerStatus, STATUS_RE, parseBrokerScope, evaluatePause, nextWeekdayBoundary, isMarketClosedAt, inEntryWindow, tradingState, REARM_RE, RUN_TA_RE, SLA_RE, BRA_RE, parseStopLoss, parseTrail, parseCommand, parseControlCommand, etToUtc, formatTs, pnl } from "../src/index.js";
+import { brokerStatus, brokerKSignal, STATUS_RE, parseBrokerScope, evaluatePause, nextWeekdayBoundary, isMarketClosedAt, inEntryWindow, tradingState, REARM_RE, RUN_TA_RE, SLA_RE, BRA_RE, parseStopLoss, parseTrail, parseCommand, parseControlCommand, etToUtc, formatTs, pnl } from "../src/index.js";
 
 test("parseCommand: open commands, various phrasing", () => {
   assert.deepEqual(parseCommand("sell broker A"), { action: "open", tradeType: "Sell", brokerLetter: "A" });
@@ -267,6 +267,13 @@ test("brokerStatus: per-broker lines, open trade and watcher heartbeat", async (
         ["FROM broker_b_trades WHERE", []],
         ["FROM forex_b_trades WHERE", [{ trade_type: "Buy", entry_price: 4190.87, rule_name: "TA-Zone-buy", mode: "live" }]],
         ["FROM forex_b_heartbeat", [{ ts: "2026-10-12T14:59:40Z", mode: "live" }]],
+        ["to_regclass('broker_k_trades')", [{ t: "broker_k_trades" }]],
+        ["FROM broker_k_trades WHERE", [{ trade_type: "Sell", entry_price: 4180.5, rule_name: "Trend-sell" }]],
+        ["FROM readings WHERE name IN", [
+          { name: "adx", price: 38.2, ts: "2026-10-12T14:55:00Z" },
+          { name: "atr", price: 6.4, ts: "2026-10-12T14:55:00Z" },
+          { name: "rsi", price: 41.0, ts: "2026-10-12T14:55:00Z" },
+        ]],
       ])
     );
     assert.match(text, /Broker A: ✅ TRADING/);
@@ -274,7 +281,21 @@ test("brokerStatus: per-broker lines, open trade and watcher heartbeat", async (
     assert.match(text, /Broker F \(live\): ✅ TRADING/);
     assert.match(text, /open: Buy 1 oz @ \$4190\.87 \(TA-Zone-buy\)/);
     assert.match(text, /watcher active 20s ago/);
+    assert.match(text, /Broker K \(paper, no pause control\): ✅ TRADING/);
+    assert.match(text, /open: Sell 1 oz @ \$4180\.50 \(Trend-sell\)/);
+    assert.match(text, /latest \(5 min ago\): ADX 38\.2 · RSI 41\.0 · ATR \$6\.40 — Sell signal/);
   } finally {
     Date.now = realNow;
   }
+});
+
+test("brokerKSignal: mirrors config.K_* / broker_k.entry_signal()", () => {
+  assert.equal(brokerKSignal(60, 36, 6), "Buy");
+  assert.equal(brokerKSignal(40, 36, 6), "Sell");
+  assert.equal(brokerKSignal(60, 34, 6), null); // ADX too low
+  assert.equal(brokerKSignal(60, 36, 2), null); // ATR too low
+  assert.equal(brokerKSignal(60, 36, 13), null); // ATR too high
+  assert.equal(brokerKSignal(72, 36, 6), null); // RSI exhausted
+  assert.equal(brokerKSignal(28, 36, 6), null);
+  assert.equal(brokerKSignal(null, 36, 6), null);
 });

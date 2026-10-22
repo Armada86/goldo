@@ -103,6 +103,8 @@ const LOSS_MARKER_B = "\u{1F7E5} "; // red square -- broker_b.LOSS_MARKER
 
 const TRADE_ALERT_PREFIX_F = "\u{1F7EA} "; // purple square -- forex_watcher.TRADE_PREFIX (Broker F, the FOREX.com demo account)
 
+const TRADE_ALERT_PREFIX_K = "\u{1F7EB} "; // brown square -- broker_k.TRADE_ALERT_PREFIX (Broker K, the RSI/ADX/ATR trend follower)
+
 const REJECT_MARKER = "⛔ "; // no-entry sign -- same as broker.BLOCKED_MARKER/broker_b.BLOCKED_MARKER
 
 const DIRECTION_RE = /\b(buy|sell)\b/i;
@@ -419,6 +421,45 @@ function tradingState(nowMs, override, pauses) {
   return null;
 }
 
+// Broker K's entry rule, mirrored from config.K_* / broker_k.entry_signal() so `broker status` can say whether a signal is live; keep in step.
+const K_ADX_MIN = 35, K_ATR_MIN = 3, K_ATR_MAX = 12, K_RSI_BUY_MIN = 50, K_RSI_BUY_MAX = 70;
+
+/** "Buy" / "Sell" / null from the latest RSI/ADX/ATR readings (any missing value -> null). */
+function brokerKSignal(rsi, adx, atr) {
+  if (rsi == null || adx == null || atr == null) return null;
+  if (adx < K_ADX_MIN || atr < K_ATR_MIN || atr > K_ATR_MAX) return null;
+  if (rsi >= K_RSI_BUY_MIN && rsi <= K_RSI_BUY_MAX) return "Buy";
+  if (rsi >= 100 - K_RSI_BUY_MAX && rsi <= 100 - K_RSI_BUY_MIN) return "Sell";
+  return null;
+}
+
+/** Broker K block of `broker status`: it has no pause control (it ignores `stop trading`), so it is only limited by the market and the
+ *  7am-5pm ET entry window. Shows its open trade and the latest RSI/ADX/ATR the poll saved, with whether that would be an entry. */
+async function brokerKStatusLines(sql, now) {
+  const toMs = (v) => (v == null ? null : new Date(v).getTime());
+  const why = tradingState(now, null, []);
+  const lines = [`${TRADE_ALERT_PREFIX_K}Broker K (paper, no pause control): ${why ? `\u26D4 NOT TRADING \u2014 ${why}` : "\u2705 TRADING"}`];
+  const exists = (await sql`SELECT to_regclass('broker_k_trades') AS t`)[0]?.t;
+  if (!exists) {
+    lines.push("    \u26A0\uFE0F table not created yet \u2014 the poll creates it on its first run with Broker K");
+    return lines;
+  }
+  const open = (await sql`SELECT trade_type, entry_price, rule_name FROM broker_k_trades WHERE status = 'Open' ORDER BY open_ts DESC LIMIT 1`)[0];
+  if (open) lines.push(`    open: ${open.trade_type} 1 oz @ $${Number(open.entry_price).toFixed(2)} (${open.rule_name})`);
+  const rows = await sql`SELECT DISTINCT ON (name) name, price, ts FROM readings WHERE name IN ('rsi', 'adx', 'atr') ORDER BY name, ts DESC`;
+  const by = Object.fromEntries(rows.map((r) => [r.name, r]));
+  if (by.adx && by.rsi && by.atr) {
+    const [rsi, adx, atr] = [Number(by.rsi.price), Number(by.adx.price), Number(by.atr.price)];
+    const age = Math.round((now - toMs(by.adx.ts)) / 60000);
+    const signal = brokerKSignal(rsi, adx, atr);
+    lines.push(
+      `    latest (${age} min ago): ADX ${adx.toFixed(1)} \u00B7 RSI ${rsi.toFixed(1)} \u00B7 ATR $${atr.toFixed(2)} \u2014 ` +
+      (signal ? `${signal} signal (enters at the next poll)` : `no signal (needs ADX \u2265 ${K_ADX_MIN}, ATR $${K_ATR_MIN}-${K_ATR_MAX}, RSI ${100 - K_RSI_BUY_MAX}-${K_RSI_BUY_MAX} off 50)`)
+    );
+  }
+  return lines;
+}
+
 async function brokerStatus(sql) {
   const now = Date.now();
   const toMs = (v) => (v == null ? null : new Date(v).getTime());
@@ -459,6 +500,7 @@ async function brokerStatus(sql) {
     }
     lines.push(line);
   }
+  lines.push(...(await brokerKStatusLines(sql, now)));
   return lines.join("\n");
 }
 
@@ -872,4 +914,4 @@ export default {
   },
 };
 
-export { brokerStatus, STATUS_RE, parseBrokerScope, evaluatePause, nextWeekdayBoundary, isMarketClosedAt, inEntryWindow, tradingState, REARM_RE, RUN_TA_RE, SLA_RE, BRA_RE, parseStopLoss, parseTrail, parseCommand, parseControlCommand, etToUtc, formatTs, pnl }; // exported for the test file only
+export { brokerStatus, brokerKSignal, STATUS_RE, parseBrokerScope, evaluatePause, nextWeekdayBoundary, isMarketClosedAt, inEntryWindow, tradingState, REARM_RE, RUN_TA_RE, SLA_RE, BRA_RE, parseStopLoss, parseTrail, parseCommand, parseControlCommand, etToUtc, formatTs, pnl }; // exported for the test file only
