@@ -157,6 +157,25 @@ def init_db() -> None:
         cur.execute("ALTER TABLE forex_b_trades ADD COLUMN IF NOT EXISTS exit_context JSONB")
         cur.execute(
             """
+            CREATE TABLE IF NOT EXISTS broker_k_trades (
+                id SERIAL PRIMARY KEY,
+                rule_name TEXT NOT NULL,
+                trade_type TEXT NOT NULL,
+                entry_price DOUBLE PRECISION NOT NULL,
+                open_ts TIMESTAMPTZ NOT NULL,
+                triggering_alerts TEXT NOT NULL,
+                exit_price DOUBLE PRECISION,
+                close_ts TIMESTAMPTZ,
+                pnl DOUBLE PRECISION,
+                exit_reason TEXT,
+                entry_context JSONB,
+                exit_context JSONB,
+                status TEXT NOT NULL DEFAULT 'Open'
+            )
+            """
+        )
+        cur.execute(
+            """
             CREATE TABLE IF NOT EXISTS broker_a_blocked (
                 id SERIAL PRIMARY KEY,
                 rule_name TEXT NOT NULL,
@@ -593,6 +612,53 @@ def close_trade_row(
         cur.execute(
             "UPDATE trades SET exit_price = %s, close_ts = %s, pnl = %s, exit_context = %s, status = 'Closed' WHERE id = %s",
             (exit_price, close_ts, pnl, Json(exit_context) if exit_context else None, trade_id),
+        )
+
+
+def get_open_trade_k() -> dict | None:
+    """Broker K's single open imaginary trade, if any -- see broker_k.py. Entirely separate from Broker A's
+    `trades` and Broker B's `broker_b_trades` tables."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, rule_name, trade_type, entry_price, open_ts, triggering_alerts "
+            "FROM broker_k_trades WHERE status = 'Open' ORDER BY open_ts DESC LIMIT 1"
+        )
+        row = cur.fetchone()
+    if row is None:
+        return None
+    return {
+        "id": row[0], "rule_name": row[1], "trade_type": row[2], "entry_price": row[3],
+        "open_ts": row[4], "triggering_alerts": row[5],
+    }
+
+
+def insert_trade_k(
+    rule_name: str,
+    trade_type: str,
+    entry_price: float,
+    open_ts: datetime,
+    triggering_alerts: str,
+    entry_context: dict | None = None,
+) -> int:
+    """Inserts Broker K's open trade and returns its new id (the trade number shown in Telegram messages)."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO broker_k_trades (rule_name, trade_type, entry_price, open_ts, triggering_alerts, status, "
+            "entry_context) VALUES (%s, %s, %s, %s, %s, 'Open', %s) RETURNING id",
+            (rule_name, trade_type, entry_price, open_ts, triggering_alerts,
+             Json(entry_context) if entry_context else None),
+        )
+        return cur.fetchone()[0]
+
+
+def close_trade_row_k(
+    trade_id: int, exit_price: float, close_ts: datetime, pnl: float, exit_reason: str, exit_context: dict | None = None
+) -> None:
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE broker_k_trades SET exit_price = %s, close_ts = %s, pnl = %s, exit_reason = %s, exit_context = %s, "
+            "status = 'Closed' WHERE id = %s",
+            (exit_price, close_ts, pnl, exit_reason, Json(exit_context) if exit_context else None, trade_id),
         )
 
 
