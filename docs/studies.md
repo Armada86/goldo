@@ -127,13 +127,15 @@ missing. Add new ones at the bottom of their section (or under "Open / to repeat
     - Decision: not built. The finding to re-check is that the ADX/ATR fade block may cost money, not the reclaim entry.
 
 ## Open / to repeat
-- **Review the re-run shadow log on about 24 Oct 2026 (one week of data).** Run `python ta_rerun_shadow.py report 7`,
+- **Review the re-run shadow log on about 24 Oct 2026 (one week of data).** (Telegram reminder set for 24 Oct, 9:00 AM ET.) Run `python ta_rerun_shadow.py report 7`,
   check how many events fired, how many had `differs`, and how price behaved around the would-be levels. Then decide
   whether to build a real re-run (narrow version: scheduled runs unchanged, re-run only with 1h swings and session
   high/low, 60-minute cooldown, at most 3 a day, only when the levels change).
-- **Re-run studies 25-27 in about two weeks (around 31 Oct 2026)** with more trades, before changing the bias gate, the
+- **Re-run studies 25-27 in about two weeks (around 31 Oct 2026; one Telegram reminder on 31 Oct, 9:00 AM ET, covers this and the study 30 and 31 items below)** with more trades, before changing the bias gate, the
   stops or the levels.
-
+- **Re-check study 30 on about 31 Oct 2026** (same day as studies 25-27 and 31): with the extra week of Broker B and Broker F
+  trades, check whether the breakout rules (`TA-Breakout-*`) still lose (Broker F live: 5 trades, -$10.22 at the time of study 30)
+  and decide whether to turn them off.
 - **Re-check study 31 on about 31 Oct 2026** (together with studies 25-27): re-run the replay of ADX/ATR-blocked fade
   touches with the extra week of data (and the `broker_b_blocked` ADX/ATR notices), and check whether fading them would
   still beat the block. Only then consider relaxing the ADX/ATR fade block (`start BRA` tunes it) or building the reclaim entry.
