@@ -106,6 +106,26 @@ missing. Add new ones at the bottom of their section (or under "Open / to repeat
     - Decision: not built. Consistent with Broker F's live breakouts (5 trades, -$10.22): consider turning the breakout
       rules off, to be re-checked with more trades.
 
+31. **Re-entry after an ADX/ATR-blocked fade touch** (22 Oct 2026, one-off script, not in the repo). Question: when a fade
+    level (TA-Zone-buy/sell) is touched but blocked by the ADX or ATR gate, and price then goes through the level and
+    comes back, should we enter on the way back? Replayed all 259 fade-level touches of 22 Sep-22 Oct (every TA run, both
+    fade levels) on Twelve Data 1-minute mid prices. Gates rebuilt from 15-min candles at the touch (current thresholds:
+    ATR >= 12, ADX >= 25 and rising, fade RSI 68/32, spike gate); live fade exit rule ($20 stop capped at 15, 3/10 trail,
+    near-level 10/5 trail, lock at the opposite level), $0.60 spread, close at 5 PM ET. 24 touches were ADX/ATR-blocked
+    (12 buys, 12 sells), 74 blocked by other gates, 161 clear.
+    - **Reclaim** (dip of $0/$2/$5 beyond the level, then back through level +$0/$2/$4) and **bounce** (+$3/$5 off the
+      low): best +$80.69 (18 trades, 78% wins; dip >= $0, back through level +$4), bounce +$78.37 (24 trades). Variants that
+      need a real dip leave only 2-9 trades (dip >= $2 +$2: 9 trades, +$57.11; dip >= $5 +$2: 2 trades, +$20.86).
+    - The same rules on touches blocked by RSI/spike/DXY mostly lost (-$10 to -$97), so there is no general
+      "buy the reversal" edge.
+    - **The block itself:** simply fading the 24 ADX/ATR-blocked touches at the level would have made +$131 (sells 9 of 12,
+      +$86; buys 8 of 12, +$45), more than any re-entry variant and a win rate like unblocked touches (clear: 161
+      touches, +$189).
+    - Caveats: 24 events in one month, each trade scored alone (no one-position-at-a-time), mid prices, ADX/ATR rebuilt
+      from 1-minute bars, touches blocked by ADX/ATR may also be blocked by another gate, `block_rules` thresholds
+      changed during the month but current ones were used throughout.
+    - Decision: not built. The finding to re-check is that the ADX/ATR fade block may cost money, not the reclaim entry.
+
 ## Open / to repeat
 - **Review the re-run shadow log on about 24 Oct 2026 (one week of data).** Run `python ta_rerun_shadow.py report 7`,
   check how many events fired, how many had `differs`, and how price behaved around the would-be levels. Then decide
@@ -113,3 +133,7 @@ missing. Add new ones at the bottom of their section (or under "Open / to repeat
   high/low, 60-minute cooldown, at most 3 a day, only when the levels change).
 - **Re-run studies 25-27 in about two weeks (around 31 Oct 2026)** with more trades, before changing the bias gate, the
   stops or the levels.
+
+- **Re-check study 31 on about 31 Oct 2026** (together with studies 25-27): re-run the replay of ADX/ATR-blocked fade
+  touches with the extra week of data (and the `broker_b_blocked` ADX/ATR notices), and check whether fading them would
+  still beat the block. Only then consider relaxing the ADX/ATR fade block (`start BRA` tunes it) or building the reclaim entry.
