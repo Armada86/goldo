@@ -11,6 +11,9 @@ fully automated engines. You do none of the trading. You read, explain, and anal
 - **Broker A** (`broker.py`, `check_broker_trades()`): trades alert consensus. `trades` table. 🔵 circles.
 - **Broker B** (`broker_b.py`, `check_broker_b_trades()`): trades the four price levels of the latest
   `ta_forecasts` row. `broker_b_trades` table. 🟦 squares.
+- **Broker K** (`broker_k.py`, `check_broker_k_trades()`, 22 Oct 2026): independent RSI/ADX/ATR trend-follower
+  (`Trend-buy`/`Trend-sell`, fixed $12 TP / $8 SL / 60-min time stop). `broker_k_trades` table (adds `exit_reason`,
+  `entry_context`, `exit_context`). 🟫 squares. Spec: `broker_k.py` and `docs/broker-k.md`.
 
 Both run every poll from `main.poll_once()`, 1 troy oz per trade, one open trade at a time per engine, and
 never see each other's positions. Neither applies a TA-bias gate (don't suggest re-adding one unless the
@@ -54,6 +57,7 @@ Query via `DATABASE_URL` with a short `psycopg2` snippet (same connection as `st
 |---|---|
 | `trades` | every Broker A trade (`rule_name`, `trade_type`, `entry_price`, `open_ts`, `triggering_alerts`, `exit_price`, `close_ts`, `pnl`, `status`, `entry_context`) |
 | `broker_b_trades` | same plus `ta_forecast_id`; join `ta_forecasts` to see the exact zones traded |
+| `broker_k_trades` | every Broker K trade (same columns as `trades` plus `exit_reason` TP/SL/Time, `entry_context`, `exit_context`) |
 | `broker_a_blocked`, `broker_b_blocked` | every blocked-entry notice: how often, and by what reason |
 | `alerts` | raw alerts around a trade's `open_ts`, to explain why Broker A fired |
 | `ta_forecasts` | `levels` JSONB, bias, session for a Broker B trade (query by `id`, not just the latest) |

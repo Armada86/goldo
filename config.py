@@ -217,3 +217,17 @@ SPIKE_RANGE_MAX_DOLLARS = 10.0
 # TA-Zone-sell blocked at/above the first, TA-Zone-buy at/below the second (both 68-and-up fade-sells lost).
 FADE_RSI_OVERBOUGHT_THRESHOLD = 68
 FADE_RSI_OVERSOLD_THRESHOLD = 32
+
+# Broker K (22 Oct 2026, broker_k.py): independent paper broker trading strong gold trends from RSI/ADX/ATR alone -- no levels, block rules,
+# alerts or other broker's settings. Values come from broker_k_backtest.py --study wide (6 weeks of 1-minute bars): ADX >= 35 without requiring it
+# to be rising, RSI on the trade's side of 50 but not exhausted, ATR in a workable band, fixed $12 take-profit / $8 stop-loss, 60-minute time stop.
+# Hand-picked from a small sample (~65 trades), so a starting point to judge on the live paper record, not a calibration; the $2-6 "very small"
+# limits and pullback entries tested in the same study lost money.
+K_ADX_MIN = 35.0
+K_RSI_BUY_MIN = 50.0   # a Buy needs RSI(14) in [K_RSI_BUY_MIN, K_RSI_BUY_MAX]; a Sell the mirror image (100 - each)
+K_RSI_BUY_MAX = 70.0
+K_ATR_MIN = 3.0
+K_ATR_MAX = 12.0
+K_TAKE_PROFIT = 12.0   # $ per troy ounce
+K_STOP_LOSS = 8.0
+K_TIME_STOP_MINUTES = 60

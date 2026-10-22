@@ -6,6 +6,7 @@ from apscheduler.schedulers.blocking import BlockingScheduler   #runs in the for
 
 from broker import check_broker_trades
 from broker_b import check_broker_b_trades
+from broker_k import check_broker_k_trades
 from config import (
     ATR_PERIOD,
     ADX_PERIOD,
@@ -111,6 +112,13 @@ def poll_once() -> None:
         check_broker_b_trades(prices)
     except Exception:
         log.exception("Broker B check failed")
+
+    # Broker K -- independent RSI/ADX/ATR trend-follower (paper only, own table; see broker_k.py). Reuses this poll's 15-min candle
+    # frame, so it costs no extra candle call on a normal poll. Isolated so it can never break the rest of the poll.
+    try:
+        check_broker_k_trades(prices, candles)
+    except Exception:
+        log.exception("Broker K check failed")
 
     # Read-only toward forex.com (never places an order): records Forex-broker positions its TP/SL
     # closed and starts tracking manual ones, alerting on each. Isolated so a forex.com/credentials
