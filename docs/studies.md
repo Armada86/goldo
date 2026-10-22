@@ -131,11 +131,20 @@ missing. Add new ones at the bottom of their section (or under "Open / to repeat
   check how many events fired, how many had `differs`, and how price behaved around the would-be levels. Then decide
   whether to build a real re-run (narrow version: scheduled runs unchanged, re-run only with 1h swings and session
   high/low, 60-minute cooldown, at most 3 a day, only when the levels change).
-- **Re-run studies 25-27 in about two weeks (around 31 Oct 2026; one Telegram reminder on 31 Oct, 9:00 AM ET, covers this and the study 30 and 31 items below)** with more trades, before changing the bias gate, the
+- **Re-run studies 25-27 in about two weeks (around 31 Oct 2026; one Telegram reminder on 31 Oct, 9:00 AM ET, covers this and the study 30, 31 and range / ATR items)** with more trades, before changing the bias gate, the
   stops or the levels.
 - **Re-check study 30 on about 31 Oct 2026** (same day as studies 25-27 and 31): with the extra week of Broker B and Broker F
   trades, check whether the breakout rules (`TA-Breakout-*`) still lose (Broker F live: 5 trades, -$10.22 at the time of study 30)
   and decide whether to turn them off.
+- **Test a range / ATR spike rule on about 31 Oct 2026** (22 Oct review of the $10 spike ceiling, 91 Broker B trades 22 Sep-22 Oct
+  plus Broker F's 30 live trades; one-off script, not in the repo). The flat ceiling is on a plateau: blocking at $8-15 gains
+  $77-99 for Broker B, best $9 (+$99), $10 +$77, $13 +$82; fades alone prefer $13-15 (+$78 vs +$47 at $10); breakouts lose
+  (-$67) at any range; all of the $10 ceiling's gain came in the second half of the month. The 15-min range divided by
+  ATR(14) separates trades better (B+F with ATR: up to 1.0x +$13 over 34 trades, 1.0-1.5x +$119 over 35, 1.5x or more -$131
+  over 34), while the live multiples (fade 3.0x, breakout 2.0x) almost never fire. Found in the same sample, so untested.
+  With the extra week: check whether a range / ATR cutoff near 1.5x (fades, and breakouts if they stay on) still separates
+  winners from losers, how it compares with the $10 ceiling (and $13 for fades) on out-of-sample trades, and whether to
+  lower `spike_fade` (`start BRA` tunes it via `block_rules`) instead of keeping a flat dollar ceiling.
 - **Re-check study 31 on about 31 Oct 2026** (together with studies 25-27): re-run the replay of ADX/ATR-blocked fade
   touches with the extra week of data (and the `broker_b_blocked` ADX/ATR notices), and check whether fading them would
   still beat the block. Only then consider relaxing the ADX/ATR fade block (`start BRA` tunes it) or building the reclaim entry.
