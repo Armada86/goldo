@@ -14,14 +14,14 @@ dxy_change_15m, dxy_threshold_15m, bias_score, bias,
 forecast_id, session, spread (ask - bid close), range_15m_bid / range_15m_ask (last 15 one-minute bars),
 plus whatever the calling broker adds via `extra` (Broker A: the flagging indicators; Broker B: scenario,
 trigger price, minutes between the touch and the poll that acted on it, distance to the next resistance /
-support zone, zone width).
+support zone, zone width). Fades also get `shadow_bias_adx` (see shadow_bias_adx(); log only).
 """
 
 import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from config import INTRAHOUR_SWING_ALERT_THRESHOLD, RSI_PERIOD
+from config import INTRAHOUR_SWING_ALERT_THRESHOLD, RSI_PERIOD, SHADOW_BIAS_ADX_MIN_ADX, SHADOW_BIAS_ADX_MIN_BIAS
 
 log = logging.getLogger("gold-monitor")
 
@@ -38,6 +38,22 @@ def _num(v, digits: int = 4):
         return round(float(v), digits)
     except Exception:
         return None
+
+
+def shadow_bias_adx(rule_name: str, trade_type: str, ctx: dict) -> dict:
+    """{"shadow_bias_adx": bool} for a fade (TA-Zone-*) with a known bias score and ADX, else {}. True = a fade against the TA bias
+    (buy with a negative score, sell with a positive one) by at least SHADOW_BIAS_ADX_MIN_BIAS with ADX >= SHADOW_BIAS_ADX_MIN_ADX.
+    LOG ONLY (study 32): nothing reads it to block a trade. Never raises."""
+    try:
+        if not str(rule_name).startswith("TA-Zone-"):
+            return {}
+        bias, adx = ctx.get("bias_score"), ctx.get("adx14")
+        if bias is None or adx is None:
+            return {}
+        against = -float(bias) if trade_type == "Buy" else float(bias)  # > 0 = the bias points against this fade
+        return {"shadow_bias_adx": bool(against >= SHADOW_BIAS_ADX_MIN_BIAS and float(adx) >= SHADOW_BIAS_ADX_MIN_ADX)}
+    except Exception:
+        return {}
 
 
 def build_entry_context(

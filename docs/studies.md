@@ -126,6 +126,24 @@ missing. Add new ones at the bottom of their section (or under "Open / to repeat
       changed during the month but current ones were used throughout.
     - Decision: not built. The finding to re-check is that the ADX/ATR fade block may cost money, not the reclaim entry.
 
+32. **Bias/ADX fade filter, shadow only** (23 Oct 2026, replay one-off script, not in the repo; shadow flag is in the code). Question
+    (from Broker F #32 / Broker B #100, a TA-Zone-buy at 4050 into a -6 bias and ADX 30, stopped at -$15): should fades against
+    the TA bias with high ADX be skipped, or stopped at the forecast's invalidation level? Replayed 76 Broker B fades (24 Sep-23 Oct)
+    on Twelve Data 1-minute mid prices with today's exit rule ($20 stop capped at 15, 3/10 trail, lock); replay baseline +$179.11
+    vs recorded +$73.28 (older trades ran under older stops), so only compare variants with each other.
+    - **Filter** (fade against the bias by >= N points and ADX >= M; 62 fades have the stored bias and ADX): |bias| >= 6 and
+      ADX >= 30 blocks 2 (1 win) +$14; |bias| >= 4 and ADX >= 25 blocks 5 (1 win) +$30; |bias| >= 3 and ADX >= 30 blocks 3 +$29;
+      |bias| >= 3 with no ADX condition blocks 15 (8 wins) +$25, so the ADX part does the work.
+    - **Stop at the invalidation level** (the fade scenario's own `stop`, $7-16 from the entry, median about $10): worse than
+      the $15 cap in every variant, -$38 to -$107 (distance + $0 to + $5), because gold often dips through the far side and
+      reverses. Saves $8 on B #100 but costs far more across the other 75.
+    - Caveats: the filter blocks only 3-5 trades (about the sample the idea came from), mid prices, each trade scored alone.
+    - Decision: invalidation stop not built. Filter built as **shadow only** (`config.SHADOW_BIAS_ADX_MIN_BIAS` 4,
+      `SHADOW_BIAS_ADX_MIN_ADX` 25; `entry_context.shadow_bias_adx()`): every Broker B and Broker F fade gets
+      `shadow_bias_adx` true/false in its `entry_context` (missing bias or ADX = no key), nothing is blocked and nothing is sent.
+      Compare with `SELECT entry_context->>'shadow_bias_adx' AS flag, count(*), sum(pnl) FROM broker_b_trades WHERE
+      rule_name LIKE 'TA-Zone-%' AND entry_context ? 'shadow_bias_adx' GROUP BY 1` (and `forex_b_trades`, `mode = 'live'`).
+
 ## Open / to repeat
 - **Review the re-run shadow log on about 24 Oct 2026 (one week of data).** (Telegram reminder set for 24 Oct, 9:00 AM ET.) Run `python ta_rerun_shadow.py report 7`,
   check how many events fired, how many had `differs`, and how price behaved around the would-be levels. Then decide
@@ -148,3 +166,8 @@ missing. Add new ones at the bottom of their section (or under "Open / to repeat
 - **Re-check study 31 on about 31 Oct 2026** (together with studies 25-27): re-run the replay of ADX/ATR-blocked fade
   touches with the extra week of data (and the `broker_b_blocked` ADX/ATR notices), and check whether fading them would
   still beat the block. Only then consider relaxing the ADX/ATR fade block (`start BRA` tunes it) or building the reclaim entry.
+- **Check the study 32 shadow flag on about 31 Oct 2026** (same Telegram reminder as studies 25-27, 30, 31): count flagged and
+  unflagged fades (SQL in study 32) in `broker_b_trades` and live `forex_b_trades`. The replay found 5 such trades in a month, so
+  expect only a few flagged by then; if there are fewer than about 20, keep collecting. If the flagged ones clearly lose,
+  make it a real block (a rule in `broker_b.evaluate_gates()` shared with Broker F, ideally a `block_rules` value so `start BRA`
+  can tune it); if not, remove the flag.

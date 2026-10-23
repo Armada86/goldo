@@ -161,7 +161,7 @@ from data_fetcher import (
     gold_rsi_adx_atr_from_candles,
     gold_adx_rising_from_candles,
 )
-from entry_context import build_entry_context, build_exit_context, level_distances
+from entry_context import build_entry_context, build_exit_context, level_distances, shadow_bias_adx
 from price_bars import fetch_gold_bars
 from notifier import send_telegram_message
 from storage import (
@@ -918,6 +918,7 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
             **level_distances(trigger_price, forecast),
         },
     )
+    context.update(shadow_bias_adx(rule_name, trade_type, context))  # log only, blocks nothing (study 32)
     trade_id = insert_trade_b(
         rule_name, trade_type, trigger_price, trigger_ts, trigger_text, forecast["id"], context
     )

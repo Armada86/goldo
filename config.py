@@ -199,6 +199,12 @@ FADE_NO_TRAIL_MAX_LOCK_DISTANCE = 15.0
 # stop protects it; the lock at the opposite level still applies on top). Before 16 Oct 2026 a near-lock fade had no trail at all.
 FADE_NEAR_TRAIL_ACTIVATION = 10.0
 FADE_NEAR_TRAIL_DISTANCE = 5.0
+# Bias/ADX shadow flag (23 Oct 2026, LOG ONLY, Broker B and Broker F): a fade (TA-Zone-*) taken against the TA bias -- a buy while the bias
+# score is negative, a sell while it is positive -- by at least this many points, with ADX(14) at or above the second value, is flagged
+# `shadow_bias_adx: true` in the trade's entry_context. Nothing is blocked; the flag is only there to compare flagged and unflagged fades
+# later (docs/studies.md study 32). Cutoffs picked from a 62-fade replay on 23 Oct, which found only 5 such trades (1 win, -$30).
+SHADOW_BIAS_ADX_MIN_BIAS = 4.0
+SHADOW_BIAS_ADX_MIN_ADX = 25.0
 # Spike gate (live since 8 Oct 2026, Broker B, split by rule type): blocks an entry when the last 15 one-minute bars' entry-side
 # high-low range is at/above this multiple of ATR(14) on 15-min candles -- ATR lags a sudden spike (B #48: range 12.5 vs ATR 6.08
 # = 2.06x, lost the full stop). Fades (TA-Zone-*) trade the reversal AFTER a run into the level, so they get the looser gate (only
