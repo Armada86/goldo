@@ -144,11 +144,30 @@ missing. Add new ones at the bottom of their section (or under "Open / to repeat
       Compare with `SELECT entry_context->>'shadow_bias_adx' AS flag, count(*), sum(pnl) FROM broker_b_trades WHERE
       rule_name LIKE 'TA-Zone-%' AND entry_context ? 'shadow_bias_adx' GROUP BY 1` (and `forex_b_trades`, `mode = 'live'`).
 
+33. **TA re-run shadow log review** (24 Oct 2026, first week of study 29's log: 19-23 Oct, read straight from `ta_rerun_shadow`;
+    gold outcomes from stored 5-minute `readings` until 5 PM ET, a level counted as touched within $0.50). Study numbered 33
+    because 32 was taken by the bias/ADX shadow flag.
+    - **Events:** 5 in 5 trading days (Mon 19 Oct 09:51 and 13:11 ET, Wed 21 Oct 15:02 and 16:02, Fri 23 Oct 11:01), about one a
+      day, so the 3-a-day cap never bit. All 5 had `differs` (moved at least $3), as expected from adding 1h swings and session
+      high/low. The old levels were $12-50 from price (resistance $19-50, support $12-24).
+    - **Would-be levels vs price:** in events 1, 2, 3 and 5 at least one would-be level sat on or within about $4 of the current
+      price (often a "1h swing low" or "session low" labeled as resistance), so "gold later touched it" is nearly automatic and
+      says nothing about whether a fade there wins. The levels that were $15-20 away were not reached in events 1, 2 and 5 (the
+      resistance), and event 3's was at price.
+    - Caveats: 5 events, 5-minute readings can miss short touches, no P/L attached to any event, 3 of 5 fell in a slide from
+      about 4150 to 4000.
+    - Decision: real re-run **not built**; extra intraday levels in the scheduled runs stay out (study 28). Next step if wanted:
+      replay these events with the live fade exit rule to see whether trades at the would-be levels win.
+
 ## Open / to repeat
 - **Review the re-run shadow log on about 24 Oct 2026 (one week of data).** (Telegram reminder set for 24 Oct, 9:00 AM ET.) Run `python ta_rerun_shadow.py report 7`,
   check how many events fired, how many had `differs`, and how price behaved around the would-be levels. Then decide
   whether to build a real re-run (narrow version: scheduled runs unchanged, re-run only with 1h swings and session
   high/low, 60-minute cooldown, at most 3 a day, only when the levels change).
+- **Re-check study 33 (re-run shadow log) on about 31 Oct 2026** (same day and Telegram reminder as studies 25-27, 30-32): run
+  `python ta_rerun_shadow.py report 14` (or query `ta_rerun_shadow` over the Neon HTTPS endpoint from a cloud session, port 5432 is
+  blocked there), add the new events to the 5 in study 33, and check whether any would-be level was $10+ from price and later
+  traded, ideally by replaying the events with the live fade exit rule. Only then reconsider a real re-run.
 - **Re-run studies 25-27 in about two weeks (around 31 Oct 2026; one Telegram reminder on 31 Oct, 9:00 AM ET, covers this and the study 30, 31 and range / ATR items)** with more trades, before changing the bias gate, the
   stops or the levels.
 - **Re-check study 30 on about 31 Oct 2026** (same day as studies 25-27 and 31): with the extra week of Broker B and Broker F
