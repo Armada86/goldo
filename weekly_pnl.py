@@ -71,6 +71,12 @@ def render() -> None:
         ".goldo-weekly th {text-align:left;}</style>",
         f"<table class='goldo-weekly'><tr><th>Date</th>{header}</tr>",
     ]
+    overall = daily.sum()
+    html.append(
+        "<tr class='wk'><td><b>Overall total</b></td>"
+        + "".join(_cell(overall[b], bold=True) for b in brokers)
+        + "</tr>"
+    )
     for ws in sorted(set(week_start), reverse=True):
         week = daily[week_start == ws]
         we = ws + pd.Timedelta(days=6)
