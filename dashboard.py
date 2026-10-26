@@ -25,6 +25,8 @@ from config import (
     DASHBOARD_INDICATOR_NAMES,
     DOLLAR_UNIT_NAMES,
     FADE_LOCK_TRAIL_DISTANCE,
+    PROFIT_LOCK_ACTIVATION,
+    PROFIT_LOCK_DISTANCE,
     FADE_NEAR_TRAIL_ACTIVATION,
     FADE_NEAR_TRAIL_DISTANCE,
     FADE_NO_TRAIL_MAX_LOCK_DISTANCE,
@@ -148,6 +150,8 @@ BROKER_B_RULES_SHOWN_FROM = date(2026, 10, 5)
 # The fade exit rule (broker.py: capped stop, no ordinary trail before a near lock level, then the lock) went live on 9 Oct 2026 at 9:56 AM ET;
 # the 9:55 AM TA2 run is the first whose levels traded under it, so a forecast run from then on shows its "Fade exit" line, earlier ones don't.
 FADE_EXIT_RULE_SHOWN_FROM = datetime(2026, 10, 9, 9, 55, tzinfo=DISPLAY_TZ)
+# The +$20 profit lock (config.PROFIT_LOCK_*) applies to every trade from 26 Oct 2026; earlier forecast runs don't mention it.
+PROFIT_LOCK_SHOWN_FROM = datetime(2026, 10, 26, 12, 0, tzinfo=DISPLAY_TZ)
 
 
 def broker_b_entry_rules_html(as_of=None) -> str:
@@ -168,6 +172,8 @@ def broker_b_entry_rules_html(as_of=None) -> str:
     exit_text = (
         f"Stop loss &minus;${stop:g}; trailing stop starts at +${act:g} profit and follows ${dist:g} behind the best price."
     )
+    if as_of is not None and as_of >= PROFIT_LOCK_SHOWN_FROM:
+        exit_text += f" From +${PROFIT_LOCK_ACTIVATION:g} profit it trails ${PROFIT_LOCK_DISTANCE:g} behind the best price."
 
     def v(key: str) -> str:
         return "off" if rules[key] == OFF_VALUES[key] else f"{rules[key]:.4f}".rstrip("0").rstrip(".")

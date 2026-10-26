@@ -35,6 +35,12 @@ missing. Add new ones at the bottom of their section (or under "Open / to repeat
 16. **12 Oct, exit-context backtest** (11 trades). Inconclusive for an RSI/ADX exit rule, so `exit_context` is now
     collected on every close for a later look.
 
+34. **26 Oct, +$20 profit lock** (103 closed Broker A/B trades, 45 days, 98 on mid prices; one-off script, not in the repo). Question: once a
+    trade is $20 in profit, does trailing $5 (instead of the live $10) behind the peak pay? Baseline +$101.72. Trigger/trail: $12/$5 -$43.87,
+    $15/$5 -$28.22, $18/$5 -$3.79, **$20/$5 +$7.67**, $22/$5 +$9.39, $25/$5 +$6.50, $30/$5 +$15.00, $35/$5 +$5.00; with a $3 trail
+    $25 +$17.88. At $20/$5 nine trades change: six gain, three lose (B #1 -$14.44, A #4 -$3.03, B #101 -$0.92). Noisy, so not conclusive.
+    Decision (user): live for every broker at $20/$5 (`config.PROFIT_LOCK_*`, `broker._exit_stop_offset()`); see Open / to repeat.
+
 ## Tools these studies became
 17. **SLA** (`stop_loss_analysis.py`). Parity with the live exit code checked on 4,000 random paths, 0 mismatches.
 18. **BRA** (`block_rules_analysis.py`).
@@ -182,6 +188,9 @@ missing. Add new ones at the bottom of their section (or under "Open / to repeat
   With the extra week: check whether a range / ATR cutoff near 1.5x (fades, and breakouts if they stay on) still separates
   winners from losers, how it compares with the $10 ceiling (and $13 for fades) on out-of-sample trades, and whether to
   lower `spike_fade` (`start BRA` tunes it via `block_rules`) instead of keeping a flat dollar ceiling.
+- **Re-check study 34 (+$20 profit lock) on about 31 Oct 2026** (same day and Telegram reminder as the other 31 Oct items): with the extra week
+  of closed trades, list every trade whose peak reached $20 and compare its real exit with what the old $10 trail would have given
+  (replay with `config.PROFIT_LOCK_ACTIVATION` set very high), at other triggers ($22-30) and a $3 trail. Keep, retune or remove the lock.
 - **Re-check study 31 on about 31 Oct 2026** (together with studies 25-27): re-run the replay of ADX/ATR-blocked fade
   touches with the extra week of data (and the `broker_b_blocked` ADX/ATR notices), and check whether fading them would
   still beat the block. Only then consider relaxing the ADX/ATR fade block (`start BRA` tunes it) or building the reclaim entry.

@@ -69,6 +69,8 @@ from config import (
     FADE_NEAR_TRAIL_DISTANCE,
     FADE_NO_TRAIL_MAX_LOCK_DISTANCE,
     FADE_STOP_LOSS_CAP,
+    PROFIT_LOCK_ACTIVATION,
+    PROFIT_LOCK_DISTANCE,
     INTRAHOUR_SWING_ALERT_THRESHOLD,
     RSI_OVERBOUGHT_THRESHOLD,
     RSI_OVERSOLD_THRESHOLD,
@@ -360,9 +362,10 @@ def _exit_stop_offset(
     ever moves in the trade's favour."""
     if activation is None or distance is None:
         activation, distance = trailing_stop_params()
-    if peak < activation:
-        return -stop_loss_distance
-    return max(-stop_loss_distance, peak - distance)
+    offset = -stop_loss_distance if peak < activation else max(-stop_loss_distance, peak - distance)
+    if peak >= PROFIT_LOCK_ACTIVATION:  # 26 Oct 2026: a trade this far in profit trails tightly, whatever the ordinary trail says
+        offset = max(offset, peak - PROFIT_LOCK_DISTANCE)
+    return offset
 
 
 def _scan_exit_crossing(
