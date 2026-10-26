@@ -35,12 +35,6 @@ missing. Add new ones at the bottom of their section (or under "Open / to repeat
 16. **12 Oct, exit-context backtest** (11 trades). Inconclusive for an RSI/ADX exit rule, so `exit_context` is now
     collected on every close for a later look.
 
-34. **26 Oct, +$20 profit lock** (103 closed Broker A/B trades, 45 days, 98 on mid prices; one-off script, not in the repo). Question: once a
-    trade is $20 in profit, does trailing $5 (instead of the live $10) behind the peak pay? Baseline +$101.72. Trigger/trail: $12/$5 -$43.87,
-    $15/$5 -$28.22, $18/$5 -$3.79, **$20/$5 +$7.67**, $22/$5 +$9.39, $25/$5 +$6.50, $30/$5 +$15.00, $35/$5 +$5.00; with a $3 trail
-    $25 +$17.88. At $20/$5 nine trades change: six gain, three lose (B #1 -$14.44, A #4 -$3.03, B #101 -$0.92). Noisy, so not conclusive.
-    Decision (user): live for every broker at $20/$5 (`config.PROFIT_LOCK_*`, `broker._exit_stop_offset()`); see Open / to repeat.
-
 ## Tools these studies became
 17. **SLA** (`stop_loss_analysis.py`). Parity with the live exit code checked on 4,000 random paths, 0 mismatches.
 18. **BRA** (`block_rules_analysis.py`).
@@ -58,17 +52,36 @@ missing. Add new ones at the bottom of their section (or under "Open / to repeat
 24. **FOREX.com demo checks.** The 22 Sep test buy, `forex_live_check.py` (attach, move, cancel, close), and
     `forex_watcher_sim.py` (two overlapping watchers on a scripted tick path).
 
-## 17 Oct 2026, weekly TA and fade-level study
-25. **Weekly TA and fade study** (12-16 Oct): 17 forecast rows, 18 Broker B fade trades, 20 first level touches tested
+## Studies 25-34 (12-26 Oct 2026): fade levels, fade filters and exits
+Ten studies on one family of questions, Broker B's fade trades (`TA-Zone-*`). To avoid studying the same thing twice they fall into
+four themes; each study below starts with a plain-words line and says where it overlaps another.
+
+| Theme | Question | Studies |
+|---|---|---|
+| **A. Levels** | Are the fade levels often too far from price, and would extra levels or a mid-day re-run fix it? | 25 (finding), 28 (simulation), 29 and 33 (live shadow log) |
+| **B. Entry filters** | Which fades should be skipped (against the bias, high ADX/ATR)? | 25 and 27 (bias findings), 32 (bias/ADX flag), 31 (ADX/ATR block) |
+| **C. Exits on losers** | When a fade goes wrong, is there a better stop, a wider stop, or a reversal? | 27 (stop width, lock), 32 (invalidation stop), 30 (flip) |
+| **D. Exits on winners** | Can a trade that is far in profit give less back? | 34 (+$20 profit lock; earlier work: studies 12-15) |
+
+Studies 26 (BRA/SLA dry-runs) and 27 (what-if) are baselines that themes B and C reuse. Breakout rules (`TA-Breakout-*`) are only
+questioned in study 30.
+
+25. **Weekly TA and fade study**
+    *In plain words:* A look back at one week of fade trades: how many won, whether the levels were in useful places, and whether trades taken against the TA bias did worse. Themes A (its Wednesday finding) and B (the bias finding); the bias idea is tested properly in 32.
+    (12-16 Oct): 17 forecast rows, 18 Broker B fade trades, 20 first level touches tested
     against 1-minute Twelve Data bars (mid prices).
     - Fades: 12 of 18 won, +$27.44 (sells 6/7 +$38.61, buys 6/11 -$11.18). Four -$15 stop-outs cost -$60.
     - 13 of 20 fade levels held at first touch (sells 6/9, buys 7/11).
     - Wednesday 14 Oct ($99 range): after the 10:00 run the levels sat $18 above and $28 below price, so there were zero
       fade trades after 8:11 AM. The generator only uses structural levels and has none near a new low.
     - Fade-buys at bias score -4 or lower held 2 of 5 and traded -$24.78; other buys held 5 of 6.
-26. **BRA and SLA dry-runs** (read-only). Both said keep the current settings: BRA +$175.65 (100 events), SLA +$181.96
+26. **BRA and SLA dry-runs**
+    *In plain words:* We ran the two automatic tuners without letting them change anything, to see if they would improve the live settings. They said no. This is the baseline for themes B and C.
+    (read-only). Both said keep the current settings: BRA +$175.65 (100 events), SLA +$181.96
     (86 trades, 66 fades), the best setting being the live one (stop -$20, trail from +$3 at $10).
-27. **Custom what-if on the 66 fades** (45-day total, baseline +$191.6; last week, baseline +$10.7 in the replay):
+27. **Custom what-if on the 66 fades**
+    *In plain words:* We replayed the 66 fade trades with different rules (skip some buys, wider stop, remove the lock) to see if any beat the live rule. Only the lock was clearly worth keeping. Overlaps: the bias bullet is retested in 32 (theme B); the stop-width bullet in 32 and 30 (theme C); the last bullet (level fixes) became 28 (theme A).
+     (45-day total, baseline +$191.6; last week, baseline +$10.7 in the replay):
     - Skip fade-buys when bias <= -4: +$203.0 / +$36.0. Weak: the cutoff is fragile (-3 gives +$161.4, -5 gives +$188.0).
     - Wider stop (cap 20) or `max(15, 2.5 x ATR)`: +$223.1 / +$220.3. Not supported: the whole gain is trade B #85
       (without it +$2.7 and -$0.1).
@@ -79,7 +92,9 @@ missing. Add new ones at the bottom of their section (or under "Open / to repeat
     - Not testable from stored trades: level-generation fixes (intraday levels, automatic re-runs when price leaves the
       ladder, grading levels by touch).
 
-28. **Level-gap fix: simulated re-run with extra intraday levels** (5-16 Oct, 1-minute bars, the real zone code; the sim
+28. **Level-gap fix: simulated re-run with extra intraday levels**
+    *In plain words:* Sometimes price runs away and none of the fade levels is near it, so there are no fade trades for hours. We simulated adding more levels and re-running the forecast to see if that would help. It might (+$4 to +$39) but was too noisy to build. Theme A; 29 and 33 check it live.
+     (5-16 Oct, 1-minute bars, the real zone code; the sim
     reproduced all 32 published level sets exactly and scored the published levels at 45 trades, +$61 against +$112 live
     with the entry filters). The idea: add 1h swings, shorter 4h swings, session high/low and $25 round numbers to the
     level pool, and re-run the TA when gold is more than 2x ATR(15-min) from both fade levels.
@@ -90,12 +105,16 @@ missing. Add new ones at the bottom of their section (or under "Open / to repeat
     - Caveats: small sample, no entry filters, mid prices, and re-runs often picked identical levels (four in a row on
       Tue 13 Oct), which live would spam Telegram and re-arm each level's trade budget.
     - Decision: not built. Shadow logging added instead (study 29).
-29. **TA re-run shadow log** (started 17 Oct 2026, `ta_rerun_shadow.py`, see `CLAUDE.md`). Log only: when gold is more
+29. **TA re-run shadow log**
+    *In plain words:* A log that records, without trading, the moments when a mid-day re-run would have happened and what levels it would have given. It is the live check of study 28. Reviewed once in 33. Theme A.
+    (started 17 Oct 2026, `ta_rerun_shadow.py`, see `CLAUDE.md`). Log only: when gold is more
     than 2x ATR(15-min) from both fade levels, the poll records the re-run it would have started and the levels it would
     have produced (1h swings and session high/low added). It runs nothing and sends nothing. Read it with
     `python ta_rerun_shadow.py report 7`. Compare the real events with study 28: how often it fires, how often the
     levels would actually change, and whether price then traded at the would-be levels.
-30. **Flip study: reverse a fade through the breakout level** (21 Oct 2026, one-off script, not in the repo). Question: when a
+30. **Flip study: reverse a fade through the breakout level**
+    *In plain words:* When a fade is wrong and price blows through the level, would reversing into the other direction make money? No, in every variant. This is also the only study of the breakout rules. Theme C.
+     (21 Oct 2026, one-off script, not in the repo). Question: when a
     fade (TA-Zone-sell/buy) is wrong and price keeps going through the scenario's `stop` (= the opposite breakout trigger,
     median $10 from the entry), would flipping to the other side make money? Replayed 99 fade trades from Broker B and
     Broker F (24 Sep-21 Oct) on Twelve Data 1-minute mid prices, $0.60 spread per simulated trade, current stops ($20
@@ -112,7 +131,9 @@ missing. Add new ones at the bottom of their section (or under "Open / to repeat
     - Decision: not built. Consistent with Broker F's live breakouts (5 trades, -$10.22): consider turning the breakout
       rules off, to be re-checked with more trades.
 
-31. **Re-entry after an ADX/ATR-blocked fade touch** (22 Oct 2026, one-off script, not in the repo). Question: when a fade
+31. **Re-entry after an ADX/ATR-blocked fade touch**
+    *In plain words:* The ADX/ATR filter skips some fade touches. We checked whether entering later, after a dip and recovery, would pay, and found that simply taking those skipped fades would have made more than any re-entry. So the real question is whether the filter itself costs money. Theme B.
+     (22 Oct 2026, one-off script, not in the repo). Question: when a fade
     level (TA-Zone-buy/sell) is touched but blocked by the ADX or ATR gate, and price then goes through the level and
     comes back, should we enter on the way back? Replayed all 259 fade-level touches of 22 Sep-22 Oct (every TA run, both
     fade levels) on Twelve Data 1-minute mid prices. Gates rebuilt from 15-min candles at the touch (current thresholds:
@@ -132,7 +153,9 @@ missing. Add new ones at the bottom of their section (or under "Open / to repeat
       changed during the month but current ones were used throughout.
     - Decision: not built. The finding to re-check is that the ADX/ATR fade block may cost money, not the reclaim entry.
 
-32. **Bias/ADX fade filter, shadow only** (23 Oct 2026, replay one-off script, not in the repo; shadow flag is in the code). Question
+32. **Bias/ADX fade filter, shadow only**
+    *In plain words:* Should a fade that goes against the TA bias, in a strong trend (high ADX), be skipped? The replay hinted yes but only 3-5 trades were affected, so it now runs as a flag only. Also tested a tighter stop at the forecast's invalidation level, which was worse. Themes B and C. Retests the bias idea from 25 and 27.
+     (23 Oct 2026, replay one-off script, not in the repo; shadow flag is in the code). Question
     (from Broker F #32 / Broker B #100, a TA-Zone-buy at 4050 into a -6 bias and ADX 30, stopped at -$15): should fades against
     the TA bias with high ADX be skipped, or stopped at the forecast's invalidation level? Replayed 76 Broker B fades (24 Sep-23 Oct)
     on Twelve Data 1-minute mid prices with today's exit rule ($20 stop capped at 15, 3/10 trail, lock); replay baseline +$179.11
@@ -150,7 +173,9 @@ missing. Add new ones at the bottom of their section (or under "Open / to repeat
       Compare with `SELECT entry_context->>'shadow_bias_adx' AS flag, count(*), sum(pnl) FROM broker_b_trades WHERE
       rule_name LIKE 'TA-Zone-%' AND entry_context ? 'shadow_bias_adx' GROUP BY 1` (and `forex_b_trades`, `mode = 'live'`).
 
-33. **TA re-run shadow log review** (24 Oct 2026, first week of study 29's log: 19-23 Oct, read straight from `ta_rerun_shadow`;
+33. **TA re-run shadow log review**
+    *In plain words:* The first weekly check of the study 29 log: 5 events in 5 days, nothing conclusive, nothing built. Theme A.
+    (24 Oct 2026, first week of study 29's log: 19-23 Oct, read straight from `ta_rerun_shadow`;
     gold outcomes from stored 5-minute `readings` until 5 PM ET, a level counted as touched within $0.50). Study numbered 33
     because 32 was taken by the bias/ADX shadow flag.
     - **Events:** 5 in 5 trading days (Mon 19 Oct 09:51 and 13:11 ET, Wed 21 Oct 15:02 and 16:02, Fri 23 Oct 11:01), about one a
@@ -165,30 +190,41 @@ missing. Add new ones at the bottom of their section (or under "Open / to repeat
     - Decision: real re-run **not built**; extra intraday levels in the scheduled runs stay out (study 28). Next step if wanted:
       replay these events with the live fade exit rule to see whether trades at the would-be levels win.
 
+34. **26 Oct, +$20 profit lock**
+    *In plain words:* Once a trade is $20 in profit, tighten the trailing stop from $10 to $5 behind the best price so less of a big win is given back. It added about +$8 over 103 trades and is live now. Theme D (continues the trailing-stop work of studies 12-15).
+     (103 closed Broker A/B trades, 45 days, 98 on mid prices; one-off script, not in the repo). Question: once a
+    trade is $20 in profit, does trailing $5 (instead of the live $10) behind the peak pay? Baseline +$101.72. Trigger/trail: $12/$5 -$43.87,
+    $15/$5 -$28.22, $18/$5 -$3.79, **$20/$5 +$7.67**, $22/$5 +$9.39, $25/$5 +$6.50, $30/$5 +$15.00, $35/$5 +$5.00; with a $3 trail
+    $25 +$17.88. At $20/$5 nine trades change: six gain, three lose (B #1 -$14.44, A #4 -$3.03, B #101 -$0.92). Noisy, so not conclusive.
+    Decision (user): live for every broker at $20/$5 (`config.PROFIT_LOCK_*`, `broker._exit_stop_offset()`); see Open / to repeat.
+
 ## Open / to repeat
-Ordered by study number. Everything below is due on about **31 Oct 2026**; one Telegram reminder that day (9:00 AM ET) covers all of it.
+All due on about **31 Oct 2026**; one Telegram reminder that day (9:00 AM ET) covers it. Grouped by theme (see the table above) so the
+same trades are not replayed four times: for each theme, use one replay of the same trades and answer every study's question from it.
 (The 24 Oct review of the re-run shadow log is done: study 33.)
 
-- **Studies 25-27 (weekly TA / fade study, BRA and SLA dry-runs, 66-fade what-if)**: re-run with about two more weeks of trades
-  before changing the bias gate, the stops or the levels.
-- **Studies 29 and 33 (TA re-run shadow log)**: run `python ta_rerun_shadow.py report 14` (or query `ta_rerun_shadow` over the Neon
+- **Theme A, levels (studies 25, 28, 29, 33)**: run `python ta_rerun_shadow.py report 14` (or query `ta_rerun_shadow` over the Neon
   HTTPS endpoint from a cloud session, port 5432 is blocked there), add the new events to the 5 in study 33, and check whether any
   would-be level was $10+ from price and later traded, ideally by replaying the events with the live fade exit rule. Only then
   reconsider a real re-run (narrow version: scheduled runs unchanged, re-run only with 1h swings and session high/low, 60-minute
   cooldown, at most 3 a day, only when the levels change).
-- **Study 30 (flip study)**: with the extra week of Broker B and Broker F trades, check whether the breakout rules (`TA-Breakout-*`)
-  still lose (Broker F live: 5 trades, -$10.22 at the time of study 30) and decide whether to turn them off.
-- **Study 31 (re-entry after an ADX/ATR-blocked fade touch)**: re-run the replay of blocked fade touches with the extra week of data
-  (and the `broker_b_blocked` ADX/ATR notices), and check whether fading them would still beat the block. Only then consider relaxing
-  the ADX/ATR fade block (`start BRA` tunes it) or building the reclaim entry.
-- **Study 32 (bias/ADX shadow flag)**: count flagged and unflagged fades (SQL in study 32) in `broker_b_trades` and live
-  `forex_b_trades`. The replay found 5 such trades in a month, so expect only a few flagged by then; if there are fewer than about
-  20, keep collecting. If the flagged ones clearly lose, make it a real block (a rule in `broker_b.evaluate_gates()` shared with
-  Broker F, ideally a `block_rules` value so `start BRA` can tune it); if not, remove the flag.
-- **Study 34 (+$20 profit lock)**: with the extra week of closed trades, list every trade whose peak reached $20 and compare its real
-  exit with what the old $10 trail would have given (replay with `config.PROFIT_LOCK_ACTIVATION` set very high), at other triggers
-  ($22-30) and a $3 trail. Keep, retune or remove the lock.
-- **Range / ATR spike rule (22 Oct review of the $10 spike ceiling; no study number yet)**: 91 Broker B trades 22 Sep-22 Oct plus
+- **Theme B, entry filters (studies 25, 27, 31, 32 and the range / ATR item below)**: one replay of all fade touches, with the extra
+  week, answering three questions together. (1) Study 31: would fading the ADX/ATR-blocked touches still beat the block? Re-run it
+  with the `broker_b_blocked` ADX/ATR notices; only then consider relaxing the block (`start BRA` tunes it) or building the reclaim
+  entry. (2) Study 32: count flagged and unflagged fades (SQL in study 32) in `broker_b_trades` and live `forex_b_trades`; fewer than
+  about 20 flagged = keep collecting; if the flagged ones clearly lose, make it a real block (a rule in `broker_b.evaluate_gates()`
+  shared with Broker F, ideally a `block_rules` value), otherwise remove the flag. The bias bullets of 25 and 27 are answered by this
+  count, so do not repeat them separately. (3) The range / ATR spike rule (below).
+- **Theme C, exits on losers (studies 27, 30, 32)**: re-run the fade exit replay once with the extra week. Study 30's question is
+  whether the breakout rules (`TA-Breakout-*`) still lose (Broker F live: 5 trades, -$10.22 at the time of study 30) and whether to
+  turn them off. The stop width (27) and invalidation stop (32) ideas were rejected; revisit only if the new trades change the
+  picture.
+- **Theme D, exits on winners (study 34)**: with the extra week of closed trades, list every trade whose peak reached $20 and compare
+  its real exit with what the old $10 trail would have given (replay with `config.PROFIT_LOCK_ACTIVATION` set very high), at other
+  triggers ($22-30) and a $3 trail. Keep, retune or remove the lock.
+- **Baselines (studies 26, 27)**: re-run BRA and SLA dry-runs (and the 66-fade what-if baseline) with about two more weeks of trades
+  before changing the bias gate, the stops or the levels.
+- **Range / ATR spike rule (22 Oct review of the $10 spike ceiling; no study number yet, belongs to theme B)**: 91 Broker B trades 22 Sep-22 Oct plus
   Broker F's 30 live trades; one-off script, not in the repo. The flat ceiling is on a plateau: blocking at $8-15 gains $77-99 for
   Broker B, best $9 (+$99), $10 +$77, $13 +$82; fades alone prefer $13-15 (+$78 vs +$47 at $10); breakouts lose (-$67) at any range;
   all of the $10 ceiling's gain came in the second half of the month. The 15-min range divided by ATR(14) separates trades better
