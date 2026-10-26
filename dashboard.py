@@ -2,7 +2,6 @@
 
 import os
 from datetime import date, datetime, timedelta, timezone
-from itertools import zip_longest
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -22,8 +21,6 @@ import broker
 import broker_b
 from block_rules import OFF_VALUES, get_block_rules
 from config import (
-    DASHBOARD_INDICATOR_NAMES,
-    DOLLAR_UNIT_NAMES,
     FADE_LOCK_TRAIL_DISTANCE,
     PROFIT_LOCK_ACTIVATION,
     PROFIT_LOCK_DISTANCE,
@@ -31,7 +28,6 @@ from config import (
     FADE_NEAR_TRAIL_DISTANCE,
     FADE_NO_TRAIL_MAX_LOCK_DISTANCE,
     FADE_STOP_LOSS_CAP,
-    TECHNICAL_READING_NAMES,
 )
 from storage import get_connection, get_stop_settings_as_of
 import weekly_pnl
@@ -59,16 +55,6 @@ st.markdown(
             opacity: 0.35; pointer-events: none; cursor: not-allowed;
         }}
     .block-container {{ padding-top: 1.5rem; padding-bottom: 1rem; }}
-    .goldo-table {{ width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 9px; }}
-    .goldo-table th, .goldo-table td {{
-        padding: 2px 1px; text-align: right; overflow-wrap: break-word; line-height: 1.15;
-    }}
-    .goldo-table th:first-child, .goldo-table td:first-child,
-    .goldo-table th:nth-child(3), .goldo-table td:nth-child(3) {{ text-align: left; }}
-    .goldo-table th:nth-child(3), .goldo-table td:nth-child(3) {{ padding-left: 8px; }}
-    .goldo-table th {{ font-size: 8px; color: #888; font-weight: 600; }}
-    .goldo-table td.symbol {{ font-weight: 700; font-size: 10px; }}
-    .goldo-table td.price {{ font-weight: 700; font-size: 9.5px; }}
     /* Streamlit's st.columns() puts every column on its own line below a container-width breakpoint
        (each gets min-width: calc(100% - 24px), which wraps them via flex-wrap once they can't all
        fit) -- that's what stacked the forecast date navigator's ◀/date/▶ row on a phone screen. The
@@ -90,11 +76,6 @@ st.markdown(
        stretching a single-column table edge-to-edge just because `layout="wide"` has the room. */
     @media (min-width: {LAPTOP_BREAKPOINT_PX}px) {{
         .block-container {{ max-width: 1000px; margin: 0 auto; padding-top: 2.5rem; }}
-        .goldo-table {{ font-size: 14px; }}
-        .goldo-table th, .goldo-table td {{ padding: 7px 10px; }}
-        .goldo-table th {{ font-size: 12px; }}
-        .goldo-table td.symbol {{ font-size: 15px; }}
-        .goldo-table td.price {{ font-size: 14.5px; }}
         /* render_diagram_svg()'s SVG is `width:100%;height:auto`, so it fills whatever contains it --
            on a wide screen that means stretching (and, since the viewBox aspect ratio is preserved,
            growing just as tall as it is wide), which looks oversized next to the single-column table
@@ -531,34 +512,6 @@ if min_forecast_date is not None:
     elif selected_date != today_et:
         st.caption(f"No forecast recorded for {selected_date:%Y-%m-%d} (weekend, holiday, or a day the job didn't run).")
 
-# Symbols table layout: gold and its technical readings plus the two macro drivers on the left, every other
-# dashboard symbol on the right (rows pair up left/right).
-LEFT_TABLE_NAMES = ["gold", *TECHNICAL_READING_NAMES, "dxy", "us10y"]
-RIGHT_TABLE_NAMES = [n for n in DASHBOARD_INDICATOR_NAMES if n not in LEFT_TABLE_NAMES]
-
-
-def load_readings() -> pd.DataFrame:
-    """Each shown symbol's latest reading only. This used to read the whole `readings` table (~4 MB and growing
-    ~2.5k rows a day) on every page run and 5-minute auto-refresh -- the main source of Neon network transfer."""
-    with get_connection() as conn:
-        return pd.read_sql(
-            "SELECT DISTINCT ON (name) ts, name, price FROM readings WHERE name = ANY(%s) "
-            "ORDER BY name, ts DESC",
-            conn,
-            params=(list({*LEFT_TABLE_NAMES, *RIGHT_TABLE_NAMES}),),
-            parse_dates=["ts"],
-        )
-
-
-def load_alerts() -> pd.DataFrame:
-    with get_connection() as conn:
-        return pd.read_sql(
-            "SELECT ts, message FROM alerts ORDER BY ts DESC LIMIT 20",
-            conn,
-            parse_dates=["ts"],
-        )
-
-
 def load_trades() -> pd.DataFrame:
     """Broker B's `broker_b_trades`, Broker F's `forex_b_trades` (live demo-account trades only, not the shadow-mode records) and
     Broker K's `broker_k_trades` (22 Oct 2026), merged into one timeline (not separate tables) via UNION ALL, most recent 20 combined by `open_ts` -- a `broker` column (added
@@ -595,40 +548,6 @@ def to_display_str(ts: pd.Series) -> pd.Series:
         ts = ts.dt.tz_localize("UTC")
     return ts.dt.tz_convert(DISPLAY_TZ).dt.strftime("%Y-%m-%d %H:%M:%S %Z")
 
-
-try:
-    readings = load_readings()
-except Exception as e:
-    st.error(f"Could not load readings: {e}")
-    readings = pd.DataFrame(columns=["ts", "name", "price"])
-
-if readings.empty:
-    st.info("No data yet — start main.py to begin polling.")
-else:
-    latest = {row["name"]: row["price"] for _, row in readings.iterrows()}
-
-    def cells(name: str | None) -> str:
-        if name is None:
-            return '<td class="symbol"></td><td class="price"></td>'
-        if name not in latest:
-            price_text = "—"
-        elif name in TECHNICAL_READING_NAMES and name != "atr":
-            price_text = f"{latest[name]:,.1f}"  # RSI / ADX: 0-100 scale, no unit
-        else:
-            unit = "$" if name in DOLLAR_UNIT_NAMES or name == "atr" else ""
-            price_text = f"{unit}{latest[name]:,.2f}"
-        return f'<td class="symbol">{name.upper()}</td><td class="price">{price_text}</td>'
-
-    rows_html = [
-        f"<tr>{cells(left)}{cells(right)}</tr>"
-        for left, right in zip_longest(LEFT_TABLE_NAMES, RIGHT_TABLE_NAMES)
-    ]
-    colgroup = '<colgroup><col style="width:17%"><col style="width:33%"><col style="width:17%"><col style="width:33%"></colgroup>'
-    table_html = (
-        f'<table class="goldo-table">{colgroup}<thead><tr><th>Symbol</th><th>Price</th>'
-        f'<th>Symbol</th><th>Price</th></tr></thead><tbody>{"".join(rows_html)}</tbody></table>'
-    )
-    st.markdown(table_html, unsafe_allow_html=True)
 
 st.subheader("Recent Trades")
 try:
@@ -679,18 +598,3 @@ else:
         return colors
 
     st.dataframe(trades.style.apply(_color_row_number, subset=["#"]), width='stretch', hide_index=True)
-
-st.subheader("Recent Alerts")
-try:
-    alerts = load_alerts()
-except Exception as e:
-    st.error(f"Could not load alerts: {e}")
-    alerts = pd.DataFrame(columns=["ts", "message"])
-
-if not alerts.empty:
-    alerts["ts"] = to_display_str(alerts["ts"])
-
-if alerts.empty:
-    st.write("No alerts recorded yet.")
-else:
-    st.dataframe(alerts, width='stretch')

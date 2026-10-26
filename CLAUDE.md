@@ -857,7 +857,7 @@ section -- a date navigator (◀/▶ `st.button`s plus a `st.date_input`, all th
 stacks its columns vertically below a width breakpoint by default (each `stColumn` gets
 `min-width: calc(100% - 24px)`, which wraps via `flex-wrap` once they can't all fit) -- on a phone-width
 screen that stacked the ◀/date/▶ row instead of keeping it in one line, so a CSS override in the same
-`<style>` block as the `.goldo-table` rules (`flex-wrap: nowrap` on `stHorizontalBlock` plus
+`<style>` block (`flex-wrap: nowrap` on `stHorizontalBlock` plus
 `min-width: 0; width: auto` on `stColumn`) forces this specific row to stay side by side at any width;
 scoped file-wide since it's the only `st.columns()` layout pattern used here, but should be scoped
 tighter if it ever needs to coexist with a differently-behaved multi-column block) followed by a second,
@@ -924,14 +924,7 @@ text Telegram got. The whole section is skipped -- no header, no empty-state mes
 `ta_forecasts` has no rows at all (a fresh deploy before the first scheduled run), so a fresh deploy
 doesn't leave a broken-looking gap above the always-present table below. This is the one chart on the
 dashboard by design (see "XAU/USD technical forecast" for why it isn't the old Plotly kind); everything
-below it is still deliberately chart-free — the symbols table is a single compact HTML table (built
-by hand and rendered via `st.markdown(..., unsafe_allow_html=True)`, not `st.dataframe`/`st.metric`, for
-tight control over font size and column widths) with one row per `DASHBOARD_INDICATOR_NAMES` entry and
-two side-by-side Symbol/Price pairs showing only the latest value (the 5/10/15/30/60-minute change columns were removed 5 Oct 2026 at the user's request -- only the current reading is wanted): the left pair is `gold`, `rsi`, `adx`, `atr`, `dxy`, `us10y` (`LEFT_TABLE_NAMES`), the right pair every other dashboard symbol (gld/iau/gldm/gdx/gdxj/ring, `RIGHT_TABLE_NAMES`). RSI(14)/ADX(14)/ATR(14) of gold's 15-min candles are not fetched by the dashboard (no Twelve Data calls from page loads): `main.poll_once()` fetches the candles once per poll for `check_rsi_alerts(candles)` and saves the three values into `readings` under `config.TECHNICAL_READING_NAMES` (`data_fetcher.gold_rsi_adx_atr_from_candles()`); a failed candle fetch now skips just the RSI alert and these readings for that cycle instead of crashing the poll. They show `—` until the first poll after the change, and Friday's last values over the weekend. `load_readings()` fetches only each symbol's latest reading (`DISTINCT ON (name)`), not the whole `readings` table: the old full-table read (~4 MB, growing ~2.5k rows/day, once per page run and 5-minute auto-refresh) was the main driver of Neon network transfer (~1 GB in the first 5 days of the Oct 2026 billing period against the Free plan's 5 GB). Deliberately sized for a phone screen
-(tuned against a Samsung S24 Ultra viewport) so every row is visible without scrolling — small fonts, a
-fixed `<colgroup>` so columns can't overflow the viewport width, kept in the CSS block at the top of the
-file rather than per-element `style=`. The `$` unit shown on price cells is
-picked per-name (`DOLLAR_UNIT_NAMES`) the same way `rules.py` picks it for alert messages.
+below it is still deliberately chart-free. **The symbols table (a compact HTML table of the latest price of every `DASHBOARD_INDICATOR_NAMES` symbol plus gold's RSI/ADX/ATR) and the Recent Alerts table were removed from the dashboard on 26 Oct 2026 at the user's request.** Nothing else changed: `main.poll_once()` still saves every reading, including the RSI/ADX/ATR ones under `config.TECHNICAL_READING_NAMES`, and every alert to Postgres (the brokers, the forecast diagram's live price and the weekly P&L page use them); `config.DASHBOARD_INDICATOR_NAMES` / `DOLLAR_UNIT_NAMES` are now unused by the dashboard but kept, and the dashboard no longer fetches the latest readings at all. What remains below the forecast section is the "Recent Trades" table.
 
 **Broker B entry rules on the dashboard (4 Oct 2026)**: right below the forecast diagram (moved from above it, 9 Oct 2026), `dashboard.py` shows a small
 "Broker B rules in force" block (`broker_b_entry_rules_html()`): the DXY / ADX / RSI / ATR / spike entry cutoffs (the `block_rules` row in force at the run's time, `config` as fallback)
@@ -949,16 +942,15 @@ viewport is wide enough, purely by width, not by detecting "a laptop" as a devic
 correct way to do this on the web: one URL, one page, no separate mobile/desktop site. Three things
 change at that breakpoint: (1) `.block-container` gets a `max-width: 1000px; margin: 0 auto`, so
 `layout="wide"`'s available width is capped and centered instead of stretching a single-column page
-edge-to-edge on an ultra-wide monitor; (2) the symbols table's fonts/padding scale up (9px→14px,
-2px→7-10px); (3) the forecast diagram's SVG, which
+edge-to-edge on an ultra-wide monitor; (2) (removed 26 Oct 2026 with the symbols table: its fonts/padding used to scale up here); (3) the forecast diagram's SVG, which
 is `width:100%;height:auto` and therefore fills whatever contains it (and, since its viewBox aspect
 ratio is preserved, grows just as tall as it grows wide), gets capped at `max-width: 640px` and centered
 via a `.goldo-diagram-wrap` div `dashboard.py` wraps it in specifically for this -- otherwise it would
-stretch oversized next to the now-comfortably-sized table below it. The two `st.dataframe` tables below
-("Recent Trades"/"Recent Alerts") aren't touched by the breakpoint -- Streamlit's own dataframe
+stretch oversized next to the now-comfortably-sized table below it. The `st.dataframe` table below
+("Recent Trades") isn't touched by the breakpoint -- Streamlit's own dataframe
 component already sizes and paginates itself reasonably at any width, so no custom rule was needed
 there. Below the
-symbols table sit those two more `st.dataframe` tables (not the hand-built HTML above, since no per-cell
+forecast section sits one `st.dataframe` table (not hand-built HTML, since no per-cell
 layout control is needed here beyond one column's background color — see below): "Recent Trades"
 (`load_trades()` — Broker B's `broker_b_trades` and Broker F's `forex_b_trades` (live only) `UNION ALL`-ed into one combined timeline, not two separate tables; Broker A is not shown (13 Oct 2026) —
 most recent 20 combined by `open_ts`, with an extra `broker` column (`'Broker B'`/`'Broker F'`,
@@ -971,15 +963,13 @@ with no visible effect), so the leftmost "#" row-number column is a real data co
 *before* `pnl` gets formatted to a display string), colored green (win, `pnl > 0`) or red (loss,
 `pnl < 0`) via `Styler.apply(..., subset=["#"])` on that data column, which `st.dataframe` *does* honor
 -- an open or exactly-breakeven trade's "#" cell is left unstyled. `hide_index=True` drops the
-now-redundant default index next to it. "Recent Alerts" (`load_alerts()`, unchanged, no Styler) sits
-below it. `readings`/
+now-redundant default index next to it. `readings`/
 `alerts`/`trades`/`broker_b_trades` timestamps are all stored as UTC (`storage.py`'s
 `datetime.now(timezone.utc)`)
 regardless of where the poll job or dashboard happen to run — the "last loaded" caption and the Recent
-Trades/Recent Alerts tables are the only places that convert to a human timezone for display, all
+Trades table are the only places that convert to a human timezone for display, all
 through the shared `to_display_str()` helper, to `DISPLAY_TZ` (`America/New_York`, matching the
-project's existing scheduling convention — see "Scheduling" below). The `readings` timestamps
-behind the symbols table are never rendered (only the latest price is shown).
+project's existing scheduling convention — see "Scheduling" below). The `readings` timestamps are not rendered on the dashboard any more.
 
 **Storage is Postgres (Neon), not SQLite** — despite `market_data.db` and `streamlit.log` still sitting
 in the repo root (gitignored, unused leftovers from an earlier local-SQLite version). `storage.py` and

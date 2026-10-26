@@ -165,7 +165,7 @@ Not every indicator uses the same alert logic — see `rules.py` / `CLAUDE.md` f
   (`config.DASHBOARD_EXCLUDED_NAMES`/`config.MACRO_REPORT_NAMES`, both subtracted from
   `ALL_INDICATOR_NAMES` to get `config.DASHBOARD_INDICATOR_NAMES`) — the macro reports at the user's
   original request (fourteen more rows at wildly different scales/frequencies would clutter the one
-  compact symbols table), and the three FRED rate/index series at the user's later request, leaving the
+  compact symbols table, since removed from the dashboard on 26 Oct 2026), and the three FRED rate/index series at the user's later request, leaving the
   dashboard showing only the nine continuously-traded market prices/yields (`gold`, `gld`, `iau`,
   `gldm`, `gdx`, `gdxj`, `ring`, `dxy`, `us10y`)
 - `gold`'s 20/50-day SMA crossover check (`rules.check_sma_crossover()`) still exists but is **disabled** — no longer called from `main.poll_once()`, so nothing about the SMAs goes to Telegram
