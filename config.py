@@ -186,6 +186,12 @@ TA_RERUN_SHADOW_ATR_MULTIPLE = 2.0
 TA_RERUN_SHADOW_COOLDOWN_MINUTES = 60  # minimum gap after the last TA run or logged event
 TA_RERUN_SHADOW_MAX_PER_DAY = 3
 TA_RERUN_SHADOW_MIN_LEVEL_CHANGE = 3.0  # $; the would-be fade levels count as "different" only if one moved by at least this
+# Profit lock for every trade (26 Oct 2026, all brokers that use broker._scan_exit: A, B, F): once the best profit reaches
+# PROFIT_LOCK_ACTIVATION the stop follows PROFIT_LOCK_DISTANCE behind the best price (only ever raising the stop, never lowering it), whatever the
+# ordinary `make trail` or fade settings say. Replay of 103 trades (45 days): +$109.38 vs +$101.72 without it; negative below ~$18, noisy above,
+# hand-picked at the user's request -- re-check on about 31 Oct 2026 (docs/studies.md, study 34).
+PROFIT_LOCK_ACTIVATION = 20.0
+PROFIT_LOCK_DISTANCE = 5.0
 # Broker B fade exit rule (see broker.py): once a TA-Zone-* trade reaches its opposite fade level its stop locks there and trails
 # this many $ behind the best price; before that it has no ordinary trailing stop and its hard stop is capped at the second value.
 FADE_LOCK_TRAIL_DISTANCE = 5.0

@@ -49,6 +49,8 @@ from config import (
     FADE_NEAR_TRAIL_DISTANCE,
     FADE_NO_TRAIL_MAX_LOCK_DISTANCE,
     FADE_STOP_LOSS_CAP,
+    PROFIT_LOCK_ACTIVATION,
+    PROFIT_LOCK_DISTANCE,
 )
 
 DISPLAY_TZ = ZoneInfo("America/New_York")
@@ -129,6 +131,7 @@ def replay(path: TradePath, stop_loss: float, activation: float, distance: float
         if reached.any():  # the lock applies from the bar AFTER the first one that reached the level
             first = int(np.argmax(reached)) + 1
             offset[first:] = np.maximum(offset[first:], peak_before[first:] - FADE_LOCK_TRAIL_DISTANCE)
+    offset = np.where(peak_before >= PROFIT_LOCK_ACTIVATION, np.maximum(offset, peak_before - PROFIT_LOCK_DISTANCE), offset)  # profit lock, as broker._exit_stop_offset
     stop_hit = adv >= -offset
     stop_i = int(np.argmax(stop_hit)) if stop_hit.any() else n
     tp_i = n
