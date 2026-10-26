@@ -847,6 +847,8 @@ and `frequency_check.yml`'s automated commits are both now purely "when a value 
 (uncached, called every poll) — `dashboard.py` no longer fetches candles or renders RSI/ADX itself (see
 "Dashboard layout" below), so the Twelve Data fetch/retry logic that helper wraps has a single caller.
 
+**Dashboard menu + Weekly P&L page (26 Oct 2026)**: under the title, `dashboard.py` shows a horizontal `st.radio` menu (Dashboard / Weekly P&L); the choice lives in the URL (`?page=weekly`) so the 5-minute meta refresh keeps the page. `weekly_pnl.py` renders the second page: realized P&L per day (ET date of `close_ts`) for Broker B, Broker F (live) and Broker K, grouped by Monday-Sunday week with a bold total row per week, newest first. Broker A stays out of the dashboard.
+
 **Dashboard layout (`dashboard.py`)**: at the very top, above everything else, an optional forecast
 section -- a date navigator (◀/▶ `st.button`s plus a `st.date_input`, all three bound to one
 `st.session_state["forecast_date_picker"]` key so the buttons and the picker stay in sync; `st.columns`

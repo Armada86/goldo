@@ -32,6 +32,7 @@ from config import (
     TECHNICAL_READING_NAMES,
 )
 from storage import get_connection, get_stop_settings_as_of
+import weekly_pnl
 from ta_forecast_job import render_diagram_svg
 
 st.set_page_config(page_title="Goldo", layout="wide")
@@ -112,6 +113,23 @@ DISPLAY_TZ = ZoneInfo("America/New_York")
 st.title("Goldo")
 now_local = datetime.now(timezone.utc).astimezone(DISPLAY_TZ)
 st.caption(f"Page refreshes every 5 min · last loaded {now_local.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+
+# Top menu. The page lives in the URL (?page=weekly) so the 5-minute meta refresh above doesn't bounce the
+# viewer back to the first page.
+PAGES = {"dashboard": "Dashboard", "weekly": "Weekly P&L"}
+_current = st.query_params.get("page", "dashboard")
+if _current not in PAGES:
+    _current = "dashboard"
+_choice = st.radio(
+    "Menu", list(PAGES), index=list(PAGES).index(_current), format_func=PAGES.get,
+    horizontal=True, label_visibility="collapsed", key="menu_page",
+)
+if _choice != _current:
+    st.query_params["page"] = _choice
+    st.rerun()
+if _choice == "weekly":
+    weekly_pnl.render()
+    st.stop()
 
 # The daily XAU/USD technical forecast (ta_forecast_job.py, 12am/midday ET weekdays) -- shown at the
 # very top, above the symbols table, per the user's request. Always re-rendered here via
