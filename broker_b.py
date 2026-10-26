@@ -918,7 +918,7 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
             **level_distances(trigger_price, forecast),
         },
     )
-    context.update(shadow_bias_adx(rule_name, trade_type, context))  # log only, blocks nothing (study 32)
+    context.update(shadow_bias_adx(rule_name, trade_type, context))  # log only, blocks nothing (study 26)
     trade_id = insert_trade_b(
         rule_name, trade_type, trigger_price, trigger_ts, trigger_text, forecast["id"], context
     )

@@ -43,7 +43,7 @@ def _num(v, digits: int = 4):
 def shadow_bias_adx(rule_name: str, trade_type: str, ctx: dict) -> dict:
     """{"shadow_bias_adx": bool} for a fade (TA-Zone-*) with a known bias score and ADX, else {}. True = a fade against the TA bias
     (buy with a negative score, sell with a positive one) by at least SHADOW_BIAS_ADX_MIN_BIAS with ADX >= SHADOW_BIAS_ADX_MIN_ADX.
-    LOG ONLY (study 32): nothing reads it to block a trade. Never raises."""
+    LOG ONLY (study 26): nothing reads it to block a trade. Never raises."""
     try:
         if not str(rule_name).startswith("TA-Zone-"):
             return {}
