@@ -1,6 +1,6 @@
 """LOG-ONLY shadow of an automatic mid-day TA re-run (17 Oct 2026).
 
-Idea under test (docs/studies.md, study 25-28): the three scheduled TA runs pick the fade levels from a snapshot, so after a hard move
+Idea under test (docs/studies.md, study 25): the three scheduled TA runs pick the fade levels from a snapshot, so after a hard move
 there may be no level near price (Wed 14 Oct: resistance $18 above, support $28 below, no fade trades for the rest of the day). A re-run
 started automatically when price is far from both fade levels, with extra intraday levels (1h swings, session high/low) in the pool,
 beat the published levels in the 17 Oct simulation by about $4-$39 over 10 trading days -- too small and noisy a sample to act on.

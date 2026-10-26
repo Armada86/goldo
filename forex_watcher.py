@@ -670,7 +670,7 @@ class Watcher:
                 **level_distances(trigger_price, forecast),
             },
         )
-        entry_context.update(shadow_bias_adx(rule_name, trade_type, entry_context))  # log only, blocks nothing (study 32)
+        entry_context.update(shadow_bias_adx(rule_name, trade_type, entry_context))  # log only, blocks nothing (study 26)
         trade_id = insert_forex_b_trade(
             self.mode, rule_name, trade_type, trigger_price, fill_price, touch_ts, now, forecast["id"], trigger_text,
             entry_context, forex_order_id=order_id,

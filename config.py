@@ -189,7 +189,7 @@ TA_RERUN_SHADOW_MIN_LEVEL_CHANGE = 3.0  # $; the would-be fade levels count as "
 # Profit lock for every trade (26 Oct 2026, all brokers that use broker._scan_exit: A, B, F): once the best profit reaches
 # PROFIT_LOCK_ACTIVATION the stop follows PROFIT_LOCK_DISTANCE behind the best price (only ever raising the stop, never lowering it), whatever the
 # ordinary `make trail` or fade settings say. Replay of 103 trades (45 days): +$109.38 vs +$101.72 without it; negative below ~$18, noisy above,
-# hand-picked at the user's request -- re-check on about 31 Oct 2026 (docs/studies.md, study 34).
+# hand-picked at the user's request -- re-check on about 31 Oct 2026 (docs/studies.md, study 27).
 PROFIT_LOCK_ACTIVATION = 20.0
 PROFIT_LOCK_DISTANCE = 5.0
 # Broker B fade exit rule (see broker.py): once a TA-Zone-* trade reaches its opposite fade level its stop locks there and trails
@@ -208,7 +208,7 @@ FADE_NEAR_TRAIL_DISTANCE = 5.0
 # Bias/ADX shadow flag (23 Oct 2026, LOG ONLY, Broker B and Broker F): a fade (TA-Zone-*) taken against the TA bias -- a buy while the bias
 # score is negative, a sell while it is positive -- by at least this many points, with ADX(14) at or above the second value, is flagged
 # `shadow_bias_adx: true` in the trade's entry_context. Nothing is blocked; the flag is only there to compare flagged and unflagged fades
-# later (docs/studies.md study 32). Cutoffs picked from a 62-fade replay on 23 Oct, which found only 5 such trades (1 win, -$30).
+# later (docs/studies.md study 26). Cutoffs picked from a 62-fade replay on 23 Oct, which found only 5 such trades (1 win, -$30).
 SHADOW_BIAS_ADX_MIN_BIAS = 4.0
 SHADOW_BIAS_ADX_MIN_ADX = 25.0
 # Spike gate (live since 8 Oct 2026, Broker B, split by rule type): blocks an entry when the last 15 one-minute bars' entry-side
