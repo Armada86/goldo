@@ -281,7 +281,7 @@ test("brokerStatus: per-broker lines, open trade and watcher heartbeat", async (
     assert.match(text, /Broker F \(live\): ✅ TRADING/);
     assert.match(text, /open: Buy 1 oz @ \$4190\.87 \(TA-Zone-buy\)/);
     assert.match(text, /watcher active 20s ago/);
-    assert.match(text, /Broker K \(paper, no pause control\): ✅ TRADING/);
+    assert.match(text, /Broker K \(paper\): ✅ TRADING/);
     assert.match(text, /open: Sell 1 oz @ \$4180\.50 \(Trend-sell\)/);
     assert.match(text, /latest \(5 min ago\): ADX 38\.2 · RSI 41\.0 · ATR \$6\.40 — Sell signal/);
   } finally {

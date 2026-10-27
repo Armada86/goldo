@@ -1,8 +1,8 @@
 # Broker K -- RSI / ADX / ATR trend follower (paper only)
 
 Built 22 Oct 2026. Code: `broker_k.py`, constants `K_*` in `config.py`, table `broker_k_trades`, backtest `broker_k_backtest.py`.
-Independent of every other broker: no alerts, TA levels, `block_rules`, stop-loss / trailing settings, DXY, and it ignores
-the Telegram `stop trading` / pause commands (user request). Paper only -- nothing is ever sent to FOREX.com except the read-only
+Independent of every other broker: no alerts, TA levels, `block_rules`, stop-loss / trailing settings, DXY, and (since 27 Oct 2026)
+it obeys the Telegram `stop trading` / `start trading` / pause commands like the others (an open trade is closed at spot, reason `Stop`). Paper only -- nothing is ever sent to FOREX.com except the read-only
 bid/ask bar requests it shares with the other brokers.
 
 ## Rules
