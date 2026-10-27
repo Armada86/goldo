@@ -36,7 +36,7 @@
  *                                                          of unrealized P/L (unlike the automatic
  *                                                          trailing stop, a manual
  *                                                          close is an unconditional override)
- *   "stop trading"                                     -> close ALL brokers' (A, B, F) open positions and
+ *   "stop trading"                                     -> close ALL brokers' (A, B, F, K) open positions and
  *                                                          pause all trading until the program's own
  *                                                          trading window next opens (7am ET weekdays)
  *   "stop trading broker F" / "stop trading F"         -> the same for ONE broker only ("broker A and B" for two); a
@@ -152,17 +152,17 @@ function parseCommand(text) {
   return { action: "open", tradeType, brokerLetter };
 }
 
-const BROKER_LETTERS = ["A", "B", "F"];
-const BROKER_NAMES = { A: "Broker A", B: "Broker B", F: "Broker F" };
-const BROKER_SCOPE_RE = /\bbrokers?\s+([abf](?:\s*(?:,|&|and)\s*(?:brokers?\s+)?[abf]\b)*)/gi;
-const BROKER_AFTER_TRADING_RE = /\b(?:stop|start)\s+trading\s+(?:for\s+)?([abf])\b/i;
+const BROKER_LETTERS = ["A", "B", "F", "K"];
+const BROKER_NAMES = { A: "Broker A", B: "Broker B", F: "Broker F", K: "Broker K" };
+const BROKER_SCOPE_RE = /\bbrokers?\s+([abfk](?:\s*(?:,|&|and)\s*(?:brokers?\s+)?[abfk]\b)*)/gi;
+const BROKER_AFTER_TRADING_RE = /\b(?:stop|start)\s+trading\s+(?:for\s+)?([abfk])\b/i;
 const STATUS_RE = /\bbrokers?(?:['\u2019]s?)?\s+status\b|\bstatus\s+of\s+(?:the\s+)?brokers?\b/i;
 
 /** Which brokers a trading-control message names: a sorted array of letters, or [] meaning ALL brokers (no name given). */
 function parseBrokerScope(text) {
   const found = new Set();
   for (const m of text.matchAll(BROKER_SCOPE_RE)) {
-    for (const l of m[1].matchAll(/\b[abf]\b/gi)) found.add(l[0].toUpperCase());
+    for (const l of m[1].matchAll(/\b[abfk]\b/gi)) found.add(l[0].toUpperCase());
   }
   const after = BROKER_AFTER_TRADING_RE.exec(text);
   if (after) found.add(after[1].toUpperCase());
@@ -332,6 +332,9 @@ async function stopTrading(sql, apiKey, env, brokers = []) {
         (dispatchError ? ` (${dispatchError})` : "")
     );
   }
+  if (scope.includes("K") && (await brokerKHasOpenTrade(sql))) {
+    lines.push(await closeBrokerK(sql, apiKey));
+  }
   lines.push(
     `No new trades for ${scopeText(brokers)} until the next automatic trading window opens (7am ET, weekdays) or you send ` +
       `"start trading${brokers.length ? " " + brokers.map((l) => "broker " + l).join(" and ") : ""}".`
@@ -433,12 +436,11 @@ function brokerKSignal(rsi, adx, atr) {
   return null;
 }
 
-/** Broker K block of `broker status`: it has no pause control (it ignores `stop trading`), so it is only limited by the market and the
- *  7am-5pm ET entry window. Shows its open trade and the latest RSI/ADX/ATR the poll saved, with whether that would be an entry. */
-async function brokerKStatusLines(sql, now) {
+/** Broker K block of `broker status`. `why` is its tradingState (pause / market / hours). Shows its open trade and the latest
+ *  RSI/ADX/ATR the poll saved, with whether that would be an entry. */
+async function brokerKStatusLines(sql, now, why) {
   const toMs = (v) => (v == null ? null : new Date(v).getTime());
-  const why = tradingState(now, null, []);
-  const lines = [`${TRADE_ALERT_PREFIX_K}Broker K (paper, no pause control): ${why ? `\u26D4 NOT TRADING \u2014 ${why}` : "\u2705 TRADING"}`];
+  const lines = [`${TRADE_ALERT_PREFIX_K}Broker K (paper): ${why ? `\u26D4 NOT TRADING \u2014 ${why}` : "\u2705 TRADING"}`];
   const exists = (await sql`SELECT to_regclass('broker_k_trades') AS t`)[0]?.t;
   if (!exists) {
     lines.push("    \u26A0\uFE0F table not created yet \u2014 the poll creates it on its first run with Broker K");
@@ -487,6 +489,10 @@ async function brokerStatus(sql) {
       .filter((r) => !r.brokers || r.brokers.split(",").includes(letter))
       .map((r) => ({ start: toMs(r.start_ts), end: toMs(r.end_ts) }));
     const why = tradingState(now, override, pauses);
+    if (letter === "K") {
+      lines.push(...(await brokerKStatusLines(sql, now, why)));
+      continue;
+    }
     let line = `${prefix[letter]}${BROKER_NAMES[letter]}`;
     if (letter === "F" && heartbeat) line += ` (${heartbeat.mode})`;
     line += why ? `: \u26D4 NOT TRADING \u2014 ${why}` : ": \u2705 TRADING";
@@ -500,7 +506,6 @@ async function brokerStatus(sql) {
     }
     lines.push(line);
   }
-  lines.push(...(await brokerKStatusLines(sql, now)));
   return lines.join("\n");
 }
 
@@ -751,6 +756,41 @@ async function closeBrokerA(sql, apiKey) {
     `${TRADE_ALERT_PREFIX_A.trimEnd()}${marker}BROKER A #${trade.id}: closed ${trade.trade_type} 1 oz XAU/USD @ $${price.toFixed(2)} ` +
     `(opened @ $${trade.entry_price.toFixed(2)}, rule ${trade.rule_name}) -- ${result} of $${Math.abs(p).toFixed(2)} ` +
     `(manual close via Telegram, not the automatic trailing stop)\n` +
+    `Filled: ${formatTs(now)}`
+  );
+}
+
+/** True if Broker K (broker_k_trades) has an open trade; false if the table does not exist yet. */
+async function brokerKHasOpenTrade(sql) {
+  const exists = await sql`SELECT to_regclass('broker_k_trades') AS t`;
+  if (!exists[0].t) return false;
+  return (await sql`SELECT id FROM broker_k_trades WHERE status = 'Open' LIMIT 1`).length > 0;
+}
+
+/** Closes Broker K's open trade at spot for `stop trading` (the poll would do the same within 5 minutes). */
+async function closeBrokerK(sql, apiKey) {
+  const rows = await sql`
+    SELECT id, rule_name, trade_type, entry_price FROM broker_k_trades
+    WHERE status = 'Open' ORDER BY open_ts DESC LIMIT 1
+  `;
+  const prefix = TRADE_ALERT_PREFIX_K.trimEnd();
+  if (rows.length === 0) return `${prefix}${REJECT_MARKER}BROKER K: no open trade to close.`;
+  const trade = rows[0];
+  const price = await fetchGoldPrice(apiKey);
+  if (price === null) {
+    return `${prefix}${REJECT_MARKER}BROKER K: cannot close -- gold spot price unavailable right now (the next poll closes it).`;
+  }
+  const now = new Date();
+  const p = pnl(trade.trade_type, trade.entry_price, price);
+  await sql`
+    UPDATE broker_k_trades SET exit_price = ${price}, close_ts = ${now.toISOString()}, pnl = ${p}, exit_reason = 'Stop', status = 'Closed'
+    WHERE id = ${trade.id}
+  `;
+  const marker = p >= 0 ? "\u{1F7E9}" : "\u{1F7E5}";
+  return (
+    `${prefix}${marker}BROKER K #${trade.id}: closed ${trade.trade_type} 1 oz XAU/USD @ $${price.toFixed(2)} ` +
+    `(opened @ $${trade.entry_price.toFixed(2)}, rule ${trade.rule_name}) -- ${p >= 0 ? "profit" : "loss"} of $${Math.abs(p).toFixed(2)} ` +
+    `(stop trading via Telegram)\n` +
     `Filled: ${formatTs(now)}`
   );
 }

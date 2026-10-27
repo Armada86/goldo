@@ -1,7 +1,7 @@
 """Broker K -- an independent paper-trading engine that rides strong gold trends from RSI, ADX and ATR alone.
 
 Completely separate from Broker A/B/F: no alerts, no TA-forecast levels, no `block_rules`, no stop-loss / trailing
-settings, no DXY, and (deliberately, at the user's request) it ignores the Telegram "stop trading" / pause commands. Its own
+settings, no DXY. It obeys the Telegram "stop trading" / pause commands like the others (since 27 Oct 2026; "K" scope). Its own
 table (`broker_k_trades`), its own open-trade tracking, its own constants in config.py (`K_*`). Paper only: it never places
 an order anywhere.
 
@@ -50,6 +50,7 @@ from data_fetcher import gold_adx_rising_from_candles, gold_rsi_adx_atr_from_can
 from notifier import send_telegram_message
 from price_bars import fetch_gold_bars
 from storage import close_trade_row_k, get_open_trade_k, insert_trade_k
+from trading_control import trading_pause_reason
 
 log = logging.getLogger("gold-monitor")
 
@@ -159,7 +160,7 @@ def _open_message(trade_id: int, trade_type: str, price: float, rsi: float, adx:
 
 def _close_message(trade: dict, exit_price: float, exit_ts: datetime, pnl: float, reason: str) -> str:
     marker = PROFIT_MARKER if pnl >= 0 else LOSS_MARKER
-    why = {"TP": "take-profit", "SL": "stop-loss", "Time": "time stop"}[reason]
+    why = {"TP": "take-profit", "SL": "stop-loss", "Time": "time stop", "Stop": "closed by stop trading / pause"}[reason]
     return (
         f"{TRADE_ALERT_PREFIX.rstrip()}{marker}BROKER K #{trade['id']}: closed {trade['trade_type']} 1 oz XAU/USD @ ${exit_price:.2f} "
         f"(opened @ ${trade['entry_price']:.2f}, {why}) -- {'profit' if pnl >= 0 else 'loss'} of ${abs(pnl):.2f}\n"
@@ -185,6 +186,12 @@ def check_broker_k_trades(prices: dict[str, float], candles: pd.DataFrame | None
     now = datetime.now(timezone.utc)
 
     trade = get_open_trade_k()
+    if trading_pause_reason(now, "K") is not None:
+        if trade is not None:
+            pnl = _pnl(trade["trade_type"], trade["entry_price"], spot)
+            close_trade_row_k(trade["id"], spot, now, pnl, "Stop", _exit_context(now, trade, "Stop", candles))
+            send_telegram_message(_close_message(trade, spot, now, pnl, "Stop"))
+        return
     if trade is not None:
         result = _find_exit(trade, spot, now)
         if result is None:

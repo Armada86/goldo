@@ -57,8 +57,8 @@ def evaluate_pause(now: datetime, mode: str | None, set_ts: datetime | None, pau
 
 
 def trading_pause_reason(now: datetime | None = None, broker: str | None = None) -> str | None:
-    """Why `broker` ("A", "B" or "F") must not trade right now, or None. Each broker has its own stop/start state (a Telegram command
-    without a broker name sets it for all three, so the latest command wins per broker) and sees the scheduled pauses that name it
+    """Why `broker` ("A", "B", "F" or "K") must not trade right now, or None. Each broker has its own stop/start state (a Telegram command
+    without a broker name sets it for all four, so the latest command wins per broker) and sees the scheduled pauses that name it
     or name no broker. A broker with no state of its own yet falls back to the old global override. Without `broker`: the global
     state only."""
     now = now or datetime.now(timezone.utc)
