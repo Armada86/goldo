@@ -188,6 +188,25 @@ is $20 in profit (now live). So far the lock is worth keeping, wider stops and f
     bias score is only one reading of "the TA asks for the opposite".
   - Decision: not built. Keep the trade; recheck once there are about 20 independent events (add to the 31 Oct review's data set).
 
+## Study 28 (29 Oct 2026): did the TA bias predict direction?
+28. **Forecast bias accuracy** (`ta_forecast_job.py`). Scored every stored forecast's bias against gold's move after it, then rebuilt the
+    six-component score from Twelve Data history to test it on more than 82 samples.
+  - Live (82 runs, 23 Sep - 29 Oct, gold fell about $300): hit rate 46% at +1h, 55% at +3h, 61% until the next run (always-short 55%),
+    40% to 5pm ET (always-short 40%); day level 64% vs 60% for always-short. 79% of runs read Bearish or Neutral-to-bearish.
+  - Rebuilt (447 decisions at 7/10/14 ET over 6.7 months, gold -$680): hit rate 49-50% at 1h, 3h and 5pm, correlation about 0.
+    Price vs 1h EMA200, 4h EMA100 and daily SMA50 are bearish 63-77% of the time (slow filters, not a call); the fast three are coin flips.
+    On 5 years of daily bars the slow filters do have an edge at about 20 days (SMA200 hit 61%, t=4.3) but flipped in the Apr-Oct selloff.
+  - Scenarios (150 resolved, target 1 before stop): fades won 53%, breakouts 33% (bull breakout 25%); fades against the bias won 62%,
+    with the bias 48%. The bias does not help pick a scenario.
+  - Mean-reversion candidates (RSI(1h) extremes, stretch from EMA20 in ATR, fading the prior day) hit 56-59% at t about 2.5, but about 40
+    tests were run, so these are hypotheses only.
+  - Changed (29 Oct 2026): the forecast now also stores and prints `regime` (slow three, -3..+3) and `lean` (fast three, "No edge"
+    unless their score is at least 2 either way; about half of runs); PRIMARY follows the lean (none on "No edge"); breakouts are graded
+    triggered only after a 15-min close beyond the trigger (a wick-only touch is graded "not triggered (wick through ...)"). `bias` /
+    `bias_score` are unchanged (dashboard, study 26's shadow flag). Broker B / Broker F entries are not changed.
+  - Not done yet: grading the bias itself every run, and shadow-logging a mean-reversion lean. Check lean accuracy by run once there are
+    about 3 weeks of runs (around 19 Nov 2026).
+
 ## Open / to repeat
 **One combined review, about 31 Oct 2026**, covers studies 25, 26 and 27 together (the scheduled routine "Goldo 31 Oct studies review").
 It is a single piece of work with one report, not three:

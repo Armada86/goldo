@@ -823,6 +823,13 @@ saving the row, it sends a short version of the analysis text (`telegram_summary
 saved first, so a Telegram failure never loses the forecast. Full methodology, the reference
 analyses, and known gaps are in `docs/technical-analysts/technical-analyst-forecast-log.md`.
 
+**Regime / lean split and breakout confirmation (29 Oct 2026, study 28 in `docs/studies.md`)**: the combined `bias`/`bias_score` (-6..+6) showed no skill at 1h/3h/5pm
+(hit rate 49-50% over 447 rebuilt forecasts), so `ta_forecast_job._regime_and_lean()` adds, beside the unchanged `bias`/`bias_score` (the dashboard and the study 26
+shadow flag still read those), `levels.regime`/`regime_score` (price vs 1h EMA200, 4h EMA100, daily SMA50; a multi-day read) and `levels.lean`/`lean_score` (1h EMA20 vs EMA50, MACD
+histogram, 1h RSI; "Bullish lean"/"Bearish lean" only at |score| >= `LEAN_MIN_SCORE` (2), else "No edge"). The SUMMARY line prints both; the `[PRIMARY]` plan tag follows the lean
+and is absent on "No edge". `grade_scenario()` now counts a breakout/breakdown as triggered only after a 15-min **close** beyond the trigger (wick-only touches grade "not triggered (wick
+through the trigger ...)"; fades still trigger on a touch). This changes forecast text and grading only: Broker B / Broker F entries still trigger on the level touch, unchanged.
+
 **Standing reference-analysis workflow**: the user periodically pastes a third-party XAU/USD technical
 analysis of their choosing, to steer `ta_forecast_job.py`. Don't search online for analyses
 yourself; the user picks the sources. For each one:
