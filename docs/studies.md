@@ -201,7 +201,12 @@ It is a single piece of work with one report, not three:
    15-min range / ATR cutoff near 1.5x still separate winners from losers vs the $10 ceiling (and $13 for fades); should `spike_fade` be lowered.
 5. **Study 27 (exits):** do the breakout rules still lose (Broker F live was 5 trades, -$10.22); every trade since 26 Oct whose peak reached
    $20, real exit vs the old $10 trail; other triggers ($22-30) and a $3 trail; BRA and SLA dry-runs and the 66-fade baseline.
-6. **Combined result (the point of the review).** Because the three studies interact, the report must not be three separate answers:
+6. **Study 27 add-on (29 Oct 2026): new TA run against an open losing trade.** Re-run the carry on / close / flip / tighten comparison on every
+   trade open when a TA run landed with the opposite bias (8 independent events so far; carry on won, flip's edge was the 23 Oct event alone).
+   Report whether it now holds with the larger sample (aim for about 20 events). Also use the same trades to check the entry-side question
+   from it: losing trades whose bias opposed them recorded -$86.08 (5 of 13 wins) against +$44.52 (6 of 12) for agreeing/neutral, so test a bias
+   filter at entry together with the study 26 `shadow_bias_adx` flag, not as a separate answer.
+7. **Combined result (the point of the review).** Because the three studies interact, the report must not be three separate answers:
    test the recommended package **together** in one replay (e.g. levels change + filter change + breakouts off + lock setting) against the
    live rules, and report the combined effect and each part's contribution, so gains that overlap are not counted twice. Then give one
    ranked list of suggestions that apply to all the studies at once: what to change, in what order, expected effect, confidence, what
