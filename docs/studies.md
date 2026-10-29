@@ -169,6 +169,24 @@ is $20 in profit (now live). So far the lock is worth keeping, wider stops and f
   +$17.88. At $20/$5 nine trades change: six gain, three lose (B #1 -$14.44, A #4 -$3.03, B #101 -$0.92). Noisy, so not conclusive.
   Decision (user): live for every broker at $20/$5 (`config.PROFIT_LOCK_*`, `broker._exit_stop_offset()`). Continues the trailing-stop
   work of studies 12-15.
+- **New TA run against an open losing trade** (29 Oct 2026, one-off script). When a trade is open and losing at the moment a new TA run
+  lands and its bias score points the other way (a Buy with a negative score, a Sell with a positive one), should the bot close the
+  trade and open the opposite one, close it and stay flat, tighten the stop, or carry on? Replayed on Twelve Data 1-minute mid prices with
+  the live exit rule (stop 20, trail from +3 at 10, fade cap, lock, +$20 lock) and $0.60 spread per trade. All 144 closed Broker B (102)
+  and Broker F live (42) trades; 34 were open when a TA run landed, 25 of those were losing, 13 of those against the new bias
+  (6 B, 7 F; only 8 independent events, since B and F mostly took the same trade).
+  - **Opposite bias plus a loss is a bad sign, but not a reason to act.** Those 13 recorded -$86.08 (5 wins); the 12 losing trades with
+    agreeing or neutral bias recorded +$44.52 (6 wins). Four of the 13 were -$15 fade stop-outs and two -$20 breakout stop-outs.
+  - **Per event (B and F merged): carry on -$30.33, close at the TA price -$45.72, stop and reverse -$36.48, tighten the stop to $3 / $5
+    behind the TA price -$60.98 / -$44.14.** Nothing beats carrying on.
+  - The flip's whole edge is one event, the 23 Oct breakout buy (TA2 turned bearish, gold then fell $28: flip +$20.8 per broker). Without
+    it: carry on -$56.30, close -$58.81, flip -$84.25, tighten -$86.27 / -$77.43.
+  - Why: leaving early does save money on the trades that go on to the -$15 stop (B #85, #107, F #15, #40: $5-10 each) but gives up the
+    ones that recover (F #36 went from -$5.87 to +$16.49). Roughly a wash before the flip's extra spread and its own losses. Same
+    answer as the breakout-level flip above: a reversal costs more than it earns.
+  - Caveats: 8 events, mid prices, each trade scored alone (no one-position rule), the replay misses recorded P/L (B #82 +$7 vs +$22 real),
+    bias score is only one reading of "the TA asks for the opposite".
+  - Decision: not built. Keep the trade; recheck once there are about 20 independent events (add to the 31 Oct review's data set).
 
 ## Open / to repeat
 **One combined review, about 31 Oct 2026**, covers studies 25, 26 and 27 together (the scheduled routine "Goldo 31 Oct studies review").
