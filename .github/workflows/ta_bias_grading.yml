@@ -1,0 +1,26 @@
+name: TA bias grading (XAU/USD)
+
+# Manual (workflow_dispatch) only. Grades every stored ta_forecasts row's directional calls against gold's actual move
+# (ta_bias_grading.py, study 28) and prints the hit-rate report in the run log. Idempotent: rerun any time. The same grading
+# also runs inside each ta_forecast.yml run for the newest forecasts; this is the one-off backfill of the older ones plus the report.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  ta-bias-grading:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -r requirements.txt
+
+      - run: |
+          python ta_bias_grading.py backfill
+          python ta_bias_grading.py report
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}

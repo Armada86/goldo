@@ -331,6 +331,27 @@ def _bias(price: float, ind: dict) -> tuple[int, str, list[str]]:
     return score, label, reasons
 
 
+LEAN_MIN_SCORE = 2  # fast-signal score (-3..+3) needed before the intraday lean calls a side; anything weaker is "No edge"
+
+
+def _regime_and_lean(price: float, ind: dict) -> dict:
+    """The same six inputs as `_bias()`, split by the horizon they can actually speak to (study 28 in
+    docs/studies.md: the combined -6..+6 score had no skill at 1h/3h/end-of-day -- hit rate 49-50% over 447
+    rebuilt forecasts -- because half of it is slow trend filters that barely change within a day).
+    - regime (-3..+3): price vs 1h EMA200, 4h EMA100, daily SMA50. A multi-day read; on 5 years of daily
+      data these filters have a modest edge at ~20 days, none intraday.
+    - lean (-3..+3): 1h EMA20 vs EMA50, MACD histogram, 1h RSI. The intraday read; "No edge" unless the fast
+      signals agree by at least LEAN_MIN_SCORE, so a split reads as nothing rather than defaulting to the regime.
+    `_bias()` and its stored `bias`/`bias_score` are unchanged (the dashboard and study 26's shadow flag read them)."""
+    slow = [price > ind["ema_1h"][200], price > ind["ema100_4h"], price > ind["sma50_1d"]]
+    regime = sum(1 if ok else -1 for ok in slow)
+    lean = (1 if ind["ema_1h"][20] > ind["ema_1h"][50] else -1) + (1 if ind["macd_hist_1h"] > 0 else -1)
+    lean += 1 if ind["rsi_1h"] > 55 else -1 if ind["rsi_1h"] < 45 else 0
+    regime_label = "Bullish" if regime >= 2 else "Bearish" if regime <= -2 else "Mixed"
+    lean_label = "Bullish lean" if lean >= LEAN_MIN_SCORE else "Bearish lean" if lean <= -LEAN_MIN_SCORE else "No edge"
+    return {"regime": regime_label, "regime_score": regime, "lean": lean_label, "lean_score": lean}
+
+
 def _zone_dict(z: dict) -> dict:
     return {"low": z["low"], "high": z["high"]}
 
@@ -379,11 +400,16 @@ def grade_scenario(sc: dict, bars: pd.DataFrame) -> str:
     ambiguous, since bar data can't say which printed first."""
     short = sc["direction"] == "short"
     triggered_at = None
+    wick_only = False
     hit: list[int] = []
     for _, bar in bars.iterrows():
         if triggered_at is None:
             if "trigger" in sc:
-                reached = bar["low"] <= sc["trigger"] if short else bar["high"] >= sc["trigger"]
+                # A breakout counts only once a 15-min bar CLOSES beyond the trigger; a wick through it that closes
+                # back is a failed break (study 28: breakouts won 33% of resolved grades vs 53% for fades).
+                reached = bar["close"] <= sc["trigger"] if short else bar["close"] >= sc["trigger"]
+                if not reached and (bar["low"] <= sc["trigger"] if short else bar["high"] >= sc["trigger"]):
+                    wick_only = True
             else:
                 reached = bar["high"] >= sc["entry"]["low"] if short else bar["low"] <= sc["entry"]["high"]
             if not reached:
@@ -407,7 +433,7 @@ def grade_scenario(sc: dict, bars: pd.DataFrame) -> str:
         if sc["targets"] and len(hit) == len(sc["targets"]):
             return _fmt_grade(triggered_at, hit, sc, "all targets reached")
     if triggered_at is None:
-        return "not triggered"
+        return "not triggered (wick through the trigger, no 15-min close beyond it)" if wick_only else "not triggered"
     return _fmt_grade(triggered_at, hit, sc, "still open")
 
 
@@ -474,8 +500,8 @@ def _describe_scenario(sc: dict) -> str:
     if sc["name"] == "buy_support":
         return f"Buy {_fmt_zone(sc['entry'])}, stop below {sc['stop']:.0f}, targets {targets}"
     if sc["name"] == "bull_breakout":
-        return f"Sustained break above {sc['trigger']:.0f} = buy signal, stop back below {sc['stop']:.0f}, targets {targets}"
-    return f"Break below {sc['trigger']:.0f} = sell signal, stop back above {sc['stop']:.0f}, targets {targets}"
+        return f"15-min close above {sc['trigger']:.0f} = buy signal, stop back below {sc['stop']:.0f}, targets {targets}"
+    return f"15-min close below {sc['trigger']:.0f} = sell signal, stop back above {sc['stop']:.0f}, targets {targets}"
 
 
 def _macro_context() -> list[str]:
@@ -511,9 +537,10 @@ def _big_picture_lines(price: float, ind: dict) -> list[str]:
     ]
 
 
-def render(snap: dict, bias: tuple, resistances, supports, scenarios, review_lines, macro_lines, now, run_name: str | None = None) -> str:
+def render(snap: dict, bias: tuple, resistances, supports, scenarios, review_lines, macro_lines, now, run_name: str | None = None, split: dict | None = None) -> str:
     price, ind = snap["price"], snap["indicators"]
     score, label, reasons = bias
+    split = split or _regime_and_lean(price, ind)
     ema = ind["ema_1h"]
     r20 = ind["range_20d"]
     pos = (price - r20["low"]) / (r20["high"] - r20["low"]) if r20["high"] > r20["low"] else 0.5
@@ -526,7 +553,8 @@ def render(snap: dict, bias: tuple, resistances, supports, scenarios, review_lin
     )
     hist_dir = "rising" if ind["macd_hist_1h"] > ind["macd_hist_1h_prev"] else "falling"
 
-    primary = "sell_resistance" if score < 0 else "buy_support" if score > 0 else None
+    # PRIMARY follows the intraday lean, not the combined score (which had no intraday skill); "No edge" tags none.
+    primary = {"Bearish lean": "sell_resistance", "Bullish lean": "buy_support"}.get(split["lean"])
     plan_lines = []
     for sc in scenarios:
         tag = "PRIMARY" if sc["name"] == primary else "Alt"
@@ -543,7 +571,8 @@ def render(snap: dict, bias: tuple, resistances, supports, scenarios, review_lin
         f"XAU/USD technical forecast ({run_name or session_label(now)}) -- {now.astimezone(DISPLAY_TZ):%Y-%m-%d %H:%M ET}",
         f"Price {_fmt_price(price)} (Twelve Data 1h close).",
         "",
-        f"SUMMARY: {label} (score {score:+d}/6). Price is {ema_note}, "
+        f"SUMMARY: Regime (multi-day) {split['regime']} ({split['regime_score']:+d}/3) | "
+        f"Intraday lean {split['lean']} ({split['lean_score']:+d}/3) | combined score {label} ({score:+d}/6). Price is {ema_note}, "
         f"{'above' if price > ind['ema100_4h'] else 'below'} the 4h EMA100 ({ind['ema100_4h']:,.0f}). "
         f"20-day range {r20['low']:,.0f}-{r20['high']:,.0f}; price is in its {third} third.",
         "",
@@ -930,6 +959,12 @@ def main(dry_run: bool) -> None:
         # TA1, TA2, ... = this ET day's runs in order (scheduled or started by the Telegram "run TA").
         run_number = count_ta_forecasts_for_date(now.astimezone(DISPLAY_TZ).date()) + 1
     review_lines, review = review_previous(prev) if not dry_run else (["(dry run: previous forecast not read)"], None)
+    if not dry_run:
+        from ta_bias_grading import review_line  # directional-call grading of the previous forecast (study 28); best-effort
+
+        calls_line = review_line(prev, now)
+        if calls_line:
+            review_lines.append(calls_line)
 
     analysis = render(snap, bias, resistances, supports, scenarios, review_lines, _macro_context(), now, run_label(run_number))
     levels = {
@@ -938,6 +973,7 @@ def main(dry_run: bool) -> None:
         "price_ts": snap["price_ts"],
         "bias": bias[1],
         "bias_score": bias[0],
+        **_regime_and_lean(price, snap["indicators"]),
         "buffer": snap["buffer"],
         "indicators": snap["indicators"],
         "resistances": resistances,
@@ -951,6 +987,12 @@ def main(dry_run: bool) -> None:
     diagram_svg = render_diagram_svg(price, resistances, supports, scenarios)
     insert_ta_forecast(now, now.astimezone(DISPLAY_TZ).date(), analysis, levels, diagram_svg)
     print("[ta_forecast_job] Saved to ta_forecasts")
+    try:
+        from ta_bias_grading import update_grades
+
+        print(f"[ta_forecast_job] bias grades updated: {update_grades(now)}")
+    except Exception as exc:  # observation only -- never lets grading cost the forecast its Telegram message
+        print(f"[ta_forecast_job] bias grading skipped: {exc}")
     # Saved first, so a Telegram hiccup can't lose the forecast (or its grading of the next one).
     for chunk in _telegram_chunks(XAUUSD_ALERT_PREFIX + telegram_summary(analysis)):
         send_telegram_message(chunk)

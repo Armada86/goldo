@@ -479,6 +479,28 @@ def init_db() -> None:
         # diagram_svg was added after ta_forecasts already existed in production, so a fresh
         # CREATE TABLE above isn't enough to bring an existing Neon DB's table up to date.
         cur.execute("ALTER TABLE ta_forecasts ADD COLUMN IF NOT EXISTS diagram_svg TEXT")
+        # One row per graded forecast (ta_bias_grading.py, study 28): what gold did after it, for the bias/regime/lean calls.
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ta_bias_grades (
+                forecast_id INTEGER PRIMARY KEY,
+                ts TIMESTAMPTZ NOT NULL,
+                source TEXT NOT NULL,
+                p0 DOUBLE PRECISION,
+                bias_score INTEGER,
+                regime_score INTEGER,
+                lean_score INTEGER,
+                lean TEXT,
+                r1h DOUBLE PRECISION,
+                r3h DOUBLE PRECISION,
+                r_next DOUBLE PRECISION,
+                r_eod DOUBLE PRECISION,
+                next_ts TIMESTAMPTZ,
+                complete BOOLEAN NOT NULL DEFAULT FALSE,
+                updated_ts TIMESTAMPTZ NOT NULL
+            )
+            """
+        )
 
 
 def save_readings(prices: dict[str, float]) -> None:
@@ -1142,6 +1164,39 @@ def get_ta_forecasts_since(since: datetime) -> list[dict]:
             (since,),
         )
         return [{"id": r[0], "ts": r[1], "levels": r[2]} for r in cur.fetchall()]
+
+
+def get_ta_forecasts_for_grading(since: datetime | None = None) -> list[dict]:
+    """ta_forecasts rows (oldest first) as {id, ts, levels} for the bias grading, with the row after the last one included so each
+    row's successor is known. `since` None = all of them (the backfill)."""
+    with get_connection() as conn, conn.cursor() as cur:
+        if since is None:
+            cur.execute("SELECT id, ts, levels FROM ta_forecasts ORDER BY ts")
+        else:
+            cur.execute("SELECT id, ts, levels FROM ta_forecasts WHERE ts >= %s ORDER BY ts", (since,))
+        return [{"id": r[0], "ts": r[1], "levels": r[2]} for r in cur.fetchall()]
+
+
+def upsert_ta_bias_grade(g: dict) -> None:
+    """Insert or refresh one forecast's grade row (ta_bias_grading.py); later runs fill in horizons that were not yet observable."""
+    cols = ["forecast_id", "ts", "source", "p0", "bias_score", "regime_score", "lean_score", "lean",
+            "r1h", "r3h", "r_next", "r_eod", "next_ts", "complete", "updated_ts"]
+    updates = ", ".join(f"{c} = EXCLUDED.{c}" for c in cols[1:])
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            f"INSERT INTO ta_bias_grades ({', '.join(cols)}) VALUES ({', '.join(['%s'] * len(cols))}) "
+            f"ON CONFLICT (forecast_id) DO UPDATE SET {updates}",
+            [g.get(c) for c in cols],
+        )
+
+
+def get_ta_bias_grades() -> list[dict]:
+    """Every graded forecast, oldest first (ta_bias_grading.py report)."""
+    cols = ["forecast_id", "ts", "source", "p0", "bias_score", "regime_score", "lean_score", "lean",
+            "r1h", "r3h", "r_next", "r_eod", "next_ts", "complete"]
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(f"SELECT {', '.join(cols)} FROM ta_bias_grades ORDER BY ts")
+        return [dict(zip(cols, r)) for r in cur.fetchall()]
 
 
 def get_open_trade_b() -> dict | None:
