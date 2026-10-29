@@ -830,6 +830,12 @@ histogram, 1h RSI; "Bullish lean"/"Bearish lean" only at |score| >= `LEAN_MIN_SC
 and is absent on "No edge". `grade_scenario()` now counts a breakout/breakdown as triggered only after a 15-min **close** beyond the trigger (wick-only touches grade "not triggered (wick
 through the trigger ...)"; fades still trigger on a touch). This changes forecast text and grading only: Broker B / Broker F entries still trigger on the level touch, unchanged.
 
+**Bias grading (`ta_bias_grading.py`, `ta_bias_grades` table, 29 Oct 2026, observation only)**: scores each forecast's combined bias, regime and lean against gold's move at +1h, +3h, until the next run and
+until 5pm ET (15-min Twelve Data candles; under $2 = flat; compared with the always-short baseline). `ta_forecast_job.main()` adds one REVIEW line for the previous forecast and, after saving the new row,
+calls `update_grades()` (best-effort, a failure only logs); rows not yet complete are refilled each run until all four horizons exist or 48 h pass. `source` is 'live' when the forecast was written with `lean`
+in its levels, else 'backfill' (regime/lean recomputed from stored indicators); only 'live' rows test the lean out of sample. `python ta_bias_grading.py backfill|report`, or the manual `ta_bias_grading.yml`
+workflow (the sandbox cannot reach Neon's port 5432, so run it in Actions). Changes no forecast, broker or threshold.
+
 **Standing reference-analysis workflow**: the user periodically pastes a third-party XAU/USD technical
 analysis of their choosing, to steer `ta_forecast_job.py`. Don't search online for analyses
 yourself; the user picks the sources. For each one:

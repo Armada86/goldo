@@ -204,8 +204,14 @@ is $20 in profit (now live). So far the lock is worth keeping, wider stops and f
     unless their score is at least 2 either way; about half of runs); PRIMARY follows the lean (none on "No edge"); breakouts are graded
     triggered only after a 15-min close beyond the trigger (a wick-only touch is graded "not triggered (wick through ...)"). `bias` /
     `bias_score` are unchanged (dashboard, study 26's shadow flag). Broker B / Broker F entries are not changed.
-  - Not done yet: grading the bias itself every run, and shadow-logging a mean-reversion lean. Check lean accuracy by run once there are
-    about 3 weeks of runs (around 19 Nov 2026).
+  - Grading (built 29 Oct 2026, `ta_bias_grading.py`, table `ta_bias_grades`): every forecast's combined bias, regime and lean are
+    scored against gold's move at +1h, +3h, until the next run and until 5pm ET (15-min Twelve Data candles; moves under $2 are flat;
+    shown next to the always-short baseline). New forecasts are graded by each TA run (plus one REVIEW line); the 82 older ones are
+    backfilled by the `ta_bias_grading.yml` workflow (`python ta_bias_grading.py backfill` / `report`). Rows are `source` 'live'
+    (regime/lean written with the forecast, the only out-of-sample test of the lean) or 'backfill' (recomputed, designed on that
+    period) and the report keeps them apart. First look at the backfill: lean 62% at +3h and 60% to the next run (n=39-40), 34% at
+    +1h (n=32); combined bias 47-53%; baseline short 41-58%. Too few to trust.
+  - Not done yet: shadow-logging a mean-reversion lean. Judge the lean on 'live' rows once there are about 3 weeks of runs (around 19 Nov 2026).
 
 ## Open / to repeat
 **One combined review, about 31 Oct 2026**, covers studies 25, 26 and 27 together (the scheduled routine "Goldo 31 Oct studies review").

@@ -959,6 +959,12 @@ def main(dry_run: bool) -> None:
         # TA1, TA2, ... = this ET day's runs in order (scheduled or started by the Telegram "run TA").
         run_number = count_ta_forecasts_for_date(now.astimezone(DISPLAY_TZ).date()) + 1
     review_lines, review = review_previous(prev) if not dry_run else (["(dry run: previous forecast not read)"], None)
+    if not dry_run:
+        from ta_bias_grading import review_line  # directional-call grading of the previous forecast (study 28); best-effort
+
+        calls_line = review_line(prev, now)
+        if calls_line:
+            review_lines.append(calls_line)
 
     analysis = render(snap, bias, resistances, supports, scenarios, review_lines, _macro_context(), now, run_label(run_number))
     levels = {
@@ -981,6 +987,12 @@ def main(dry_run: bool) -> None:
     diagram_svg = render_diagram_svg(price, resistances, supports, scenarios)
     insert_ta_forecast(now, now.astimezone(DISPLAY_TZ).date(), analysis, levels, diagram_svg)
     print("[ta_forecast_job] Saved to ta_forecasts")
+    try:
+        from ta_bias_grading import update_grades
+
+        print(f"[ta_forecast_job] bias grades updated: {update_grades(now)}")
+    except Exception as exc:  # observation only -- never lets grading cost the forecast its Telegram message
+        print(f"[ta_forecast_job] bias grading skipped: {exc}")
     # Saved first, so a Telegram hiccup can't lose the forecast (or its grading of the next one).
     for chunk in _telegram_chunks(XAUUSD_ALERT_PREFIX + telegram_summary(analysis)):
         send_telegram_message(chunk)
