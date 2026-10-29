@@ -169,6 +169,24 @@ is $20 in profit (now live). So far the lock is worth keeping, wider stops and f
   +$17.88. At $20/$5 nine trades change: six gain, three lose (B #1 -$14.44, A #4 -$3.03, B #101 -$0.92). Noisy, so not conclusive.
   Decision (user): live for every broker at $20/$5 (`config.PROFIT_LOCK_*`, `broker._exit_stop_offset()`). Continues the trailing-stop
   work of studies 12-15.
+- **New TA run against an open losing trade** (29 Oct 2026, one-off script). When a trade is open and losing at the moment a new TA run
+  lands and its bias score points the other way (a Buy with a negative score, a Sell with a positive one), should the bot close the
+  trade and open the opposite one, close it and stay flat, tighten the stop, or carry on? Replayed on Twelve Data 1-minute mid prices with
+  the live exit rule (stop 20, trail from +3 at 10, fade cap, lock, +$20 lock) and $0.60 spread per trade. All 144 closed Broker B (102)
+  and Broker F live (42) trades; 34 were open when a TA run landed, 25 of those were losing, 13 of those against the new bias
+  (6 B, 7 F; only 8 independent events, since B and F mostly took the same trade).
+  - **Opposite bias plus a loss is a bad sign, but not a reason to act.** Those 13 recorded -$86.08 (5 wins); the 12 losing trades with
+    agreeing or neutral bias recorded +$44.52 (6 wins). Four of the 13 were -$15 fade stop-outs and two -$20 breakout stop-outs.
+  - **Per event (B and F merged): carry on -$30.33, close at the TA price -$45.72, stop and reverse -$36.48, tighten the stop to $3 / $5
+    behind the TA price -$60.98 / -$44.14.** Nothing beats carrying on.
+  - The flip's whole edge is one event, the 23 Oct breakout buy (TA2 turned bearish, gold then fell $28: flip +$20.8 per broker). Without
+    it: carry on -$56.30, close -$58.81, flip -$84.25, tighten -$86.27 / -$77.43.
+  - Why: leaving early does save money on the trades that go on to the -$15 stop (B #85, #107, F #15, #40: $5-10 each) but gives up the
+    ones that recover (F #36 went from -$5.87 to +$16.49). Roughly a wash before the flip's extra spread and its own losses. Same
+    answer as the breakout-level flip above: a reversal costs more than it earns.
+  - Caveats: 8 events, mid prices, each trade scored alone (no one-position rule), the replay misses recorded P/L (B #82 +$7 vs +$22 real),
+    bias score is only one reading of "the TA asks for the opposite".
+  - Decision: not built. Keep the trade; recheck once there are about 20 independent events (add to the 31 Oct review's data set).
 
 ## Open / to repeat
 **One combined review, about 31 Oct 2026**, covers studies 25, 26 and 27 together (the scheduled routine "Goldo 31 Oct studies review").
@@ -183,7 +201,12 @@ It is a single piece of work with one report, not three:
    15-min range / ATR cutoff near 1.5x still separate winners from losers vs the $10 ceiling (and $13 for fades); should `spike_fade` be lowered.
 5. **Study 27 (exits):** do the breakout rules still lose (Broker F live was 5 trades, -$10.22); every trade since 26 Oct whose peak reached
    $20, real exit vs the old $10 trail; other triggers ($22-30) and a $3 trail; BRA and SLA dry-runs and the 66-fade baseline.
-6. **Combined result (the point of the review).** Because the three studies interact, the report must not be three separate answers:
+6. **Study 27 add-on (29 Oct 2026): new TA run against an open losing trade.** Re-run the carry on / close / flip / tighten comparison on every
+   trade open when a TA run landed with the opposite bias (8 independent events so far; carry on won, flip's edge was the 23 Oct event alone).
+   Report whether it now holds with the larger sample (aim for about 20 events). Also use the same trades to check the entry-side question
+   from it: losing trades whose bias opposed them recorded -$86.08 (5 of 13 wins) against +$44.52 (6 of 12) for agreeing/neutral, so test a bias
+   filter at entry together with the study 26 `shadow_bias_adx` flag, not as a separate answer.
+7. **Combined result (the point of the review).** Because the three studies interact, the report must not be three separate answers:
    test the recommended package **together** in one replay (e.g. levels change + filter change + breakouts off + lock setting) against the
    live rules, and report the combined effect and each part's contribution, so gains that overlap are not counted twice. Then give one
    ranked list of suggestions that apply to all the studies at once: what to change, in what order, expected effect, confidence, what
