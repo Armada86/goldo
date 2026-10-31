@@ -100,6 +100,9 @@ Can more levels, or re-running the forecast mid-day, fix that? So far: it might 
 - **Formerly 27 (last bullet).** Level-generation fixes (intraday levels, automatic re-runs when price leaves the ladder, grading levels
   by touch) cannot be tested from stored trades alone; that is why 28 used a simulation.
 
+- **Result (31 Oct 2026, combined review).** 14 shadow events in total. Four would-be levels $10 or more from price were later traded,
+  and all four lost (-$31.97) with the live fade exit rule. Decision: real mid-day re-run **not built**; extra intraday levels stay out.
+
 ### 26. Fade entry filters
 *In plain words:* Some fade entries lose because the market is trending hard against them. Which should we skip: fades against the TA
 bias, fades in a strong trend (high ADX), fades in wild volatility (ATR) or right after a spike? So far the current ADX/ATR block may
@@ -136,6 +139,16 @@ cost money, and the bias idea is too thin to act on.
   the second half of the month. The 15-min range divided by ATR(14) separates trades better (B+F with ATR: up to 1.0x +$13 over 34 trades,
   1.0-1.5x +$119 over 35, 1.5x or more -$131 over 34), while the live multiples (fade 3.0x, breakout 2.0x) almost never fire. Found in
   the same sample, so untested.
+
+- **Result (31 Oct 2026, combined review).**
+  - ADX/ATR block: kept. The 13 touches blocked since 22 Oct would all have lost (-$99.72). Study 31's +$131 was not reproduced (+$62.75 on
+    23 touches), so only the direction matched.
+  - `shadow_bias_adx`: only 2 live trades flagged (1 independent event; -$6.33 on B, +$14.75 on F). Kept shadow-only; decide at about 20
+    flagged fades (next review 21 Nov 2026). In the old sample the rule would have blocked 9 trades (7 events, 5 lost, $26-58 saved), but
+    its cutoffs were picked from those trades. A separate "against the TA bias" entry block is not built (same trades, no new information).
+  - Range / ATR cutoff: works at about 2.0x, not 1.5x; the 1.5-2.0x band made about +$49 in replay. **Applied: `spike_fade` 3.0 -> 2.0**
+    (9 trades in 6 events, +$39-52 expected, medium-low confidence; `block_rules` row id 26, source `manual`, `config.SPIKE_FADE_ATR_MULTIPLE`
+    = 2.0). `spike_breakout` stays 2.0.
 
 ### 27. Fade and breakout exits
 *In plain words:* How should a trade be closed? Tests on the stop-loss size, the lock at the opposite level, reversing into the other
@@ -188,6 +201,13 @@ is $20 in profit (now live). So far the lock is worth keeping, wider stops and f
     bias score is only one reading of "the TA asks for the opposite".
   - Decision: not built. Keep the trade; recheck once there are about 20 independent events (add to the 31 Oct review's data set).
 
+- **Result (31 Oct 2026, combined review).**
+  - Breakout rules: about break-even, not losing: +$24.58 since 8 Oct, Broker F live +$27.51 on 10 trades, resting on 3-4 winners. Kept on.
+  - +$20 profit lock: worth about +$12 over no lock, but only 4 trades since 26 Oct reached $20. Left at $20/$5.
+  - BRA and SLA dry-runs: both keep the current settings. The last 19 Broker B fades lost about $91.
+  - New TA run against an open losing trade: 10 independent events (aim was 20). Carry on still beats close and flip; without the 23 Oct
+    event flip is -$105 against -$23 for carry on. Not built; recheck at about 20 events.
+
 ## Study 28 (29 Oct 2026): did the TA bias predict direction?
 28. **Forecast bias accuracy** (`ta_forecast_job.py`). Scored every stored forecast's bias against gold's move after it, then rebuilt the
     six-component score from Twelve Data history to test it on more than 82 samples.
@@ -213,27 +233,25 @@ is $20 in profit (now live). So far the lock is worth keeping, wider stops and f
     +1h (n=32); combined bias 47-53%; baseline short 41-58%. Too few to trust.
   - Not done yet: shadow-logging a mean-reversion lean. Judge the lean on 'live' rows once there are about 3 weeks of runs (around 19 Nov 2026).
 
+## Combined result of the 31 Oct 2026 review (studies 25-27)
+*Data:* Broker B 106 trades (to 30 Oct), Broker F live 47, Broker A 3 (155 of 156 replayable; B #25 has no prices); 84 forecasts, 166 blocked
+rows, 14 shadow events; 54,063 Twelve Data 1-minute bars plus 4,000 FOREX.com bid/ask bars per side (28-30 Oct). *Engine check:* study 30
+(+$151.82), study 32 (+$179.11) and the 29 Oct opposed-bias numbers (-$86.08 / +$44.52) reproduced exactly; study 34 baseline +$106.9 vs
++$101.72 and the 66-fade baseline +$199.37 vs +$191.6; study 31's +$131 not reproduced (+$62.75). Replay totals are not recorded P/L.
+*Package test:* `spike_fade` 2.0 + blocking the flagged fades + a $25/$3 lock scored +$123 alone and +$78 one position at a time, with no
+overlap between the parts. In-sample on 5 weeks, so expect much less. Adding the ADX-unblock (+$47 alone, -$4 with the others), breakouts
+off, or extra levels cancels the gain.
+Ranked suggestions, and what was done (user approved all four on 31 Oct 2026):
+1. Lower `spike_fade` 3.0 -> 2.0 (+$39-52, medium-low confidence). **Done.**
+2. Keep the bias/ADX flag shadow-only; decide at about 20 flagged fades. **Done (no change).**
+3. Leave the profit lock at $20/$5. **Done (no change).**
+4. Leave alone: ADX/ATR block, breakout rules, stop and trail settings, carry on when a TA run opposes a losing trade. **Done (no change).**
+
 ## Open / to repeat
-**One combined review, about 31 Oct 2026**, covers studies 25, 26 and 27 together (the scheduled routine "Goldo 31 Oct studies review").
-It is a single piece of work with one report, not three:
-1. **One shared data set**, fetched once: closed trades since 24 Sep from Broker B, Broker F (live) and Broker A, forecasts, blocked
-   touches, the shadow log, 1-minute and 15-minute gold bars, alerts if needed.
-2. **One shared replay engine** with the live exit rule (including the +$20 lock), reused for every question below.
-3. **Study 25 (levels):** the new shadow-log events (`python ta_rerun_shadow.py report 14`); did any would-be level $10+ from price later
-   trade? Recommend whether to build a real re-run.
-4. **Study 26 (entry filters):** would fading the ADX/ATR-blocked touches still beat the block; flagged vs unflagged fades by
-   `shadow_bias_adx` (fewer than about 20 flagged = keep collecting; if flagged clearly lose, real block, else remove the flag); does a
-   15-min range / ATR cutoff near 1.5x still separate winners from losers vs the $10 ceiling (and $13 for fades); should `spike_fade` be lowered.
-5. **Study 27 (exits):** do the breakout rules still lose (Broker F live was 5 trades, -$10.22); every trade since 26 Oct whose peak reached
-   $20, real exit vs the old $10 trail; other triggers ($22-30) and a $3 trail; BRA and SLA dry-runs and the 66-fade baseline.
-6. **Study 27 add-on (29 Oct 2026): new TA run against an open losing trade.** Re-run the carry on / close / flip / tighten comparison on every
-   trade open when a TA run landed with the opposite bias (8 independent events so far; carry on won, flip's edge was the 23 Oct event alone).
-   Report whether it now holds with the larger sample (aim for about 20 events). Also use the same trades to check the entry-side question
-   from it: losing trades whose bias opposed them recorded -$86.08 (5 of 13 wins) against +$44.52 (6 of 12) for agreeing/neutral, so test a bias
-   filter at entry together with the study 26 `shadow_bias_adx` flag, not as a separate answer.
-7. **Combined result (the point of the review).** Because the three studies interact, the report must not be three separate answers:
-   test the recommended package **together** in one replay (e.g. levels change + filter change + breakouts off + lock setting) against the
-   live rules, and report the combined effect and each part's contribution, so gains that overlap are not counted twice. Then give one
-   ranked list of suggestions that apply to all the studies at once: what to change, in what order, expected effect, confidence, what
-   to leave alone and what to keep collecting data on. Results go into this file (a "Result" bullet under each of 25-27 and the
-   combined summary) on a branch and PR, never merged automatically.
+**Next combined review: 21 Nov 2026** (studies 25-27 together, one report, on one shared data set and one replay engine, as on 31 Oct):
+1. Judge the effect of `spike_fade` 2.0 on the trades since 31 Oct (blocked fades and what they would have done).
+2. `shadow_bias_adx`: about 20 flagged fades? Then flagged vs unflagged; clearly losing = real block, else remove the flag.
+3. New TA run against an open losing trade: add events until about 20 independent ones.
+4. Breakout rules and the +$20 lock: recheck with the new trades (both rest on a handful of winners).
+5. Study 28: judge the lean on 'live' `ta_bias_grades` rows (about 3 weeks of runs, around 19 Nov 2026).
+Results go into this file on a branch and PR.
