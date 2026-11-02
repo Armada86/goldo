@@ -144,7 +144,7 @@ cost money, and the bias idea is too thin to act on.
   - ADX/ATR block: kept. The 13 touches blocked since 22 Oct would all have lost (-$99.72). Study 31's +$131 was not reproduced (+$62.75 on
     23 touches), so only the direction matched.
   - `shadow_bias_adx`: only 2 live trades flagged (1 independent event; -$6.33 on B, +$14.75 on F). Kept shadow-only; decide at about 20
-    flagged fades (next review 21 Nov 2026). In the old sample the rule would have blocked 9 trades (7 events, 5 lost, $26-58 saved), but
+    flagged fades (next review 28 Nov 2026). In the old sample the rule would have blocked 9 trades (7 events, 5 lost, $26-58 saved), but
     its cutoffs were picked from those trades. A separate "against the TA bias" entry block is not built (same trades, no new information).
   - Range / ATR cutoff: works at about 2.0x, not 1.5x; the 1.5-2.0x band made about +$49 in replay. **Applied: `spike_fade` 3.0 -> 2.0**
     (9 trades in 6 events, +$39-52 expected, medium-low confidence; `block_rules` row id 26, source `manual`, `config.SPIKE_FADE_ATR_MULTIPLE`
@@ -272,14 +272,30 @@ Ranked suggestions, and what was done (user approved all four on 31 Oct 2026):
   - *RSI:* one quick test (RSI 40-60 -> 3/15, +$81); not followed up.
   - *Changed:* no stop, trail or entry rule. The log-only flag `shadow_quiet_market` (ATR < 6 and ADX < 20 at entry) was added to every Broker B and Broker F
     trade's `entry_context` on 2 Nov 2026 (`entry_context.shadow_quiet_market()`, `config.SHADOW_QUIET_MAX_ATR` / `_ADX`); it blocks and changes nothing.
-  - *Next:* judge both candidates on trades opened since 2 Nov at the 21 Nov review (see "Open / to repeat").
+  - *Next:* judge both candidates on trades opened since 2 Nov at the 28 Nov review (see "Open / to repeat").
 
 ## Open / to repeat
-**Next combined review: 21 Nov 2026** (studies 25-27 together, one report, on one shared data set and one replay engine, as on 31 Oct):
-1. Judge the effect of `spike_fade` 2.0 on the trades since 31 Oct (blocked fades and what they would have done).
-2. `shadow_bias_adx`: about 20 flagged fades? Then flagged vs unflagged; clearly losing = real block, else remove the flag.
-3. New TA run against an open losing trade: add events until about 20 independent ones.
-4. Breakout rules and the +$20 lock: recheck with the new trades (both rest on a handful of winners).
-5. Study 28: judge the lean on 'live' `ta_bias_grades` rows (about 3 weeks of runs, around 19 Nov 2026).
-6. Study 35: judge the quiet-market rule (ATR < 6 and ADX < 20 -> trail activation +$10) and the looser trail after +$20 (D $12-15) on trades since 2 Nov; the `shadow_quiet_market` flag in `entry_context` marks the trades to judge (built 2 Nov 2026); replay those trades, not the 136 of study 35.
-Results go into this file on a branch and PR.
+**Monthly combined review, every last Saturday of the month (set 2 Nov 2026). Next: Saturday 28 Nov 2026.** Studies 25, 26, 27, 28 and 35 (everything from 25 up) run
+together as **one study with one result**, on one shared data set and one replay engine, as on 31 Oct. They are not scheduled or reported separately. Studies 1-24 are not part of it.
+New studies from 36 up join this review the same way. Items to cover each time (the first review's list):
+1. Study 26: the effect of `spike_fade` 2.0 on trades since 31 Oct (blocked fades and what they would have done).
+2. Study 26: `shadow_bias_adx`: about 20 flagged fades? Then flagged vs unflagged; clearly losing = real block, else remove the flag.
+3. Study 25: a new TA run against an open losing trade: add events until about 20 independent ones. Also the TA re-run shadow log (`ta_rerun_shadow`).
+4. Study 27: breakout rules and the +$20 lock, rechecked with the new trades (both rest on a handful of winners).
+5. Study 28: the lean on 'live' `ta_bias_grades` rows (about 3 weeks of runs by 28 Nov).
+6. Study 35: the quiet-market rule (ATR < 6 and ADX < 20 -> trail activation +$10) and the looser trail after +$20 (D $12-15), on trades opened since 2 Nov; the
+   `shadow_quiet_market` flag in `entry_context` marks them. Replay those trades, not the 136 of study 35.
+
+**Broker B and Broker F trade the same levels: count them once (rule set 2 Nov 2026).** Both engines run the same rules on the same forecast row, so a level that
+both traded is one trade, not two. Never add the profit or loss of both. Method (checked on 2 Nov data: 39 of Broker F's 48 live trades pair with a Broker B trade):
+- A pair = same `ta_forecast_id`, same `rule_name`, same direction, opened within 30 minutes of each other, matched one to one (nearest open first; a level can trade
+  twice per forecast, so match in order). In the 2 Nov data the matched opens differ by a median of 0.6 minutes (up to about 26), because Broker B acts on a 5-minute poll.
+- A pair counts as **one trade, using Broker F's record** (the real demo fill and exit). Small differences in price or P&L between the two are Broker F lag or Broker B poll lag
+  and are ignored, not added. A trade only one engine took counts as one trade of its own.
+- Replays (stop, trail, filter and lock tests) use one path per level anyway; the pair rule matters for the **recorded** totals, trade counts and win rates, and for the
+  sample sizes quoted in the result.
+- Report how many pairs and how many unmatched trades there were, and list the unmatched ones (a level both traded more than 30 minutes apart would be counted twice).
+- Caution: on the 39 matched pairs of 2 Nov, Broker F's recorded P&L sums to +$0.4 and Broker B's to -$43.7, so the two engines do not realise the same result on the same
+  levels (different exits and poll lag). The combined study uses one record per pair, so state which one was used.
+
+Results go into this file on a branch and PR, as for 31 Oct. The review changes no rule or setting by itself; any change needs the user's approval.
