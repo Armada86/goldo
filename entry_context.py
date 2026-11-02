@@ -14,14 +14,17 @@ dxy_change_15m, dxy_threshold_15m, bias_score, bias,
 forecast_id, session, spread (ask - bid close), range_15m_bid / range_15m_ask (last 15 one-minute bars),
 plus whatever the calling broker adds via `extra` (Broker A: the flagging indicators; Broker B: scenario,
 trigger price, minutes between the touch and the poll that acted on it, distance to the next resistance /
-support zone, zone width). Fades also get `shadow_bias_adx` (see shadow_bias_adx(); log only).
+support zone, zone width). Fades also get `shadow_bias_adx` (see shadow_bias_adx(); log only); every Broker B/F trade gets `shadow_quiet_market` (see shadow_quiet_market(); log only).
 """
 
 import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from config import INTRAHOUR_SWING_ALERT_THRESHOLD, RSI_PERIOD, SHADOW_BIAS_ADX_MIN_ADX, SHADOW_BIAS_ADX_MIN_BIAS
+from config import (
+    INTRAHOUR_SWING_ALERT_THRESHOLD, RSI_PERIOD, SHADOW_BIAS_ADX_MIN_ADX, SHADOW_BIAS_ADX_MIN_BIAS,
+    SHADOW_QUIET_MAX_ADX, SHADOW_QUIET_MAX_ATR,
+)
 
 log = logging.getLogger("gold-monitor")
 
@@ -52,6 +55,19 @@ def shadow_bias_adx(rule_name: str, trade_type: str, ctx: dict) -> dict:
             return {}
         against = -float(bias) if trade_type == "Buy" else float(bias)  # > 0 = the bias points against this fade
         return {"shadow_bias_adx": bool(against >= SHADOW_BIAS_ADX_MIN_BIAS and float(adx) >= SHADOW_BIAS_ADX_MIN_ADX)}
+    except Exception:
+        return {}
+
+
+def shadow_quiet_market(ctx: dict) -> dict:
+    """{"shadow_quiet_market": bool} for any trade whose context has ATR(14) and ADX(14), else {}. True = ATR below SHADOW_QUIET_MAX_ATR
+    and ADX below SHADOW_QUIET_MAX_ADX (a quiet, trendless market). LOG ONLY (study 35): nothing reads it, and no stop, trail or entry changes.
+    Never raises."""
+    try:
+        atr, adx = ctx.get("atr14"), ctx.get("adx14")
+        if atr is None or adx is None:
+            return {}
+        return {"shadow_quiet_market": bool(float(atr) < SHADOW_QUIET_MAX_ATR and float(adx) < SHADOW_QUIET_MAX_ADX)}
     except Exception:
         return {}
 
