@@ -368,6 +368,52 @@ def _exit_stop_offset(
     return offset
 
 
+def _exit_info(
+    peak: float, stop_loss_distance: float, activation: float, distance: float, locked: bool, fade: bool,
+    entry: float, stop_price: float, is_buy: bool,
+) -> dict:
+    """Which part of the exit rule the stop that closed the trade came from, and the numbers behind it
+    (shown in the Telegram close message, see _exit_detail_text())."""
+    ordinary = -stop_loss_distance if peak < activation else max(-stop_loss_distance, peak - distance)
+    if locked and peak - FADE_LOCK_TRAIL_DISTANCE >= max(ordinary, peak - PROFIT_LOCK_DISTANCE if peak >= PROFIT_LOCK_ACTIVATION else ordinary):
+        stage = "fade_lock"
+    elif peak >= PROFIT_LOCK_ACTIVATION and peak - PROFIT_LOCK_DISTANCE >= ordinary:
+        stage = "profit_lock"
+    elif peak >= activation:
+        stage = "trail"
+    else:
+        stage = "stop_loss"
+    return {
+        "stage": stage, "stop_loss": stop_loss_distance, "activation": activation, "distance": distance,
+        "peak": peak, "stop_price": stop_price, "entry": entry, "is_buy": is_buy, "fade": fade,
+    }
+
+
+def _exit_detail_text(info: dict | None) -> str:
+    """One-or-two-line explanation of how the trade was closed, for the Telegram close message. Empty if unknown."""
+    if not info:
+        return ""
+    stage = info["stage"]
+    sl, act, dist, peak = info["stop_loss"], info["activation"], info["distance"], info["peak"]
+    sign = 1 if info["is_buy"] else -1
+    stop_profit = (info["stop_price"] - info["entry"]) * sign
+    cap = " (fade cap)" if info.get("fade") and sl >= FADE_STOP_LOSS_CAP else ""
+    if stage == "stop_loss":
+        how = f"Closed by: initial stop loss ${sl:.2f}{cap} (best profit before stop only ${peak:.2f}, trail needs ${act:.2f})"
+    elif stage == "trail":
+        how = f"Closed by: trailing stop (activates at ${act:.2f} profit, trails ${dist:.2f} behind the best price)"
+    elif stage == "profit_lock":
+        how = (f"Closed by: profit lock (activates at ${PROFIT_LOCK_ACTIVATION:.2f} profit, trails "
+               f"${PROFIT_LOCK_DISTANCE:.2f} behind the best price)")
+    else:
+        how = f"Closed by: fade lock (opposite level reached, trails ${FADE_LOCK_TRAIL_DISTANCE:.2f} behind the best price)"
+    return (
+        f"\n{how}\n"
+        f"Settings: stop loss ${sl:.2f}{cap}, trail ${act:.2f} activation / ${dist:.2f} distance. "
+        f"Best profit ${peak:.2f}, stop sat at {'+' if stop_profit >= 0 else '-'}${abs(stop_profit):.2f} from entry."
+    )
+
+
 def _scan_exit_crossing(
     trade: dict,
     candles,
@@ -376,9 +422,10 @@ def _scan_exit_crossing(
     distance: float | None = None,
     lock_level: float | None = None,
     fade: bool = False,
+    info: dict | None = None,
 ) -> tuple[float, datetime] | None:
     """(stop_price, bar_time) of the first bar that touched the trailing stop, or None -- see _scan_exit()."""
-    return _scan_exit(trade, candles, stop_loss_distance, activation, distance, lock_level, fade)[0]
+    return _scan_exit(trade, candles, stop_loss_distance, activation, distance, lock_level, fade, info)[0]
 
 
 def _scan_exit(
@@ -389,6 +436,7 @@ def _scan_exit(
     distance: float | None = None,
     lock_level: float | None = None,
     fade: bool = False,
+    info: dict | None = None,
 ) -> tuple[tuple[float, datetime] | None, float]:
     """Replays 1-min OHLC candles (all of them since the trade opened, in order) against this trade's
     trailing stop -- see the module docstring for why a candle scan beats a point-in-time price. There
@@ -431,6 +479,8 @@ def _scan_exit(
         stop_price = stop_now()
         hit = bar["low"] <= stop_price if is_buy else bar["high"] >= stop_price
         if hit:
+            if info is not None:
+                info.update(_exit_info(peak, stop_loss_distance, activation, distance, locked, fade, entry, stop_price, is_buy))
             return (stop_price, bar["datetime"].to_pydatetime()), stop_price
         favourable = bar["high"] - entry if is_buy else entry - bar["low"]
         peak = max(peak, favourable)
@@ -449,7 +499,8 @@ def _exit_bar_count(trade: dict, now: datetime) -> int:
 
 
 def _find_exit(
-    trade: dict, fallback_price: float, fallback_ts: datetime, lock_level: float | None = None, fade: bool = False
+    trade: dict, fallback_price: float, fallback_ts: datetime, lock_level: float | None = None, fade: bool = False,
+    info: dict | None = None,
 ) -> tuple[float, datetime, float] | None:
     """(exit_price, exit_ts, pnl) if this trade should close now, else None. Tries the real
     intrabar candle path first; falls back to the plain point-price check (the original behavior)
@@ -469,7 +520,7 @@ def _find_exit(
         # entry technically happened) -- scanning it for an exit crossing can otherwise close a
         # trade in the same minute it opened, at a P/L it never actually had a chance to earn.
         candles = candles[candles["datetime"] > trade["open_ts"]]
-        crossing = _scan_exit_crossing(trade, candles, stop_loss_distance, trail_activation, trail_distance, lock_level, fade)
+        crossing = _scan_exit_crossing(trade, candles, stop_loss_distance, trail_activation, trail_distance, lock_level, fade, info)
     except Exception:
         crossing = None  # best-effort accuracy improvement -- fall back below, don't block on it
 
@@ -481,6 +532,9 @@ def _find_exit(
     # Point-price fallback (candle fetch failed): only the initial stop can be judged from one price; the
     # trailing part is picked up by the next successful candle scan, which replays every bar since entry.
     if pnl <= -stop_loss_distance:
+        if info is not None:
+            info.update(_exit_info(0.0, stop_loss_distance, trail_activation, trail_distance, False, fade,
+                                   float(trade["entry_price"]), fallback_price, trade["trade_type"] == "Buy"))
         return fallback_price, fallback_ts, pnl
     return None
 
@@ -495,12 +549,13 @@ def _open_message(
     )
 
 
-def _close_message(trade: dict, exit_price: float, exit_ts: datetime, pnl: float) -> str:
+def _close_message(trade: dict, exit_price: float, exit_ts: datetime, pnl: float, info: dict | None = None) -> str:
     result = "profit" if pnl >= 0 else "loss"
     return (
         f"{TRADE_ALERT_PREFIX.rstrip()}{_result_marker(pnl)}BROKER A #{trade['id']}: closed {trade['trade_type']} 1 oz XAU/USD @ ${exit_price:.2f} "
         f"(opened @ ${trade['entry_price']:.2f}, rule {trade['rule_name']}) -- "
-        f"{result} of ${abs(pnl):.2f}\n"
+        f"{result} of ${abs(pnl):.2f}"
+        f"{_exit_detail_text(info)}\n"
         f"Filled: {_format_ts(exit_ts)}"
     )
 
@@ -559,11 +614,12 @@ def check_broker_trades(prices: dict[str, float]) -> None:
         return
 
     if open_trade is not None:
-        exit_result = _find_exit(open_trade, gold_price, now)
+        exit_info: dict = {}
+        exit_result = _find_exit(open_trade, gold_price, now, info=exit_info)
         if exit_result is not None:
             exit_price, exit_ts, pnl = exit_result
             close_trade_row(open_trade["id"], exit_price, exit_ts, pnl, build_exit_context(now, opened_at=open_trade["open_ts"]))
-            send_telegram_message(_close_message(open_trade, exit_price, exit_ts, pnl))
+            send_telegram_message(_close_message(open_trade, exit_price, exit_ts, pnl, exit_info))
             open_trade = None
 
     if open_trade is None:

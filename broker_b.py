@@ -141,6 +141,7 @@ from zoneinfo import ZoneInfo
 from broker import (
     ENTRY_WINDOW_END_ET,
     ENTRY_WINDOW_START_ET,
+    _exit_detail_text,
     _find_exit,
     _format_ts,
     _result_marker,
@@ -662,12 +663,13 @@ def _open_message(
     )
 
 
-def _close_message(trade: dict, exit_price: float, exit_ts: datetime, pnl: float) -> str:
+def _close_message(trade: dict, exit_price: float, exit_ts: datetime, pnl: float, info: dict | None = None) -> str:
     result = "profit" if pnl >= 0 else "loss"
     return (
         f"{TRADE_ALERT_PREFIX.rstrip()}{_result_marker(pnl, PROFIT_MARKER, LOSS_MARKER)}BROKER B #{trade['id']}: closed {trade['trade_type']} 1 oz XAU/USD @ ${exit_price:.2f} "
         f"(opened @ ${trade['entry_price']:.2f}, rule {trade['rule_name']}) -- "
-        f"{result} of ${abs(pnl):.2f}\n"
+        f"{result} of ${abs(pnl):.2f}"
+        f"{_exit_detail_text(info)}\n"
         f"Filled: {_format_ts(exit_ts)}"
     )
 
@@ -759,13 +761,15 @@ def check_broker_b_trades(prices: dict[str, float]) -> None:
         return
 
     if open_trade is not None:
+        exit_info: dict = {}
         exit_result = _find_exit(
-            open_trade, gold_price, now, _fade_lock_level(open_trade), fade=open_trade.get("rule_name") in FADE_OPPOSITE_SCENARIO
+            open_trade, gold_price, now, _fade_lock_level(open_trade), fade=open_trade.get("rule_name") in FADE_OPPOSITE_SCENARIO,
+            info=exit_info,
         )
         if exit_result is not None:
             exit_price, exit_ts, pnl = exit_result
             close_trade_row_b(open_trade["id"], exit_price, exit_ts, pnl, build_exit_context(now, opened_at=open_trade["open_ts"]))
-            send_telegram_message(_close_message(open_trade, exit_price, exit_ts, pnl))
+            send_telegram_message(_close_message(open_trade, exit_price, exit_ts, pnl, exit_info))
             _notify_crossed_during_trade(open_trade, exit_price, exit_ts)
             open_trade = None
 
