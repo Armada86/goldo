@@ -67,16 +67,12 @@ New studies from 36 up join this review the same way. Items to cover each time (
 6. Study 35: the quiet-market rule (ATR < 6 and ADX < 20 -> trail activation +$10) and the looser trail after +$20 (D $12-15), on trades opened since 2 Nov; the
    `shadow_quiet_market` flag in `entry_context` marks them. Replay those trades, not the 136 of study 35.
 
-**Broker B and Broker F trade the same levels: count them once (rule set 2 Nov 2026).** Both engines run the same rules on the same forecast row, so a level that
-both traded is one trade, not two. Never add the profit or loss of both. Method (checked on 2 Nov data: 39 of Broker F's 48 live trades pair with a Broker B trade):
-- A pair = same `ta_forecast_id`, same `rule_name`, same direction, opened within 30 minutes of each other, matched one to one (nearest open first; a level can trade
-  twice per forecast, so match in order). In the 2 Nov data the matched opens differ by a median of 0.6 minutes (up to about 26), because Broker B acts on a 5-minute poll.
-- A pair counts as **one trade, using Broker F's record** (the real demo fill and exit). Small differences in price or P&L between the two are Broker F lag or Broker B poll lag
-  and are ignored, not added. A trade only one engine took counts as one trade of its own.
-- Replays (stop, trail, filter and lock tests) use one path per level anyway; the pair rule matters for the **recorded** totals, trade counts and win rates, and for the
-  sample sizes quoted in the result.
-- Report how many pairs and how many unmatched trades there were, and list the unmatched ones (a level both traded more than 30 minutes apart would be counted twice).
-- Caution: on the 39 matched pairs of 2 Nov, Broker F's recorded P&L sums to +$0.4 and Broker B's to -$43.7, so the two engines do not realise the same result on the same
-  levels (different exits and poll lag). The combined study uses one record per pair, so state which one was used.
+**Studies use Broker F only (rule set 2 Nov 2026, replaces the pair-matching rule of the same day).** Broker B and Broker F trade the same levels, so using both would count a
+level twice. From now on every study, replay and recorded total (the monthly combined review and any ad hoc study) uses **Broker F's trades only**
+(`forex_b_trades`, `mode = 'live'`; the real demo fills and exits). Broker B's `broker_b_trades` is not read for studies, and no pairing or de-duplication between the two is
+needed. Consequences to state in each result:
+- Sample sizes are Broker F's alone (it has traded only since 10 Oct 2026, live since 12 Oct), so they are smaller than the Broker B + F figures quoted in studies 25-35.
+- Touches blocked by the entry filters (`broker_b_blocked`) are shared bookkeeping and may still be used for what-if replays of the same levels; closed trades come from Broker F.
+- Earlier results (studies 1-35) are not redone; they stay as written, with their own data source noted.
 
 Results go into `docs/studies-25-plus.md` on a branch and PR, as for 31 Oct. The review changes no rule or setting by itself; any change needs the user's approval.
