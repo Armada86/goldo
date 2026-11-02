@@ -66,6 +66,7 @@ from broker import (
     _format_ts,
     _pnl,
     _result_marker,
+    _exit_detail_text,
     _scan_exit,
     _within_entry_window,
     stop_loss_threshold,
@@ -381,14 +382,14 @@ class Watcher:
 
     # --- exit -----------------------------------------------------------------------------------------------------
 
-    def _exit_inputs(self, trade: dict):
+    def _exit_inputs(self, trade: dict, info: dict | None = None):
         """(stop-scan result, next stop price) on the ticks since the trade opened, with Broker B's exit settings."""
         exit_frame = self.feed.side(_exit_side(trade["trade_type"]))
         ticks = exit_frame[exit_frame["datetime"] > pd.Timestamp(trade["open_ts"])]
         fade = trade["rule_name"] in FADE_OPPOSITE_SCENARIO
         activation, distance = trailing_stop_params()
         return _scan_exit(
-            trade, ticks, stop_loss_threshold(), activation, distance, self._refresh_context().get("lock_level"), fade
+            trade, ticks, stop_loss_threshold(), activation, distance, self._refresh_context().get("lock_level"), fade, info
         )
 
     def _check_exit(self, now: datetime) -> None:
@@ -397,7 +398,8 @@ class Watcher:
         latest = exit_frame.iloc[-1]
         price_col = "low" if trade["trade_type"] == "Buy" else "high"
         paused = self._paused(now)
-        crossing, next_stop = (None, None) if paused else self._exit_inputs(trade)
+        exit_info: dict = {}
+        crossing, next_stop = (None, None) if paused else self._exit_inputs(trade, exit_info)
         position = None
         # The stop is judged locally on every tick. The position / platform stop on forex.com is read every POSITION_CHECK_SECONDS,
         # and at once when our own stop is crossed or trading is paused (so a close is never sent for a position that is already gone).
@@ -427,7 +429,7 @@ class Watcher:
                 return
             exit_price, close_order_id = closed
             exit_ts = datetime.now(timezone.utc)
-        self._finish(trade, exit_price, exit_ts, stop_level, reason, close_order_id)
+        self._finish(trade, exit_price, exit_ts, stop_level, reason, close_order_id, note=_exit_detail_text(exit_info))
 
     def _finish(self, trade, exit_price, exit_ts, stop_level, reason, close_order_id=None, note="") -> None:
         pnl = _pnl(trade, exit_price)
