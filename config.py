@@ -211,6 +211,12 @@ FADE_NEAR_TRAIL_DISTANCE = 5.0
 # later (docs/studies.md study 26). Cutoffs picked from a 62-fade replay on 23 Oct, which found only 5 such trades (1 win, -$30).
 SHADOW_BIAS_ADX_MIN_BIAS = 4.0
 SHADOW_BIAS_ADX_MIN_ADX = 25.0
+# Quiet-market shadow flag (2 Nov 2026, LOG ONLY, Broker B and Broker F, every rule, study 35 in docs/studies.md): a trade entered with ATR(14, 15-min)
+# below the first value AND ADX(14) below the second is flagged `shadow_quiet_market: true` in its entry_context. Nothing changes for the trade: the
+# study 35 replay only suggested that, in such a market, activating the trail at +$10 instead of +$3 would have stopped fewer trades out in the chop
+# (Broker F #48). Cutoffs picked from a 136-trade replay with about 70 variants tried, so they are a hypothesis to judge on later trades.
+SHADOW_QUIET_MAX_ATR = 6.0
+SHADOW_QUIET_MAX_ADX = 20.0
 # Spike gate (live since 8 Oct 2026, Broker B, split by rule type): blocks an entry when the last 15 one-minute bars' entry-side
 # high-low range is at/above this multiple of ATR(14) on 15-min candles -- ATR lags a sudden spike (B #48: range 12.5 vs ATR 6.08
 # = 2.06x, lost the full stop). Fades (TA-Zone-*) trade the reversal AFTER a run into the level, so they get the looser gate (only

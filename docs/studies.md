@@ -270,9 +270,9 @@ Ranked suggestions, and what was done (user approved all four on 31 Oct 2026):
     stays negative (-$6.5 at best) on the live entry rule. It does not help #48 (the earlier $10 trail is already the stop in force; helping it would need a trail that
     replaces the earlier stop, i.e. can move back, not tested).
   - *RSI:* one quick test (RSI 40-60 -> 3/15, +$81); not followed up.
-  - *Changed:* nothing. No code, setting or rule was edited.
-  - *Next:* log a shadow flag for the quiet-market condition (ATR < 6 and ADX < 20 at entry) and judge both candidates on trades not in this sample at the
-    21 Nov review (see "Open / to repeat").
+  - *Changed:* no stop, trail or entry rule. The log-only flag `shadow_quiet_market` (ATR < 6 and ADX < 20 at entry) was added to every Broker B and Broker F
+    trade's `entry_context` on 2 Nov 2026 (`entry_context.shadow_quiet_market()`, `config.SHADOW_QUIET_MAX_ATR` / `_ADX`); it blocks and changes nothing.
+  - *Next:* judge both candidates on trades opened since 2 Nov at the 21 Nov review (see "Open / to repeat").
 
 ## Open / to repeat
 **Next combined review: 21 Nov 2026** (studies 25-27 together, one report, on one shared data set and one replay engine, as on 31 Oct):
@@ -281,5 +281,5 @@ Ranked suggestions, and what was done (user approved all four on 31 Oct 2026):
 3. New TA run against an open losing trade: add events until about 20 independent ones.
 4. Breakout rules and the +$20 lock: recheck with the new trades (both rest on a handful of winners).
 5. Study 28: judge the lean on 'live' `ta_bias_grades` rows (about 3 weeks of runs, around 19 Nov 2026).
-6. Study 35: judge the quiet-market rule (ATR < 6 and ADX < 20 -> trail activation +$10) and the looser trail after +$20 (D $12-15) on trades since 2 Nov; a shadow flag for the quiet-market condition is not built yet.
+6. Study 35: judge the quiet-market rule (ATR < 6 and ADX < 20 -> trail activation +$10) and the looser trail after +$20 (D $12-15) on trades since 2 Nov; the `shadow_quiet_market` flag in `entry_context` marks the trades to judge (built 2 Nov 2026); replay those trades, not the 136 of study 35.
 Results go into this file on a branch and PR.
