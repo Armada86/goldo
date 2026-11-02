@@ -336,7 +336,7 @@ LEAN_MIN_SCORE = 2  # fast-signal score (-3..+3) needed before the intraday lean
 
 def _regime_and_lean(price: float, ind: dict) -> dict:
     """The same six inputs as `_bias()`, split by the horizon they can actually speak to (study 28 in
-    docs/studies.md: the combined -6..+6 score had no skill at 1h/3h/end-of-day -- hit rate 49-50% over 447
+    docs/studies-25-plus.md: the combined -6..+6 score had no skill at 1h/3h/end-of-day -- hit rate 49-50% over 447
     rebuilt forecasts -- because half of it is slow trend filters that barely change within a day).
     - regime (-3..+3): price vs 1h EMA200, 4h EMA100, daily SMA50. A multi-day read; on 5 years of daily
       data these filters have a modest edge at ~20 days, none intraday.

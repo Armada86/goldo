@@ -181,7 +181,7 @@ ATR_PERIOD = 14
 ATR_HIGH_VOLATILITY_THRESHOLD = 12.0
 # TA re-run shadow log (17 Oct 2026, ta_rerun_shadow.py): LOG-ONLY. When gold is this many ATR(14, 15-min) away from both fade levels in
 # force, the poll records the TA run it would have started and the fade levels that run would have produced (no TA run, no Telegram, no
-# effect on any broker). Reviewed after a week against the 17 Oct simulation (docs/studies.md) before anything is built for real.
+# effect on any broker). Reviewed after a week against the 17 Oct simulation (docs/studies-25-plus.md) before anything is built for real.
 TA_RERUN_SHADOW_ATR_MULTIPLE = 2.0
 TA_RERUN_SHADOW_COOLDOWN_MINUTES = 60  # minimum gap after the last TA run or logged event
 TA_RERUN_SHADOW_MAX_PER_DAY = 3
@@ -189,7 +189,7 @@ TA_RERUN_SHADOW_MIN_LEVEL_CHANGE = 3.0  # $; the would-be fade levels count as "
 # Profit lock for every trade (26 Oct 2026, all brokers that use broker._scan_exit: A, B, F): once the best profit reaches
 # PROFIT_LOCK_ACTIVATION the stop follows PROFIT_LOCK_DISTANCE behind the best price (only ever raising the stop, never lowering it), whatever the
 # ordinary `make trail` or fade settings say. Replay of 103 trades (45 days): +$109.38 vs +$101.72 without it; negative below ~$18, noisy above,
-# hand-picked at the user's request -- re-check on about 31 Oct 2026 (docs/studies.md, study 27).
+# hand-picked at the user's request -- re-check on about 31 Oct 2026 (docs/studies-25-plus.md, study 27).
 PROFIT_LOCK_ACTIVATION = 20.0
 PROFIT_LOCK_DISTANCE = 5.0
 # Broker B fade exit rule (see broker.py): once a TA-Zone-* trade reaches its opposite fade level its stop locks there and trails
@@ -208,10 +208,10 @@ FADE_NEAR_TRAIL_DISTANCE = 5.0
 # Bias/ADX shadow flag (23 Oct 2026, LOG ONLY, Broker B and Broker F): a fade (TA-Zone-*) taken against the TA bias -- a buy while the bias
 # score is negative, a sell while it is positive -- by at least this many points, with ADX(14) at or above the second value, is flagged
 # `shadow_bias_adx: true` in the trade's entry_context. Nothing is blocked; the flag is only there to compare flagged and unflagged fades
-# later (docs/studies.md study 26). Cutoffs picked from a 62-fade replay on 23 Oct, which found only 5 such trades (1 win, -$30).
+# later (docs/studies-25-plus.md study 26). Cutoffs picked from a 62-fade replay on 23 Oct, which found only 5 such trades (1 win, -$30).
 SHADOW_BIAS_ADX_MIN_BIAS = 4.0
 SHADOW_BIAS_ADX_MIN_ADX = 25.0
-# Quiet-market shadow flag (2 Nov 2026, LOG ONLY, Broker B and Broker F, every rule, study 35 in docs/studies.md): a trade entered with ATR(14, 15-min)
+# Quiet-market shadow flag (2 Nov 2026, LOG ONLY, Broker B and Broker F, every rule, study 35 in docs/studies-25-plus.md): a trade entered with ATR(14, 15-min)
 # below the first value AND ADX(14) below the second is flagged `shadow_quiet_market: true` in its entry_context. Nothing changes for the trade: the
 # study 35 replay only suggested that, in such a market, activating the trail at +$10 instead of +$3 would have stopped fewer trades out in the chop
 # (Broker F #48). Cutoffs picked from a 136-trade replay with about 70 variants tried, so they are a hypothesis to judge on later trades.

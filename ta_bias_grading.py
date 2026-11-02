@@ -1,4 +1,4 @@
-"""Grades the TA forecast's directional calls against what gold actually did (study 28 in docs/studies.md).
+"""Grades the TA forecast's directional calls against what gold actually did (study 28 in docs/studies-25-plus.md).
 
 Until 29 Oct 2026 `ta_forecast_job.review_previous()` graded only the four scenarios; nothing checked whether the bias was right.
 For every forecast this stores, in `ta_bias_grades`, gold's move after it at four horizons -- +1h, +3h, until the next forecast
