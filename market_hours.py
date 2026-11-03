@@ -66,6 +66,14 @@ def is_market_closed() -> bool:
     return now.weekday() == 5
 
 
+def is_daily_break(now: datetime | None = None) -> bool:
+    """True during the daily 5:00-6:00 PM ET settlement break, Monday-Thursday (Friday's 5 PM break and the
+    weekend are covered by is_market_closed()). XAU/USD streams no ticks then, so a silent price feed is
+    expected, not an outage. `now` may be any tz-aware datetime (default: the current time)."""
+    now = now.astimezone(MARKET_TZ) if now else datetime.now(MARKET_TZ)
+    return now.weekday() < MARKET_CLOSE_WEEKDAY and MARKET_CLOSE_HOUR <= now.hour < MARKET_OPEN_HOUR
+
+
 def is_overnight_polling_pause() -> bool:
     """True outside 7:00 AM-5:00 PM Eastern on weekdays (all day Saturday/Sunday too) -- a deliberate
     cost-saving pause,
