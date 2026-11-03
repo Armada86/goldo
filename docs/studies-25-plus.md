@@ -282,3 +282,20 @@ Ranked suggestions, and what was done (user approved all four on 31 Oct 2026):
   - *Next:* at the 28 Nov review rerun `broker_k_study.py` on fresh bars and the new live trades and check, without re-searching the grid: the out-of-sample total and t-statistic of the current rule;
     the live-versus-replay match; whether sells and buys are both positive; how often the spread cap and the stop-streak pause fired (log lines `Broker K: ... skipped` / `stop-losses in a row`) and what the skipped signals would have done; and the handful of settings that came out marginally ahead here
     (ADX minimum 25-30, time stop 90, SL 10, RSI cap) on the new weeks only.
+
+## Study 37 (3 Nov 2026): does the DXY entry block help? (shadow-flag item, log only)
+37. **Did blocking on DXY save money, or is DXY unrelated to whether these entries work?** Every Broker B / Broker F entry that the DXY gate blocked was replayed as if it had been taken.
+  - *Scope (user rule, 3 Nov 2026): Broker A is not part of any study.* A first version of this study also replayed Broker A's 53 DXY blocks (+$41.63 DXY-only, p 0.43); that was withdrawn
+    the same day and is not used. Only the shared `broker_b_blocked` rows (Broker B and Broker F trade the same levels) are read here.
+  - *Data and engine:* `broker_b_blocked`, 7 rows whose reasons mention DXY (4 with DXY as the only reason). 52,066 Twelve Data 1-minute mid bars (28 Sep - 3 Nov; FOREX.com bid/ask only
+    for the last ~2.8 days), the SLA replay (`stop_loss_analysis.py`) with the live exit rule ($20 stop, trail 3/10, +$20/$5 lock, fade rules for `TA-Zone-*`), 1 oz. Entry at the level
+    price at the stored touch time. Rows that also tripped ADX or the spike gate (3 of the 7) would have been blocked anyway and are shown separately. Scratch scripts, not in the repo.
+  - *Result (positive = the block cost that much profit):* DXY-only, 4 touches: **+$19.11** (3 wins, 1 loss, p 0.32). All 7 DXY-flagged: +$34.93 (4 / 2, p 0.15). With the older $10 stop /
+    7-7 trail: +$17.48 and +$36.30. Spread is not subtracted (about $0.68 per trade, median of stored `entry_context.spread`, i.e. about $2.7 over 4 trades).
+  - *Reading:* the DXY blocks on Broker B/F did not avoid losses; the blocked touches won 3 of 4. Four trades are far too few to conclude anything either way, so DXY is neither shown to help nor
+    to hurt here. Limits: mid prices, approximate entry times, repeat blocks of one level may not be logged.
+  - *Shadow-flag item (nothing built, nothing changed):* the blocked rows already accumulate in `broker_b_blocked`, so no new logging is needed to repeat this replay. A true "flag, don't
+    block" shadow (a `shadow_dxy_adverse` key in `entry_context`) would need the DXY gate turned log-only, which changes behaviour and needs the user's approval. Until then the replay of new
+    blocks is the shadow record.
+  - *Next:* at the 28 Nov review rerun the replay on DXY blocks since 3 Nov (Broker B/F only, one at a time, minus the spread) and add them to the 4 above. Suggested decision rule: with at
+    least ~20 DXY-only blocks in total and a positive result after spread, propose loosening or dropping the DXY gate.

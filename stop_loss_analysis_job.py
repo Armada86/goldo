@@ -1,7 +1,7 @@
 """One-shot stop loss analysis, run by .github/workflows/stop_loss_analysis.yml when you send "start stop loss
 analysis" or "start SLA" on Telegram (the Worker dispatches the workflow, same as "run TA").
 
-Reads every closed Broker A / Broker B trade from Postgres, fetches 1-minute gold bars covering them
+Reads every closed Broker B trade (Broker A is not used, 3 Nov 2026) from Postgres, fetches 1-minute gold bars covering them
 (FOREX.com bid/ask where they reach back ~2.8 days, Twelve Data mid for older trades), replays each trade
 against a grid of stop-loss / trailing-stop settings with stop_loss_analysis.py, and sends the advice to
 Telegram. When the advice is to change, it APPLIES it automatically (since 4 Oct 2026): the new stop loss and trailing stop

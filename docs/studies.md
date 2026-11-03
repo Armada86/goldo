@@ -53,12 +53,12 @@ missing. Add new ones at the bottom of their section (or under "Open / to repeat
     `forex_watcher_sim.py` (two overlapping watchers on a scripted tick path).
 
 ## Studies 25 and up
-Studies 25 and up (Broker B and F fades, levels, filters, exits, the TA bias study and the quiet-market study, plus the 31 Oct review result) are in `docs/studies-25-plus.md`.
+Studies 25 and up (Broker B and F fades, levels, filters, exits, the TA bias study, the quiet-market study, Broker K, the DXY block study, plus the 31 Oct review result) are in `docs/studies-25-plus.md`.
 
 ## Open / to repeat
-**Monthly combined review, every last Saturday of the month (set 2 Nov 2026). Next: Saturday 28 Nov 2026.** Studies 25, 26, 27, 28, 35 and 36 (everything from 25 up) run
+**Monthly combined review, every last Saturday of the month (set 2 Nov 2026). Next: Saturday 28 Nov 2026.** Studies 25, 26, 27, 28, 35, 36 and 37 (everything from 25 up) run
 together as **one study with one result**, on one shared data set and one replay engine, as on 31 Oct. They are not scheduled or reported separately. Studies 1-24 are not part of it.
-New studies from 36 up join this review the same way. Items to cover each time (the first review's list):
+New studies from 38 up join this review the same way. Items to cover each time (the first review's list):
 1. Study 26: the effect of `spike_fade` 2.0 on trades since 31 Oct (blocked fades and what they would have done).
 2. Study 26: `shadow_bias_adx`: about 20 flagged fades? Then flagged vs unflagged; clearly losing = real block, else remove the flag.
 3. Study 25: a new TA run against an open losing trade: add events until about 20 independent ones. Also the TA re-run shadow log (`ta_rerun_shadow`).
@@ -71,6 +71,12 @@ New studies from 36 up join this review the same way. Items to cover each time (
    the same days (does the engine still match?); (c) only the few ideas study 36 left open (ADX minimum 25-30, time stop 90, stop-loss 10, RSI cap, the cooldown and entry-hour
    findings) judged on the new weeks, not re-searched across the whole grid; (d) the live fill spread, since the result flips sign at a $1.20 spread, and how the two protections added on 3 Nov (spread cap $1.50, 2-stop-loss pause 30 min) behaved. Broker K is its own
    engine with its own table, so the Broker-F-only rule below does not apply to it.
+8. Study 37: the DXY entry block (`broker_b_blocked` rows whose reason is DXY only). Replay the blocks since 3 Nov with the live exit rule, one at a time, minus the
+   ~$0.68 spread, and add them to the study 37 result (+$19.1 over 4 touches before spread). Nothing is logged by a flag; the blocked table is the record.
+
+**Broker A is excluded from every study (user rule, 3 Nov 2026).** No study, replay, analysis or recorded total reads Broker A's trades, signals or blocked entries
+(`trades`, `broker_a_blocked`), and nothing Broker A did feeds any setting. Broker B and Broker F run the same rules and are studied as below; a Broker K study uses Broker K's own
+trades only. `get_closed_trades_for_analysis()` (SLA, BRA) now reads Broker B only.
 
 **Studies use Broker F only (rule set 2 Nov 2026, replaces the pair-matching rule of the same day).** Broker B and Broker F trade the same levels, so using both would count a
 level twice. From now on every study, replay and recorded total (the monthly combined review and any ad hoc study) uses **Broker F's trades only**

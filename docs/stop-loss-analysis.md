@@ -1,7 +1,6 @@
 # Stop loss analysis (SLA)
 
-Send `start stop loss analysis` or `start SLA` to the Telegram bot. It replays every closed Broker A and
-Broker B trade against a grid of stop-loss and trailing-stop settings and sends back advice: a stop loss
+Send `start stop loss analysis` or `start SLA` to the Telegram bot. It replays every closed Broker B trade (Broker A is excluded since 3 Nov 2026) against a grid of stop-loss and trailing-stop settings and sends back advice: a stop loss
 (for example -$10 or -$15) and a trailing stop (how much profit switches it on, and how far behind the best
 price it follows). **When it advises a change it applies it automatically** (from 4 Oct 2026): the new values go
 into the same tables `make SL <n>` and `make trail <activation> <distance>` write, so both brokers use them from their
