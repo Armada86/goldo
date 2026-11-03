@@ -763,10 +763,9 @@ async function closeBrokerA(sql, apiKey) {
     WHERE id = ${trade.id}
   `;
   const marker = p >= 0 ? PROFIT_MARKER_A : LOSS_MARKER_A;
-  const result = p >= 0 ? "profit" : "loss";
   return (
-    `${TRADE_ALERT_PREFIX_A.trimEnd()}${marker}BROKER A #${trade.id}: closed ${trade.trade_type} 1 oz XAU/USD @ $${price.toFixed(2)} ` +
-    `(opened @ $${trade.entry_price.toFixed(2)}, rule ${trade.rule_name}) -- ${result} of $${Math.abs(p).toFixed(2)} ` +
+    `${TRADE_ALERT_PREFIX_A.trimEnd()}${marker}${p >= 0 ? "P" : "L"} $${Math.abs(p).toFixed(2)} BROKER A #${trade.id}: closed ${trade.trade_type} 1 oz XAU/USD @ $${price.toFixed(2)} ` +
+    `(opened @ $${trade.entry_price.toFixed(2)}, rule ${trade.rule_name}) ` +
     `(manual close via Telegram, not the automatic trailing stop)\n` +
     `Filled: ${formatTs(now)}`
   );
@@ -800,8 +799,8 @@ async function closeBrokerK(sql, apiKey) {
   `;
   const marker = p >= 0 ? "\u{1F7E9}" : "\u{1F7E5}";
   return (
-    `${prefix}${marker}BROKER K #${trade.id}: closed ${trade.trade_type} 1 oz XAU/USD @ $${price.toFixed(2)} ` +
-    `(opened @ $${trade.entry_price.toFixed(2)}, rule ${trade.rule_name}) -- ${p >= 0 ? "profit" : "loss"} of $${Math.abs(p).toFixed(2)} ` +
+    `${prefix}${marker}${p >= 0 ? "P" : "L"} $${Math.abs(p).toFixed(2)} BROKER K #${trade.id}: closed ${trade.trade_type} 1 oz XAU/USD @ $${price.toFixed(2)} ` +
+    `(opened @ $${trade.entry_price.toFixed(2)}, rule ${trade.rule_name}) ` +
     `(stop trading via Telegram)\n` +
     `Filled: ${formatTs(now)}`
   );
@@ -854,10 +853,9 @@ async function closeBrokerB(sql, apiKey) {
     WHERE id = ${trade.id}
   `;
   const marker = p >= 0 ? PROFIT_MARKER_B : LOSS_MARKER_B;
-  const result = p >= 0 ? "profit" : "loss";
   return (
-    `${TRADE_ALERT_PREFIX_B.trimEnd()}${marker}BROKER B #${trade.id}: closed ${trade.trade_type} 1 oz XAU/USD @ $${price.toFixed(2)} ` +
-    `(opened @ $${trade.entry_price.toFixed(2)}, rule ${trade.rule_name}) -- ${result} of $${Math.abs(p).toFixed(2)} ` +
+    `${TRADE_ALERT_PREFIX_B.trimEnd()}${marker}${p >= 0 ? "P" : "L"} $${Math.abs(p).toFixed(2)} BROKER B #${trade.id}: closed ${trade.trade_type} 1 oz XAU/USD @ $${price.toFixed(2)} ` +
+    `(opened @ $${trade.entry_price.toFixed(2)}, rule ${trade.rule_name}) ` +
     `(manual close via Telegram, not the automatic trailing stop)\n` +
     `Filled: ${formatTs(now)}`
   );

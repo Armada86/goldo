@@ -155,6 +155,11 @@ def _within_entry_window(now_utc: datetime) -> bool:
     return local.weekday() < 5 and ENTRY_WINDOW_START_ET <= local.time() < ENTRY_WINDOW_END_ET
 
 
+def _pl_tag(pnl: float) -> str:
+    """'P $12.34 ' (profit) or 'L $12.34 ' (loss): placed right after the colored boxes so the result is read first."""
+    return f"{'P' if pnl >= 0 else 'L'} ${abs(pnl):.2f} "
+
+
 def _result_marker(pnl: float, profit: str = PROFIT_MARKER, loss: str = LOSS_MARKER) -> str:
     return profit if pnl >= 0 else loss
 
@@ -550,11 +555,9 @@ def _open_message(
 
 
 def _close_message(trade: dict, exit_price: float, exit_ts: datetime, pnl: float, info: dict | None = None) -> str:
-    result = "profit" if pnl >= 0 else "loss"
     return (
-        f"{TRADE_ALERT_PREFIX.rstrip()}{_result_marker(pnl)}BROKER A #{trade['id']}: closed {trade['trade_type']} 1 oz XAU/USD @ ${exit_price:.2f} "
-        f"(opened @ ${trade['entry_price']:.2f}, rule {trade['rule_name']}) -- "
-        f"{result} of ${abs(pnl):.2f}"
+        f"{TRADE_ALERT_PREFIX.rstrip()}{_result_marker(pnl)}{_pl_tag(pnl)}BROKER A #{trade['id']}: closed {trade['trade_type']} 1 oz XAU/USD @ ${exit_price:.2f} "
+        f"(opened @ ${trade['entry_price']:.2f}, rule {trade['rule_name']})"
         f"{_exit_detail_text(info)}\n"
         f"Filled: {_format_ts(exit_ts)}"
     )
