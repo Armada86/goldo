@@ -225,3 +225,59 @@ Ranked suggestions, and what was done (user approved all four on 31 Oct 2026):
   - *Changed:* no stop, trail or entry rule. The log-only flag `shadow_quiet_market` (ATR < 6 and ADX < 20 at entry) was added to every Broker B and Broker F
     trade's `entry_context` on 2 Nov 2026 (`entry_context.shadow_quiet_market()`, `config.SHADOW_QUIET_MAX_ATR` / `_ADX`); it blocks and changes nothing.
   - *Next:* judge both candidates on trades opened since 2 Nov at the 28 Nov review (see "Open / to repeat").
+
+## Study 36 (3 Nov 2026): Broker K's settings (RSI, ADX, ATR, take-profit, stop-loss, time stop)
+36. **How has Broker K performed with its current settings, and can they be improved?** Observation only: no setting was changed. Rerun at every monthly combined review
+    (`python broker_k_study.py --fetch`, then `python broker_k_study.py`; the script prints every table below).
+  - *Data and engine:* live `broker_k_trades` (15 trades from 22 Oct to 3 Nov, 14 closed: **-$4.68**; 2 take-profit, 3 stop-loss, 8 time stop, 1 closed by a pause; 4 winners) and
+    82,063 Twelve Data 1-minute mid bars (7 Sep - 3 Nov, 3,160 simulated polls). Same replay engine as `broker_k_backtest.py` (poll every 5 minutes 7am-5pm ET, indicators from
+    the last 96 15-minute candles incl. the forming one, fill the next minute on the ask/bid with an assumed spread, side-correct bar scan, stop wins a same-bar tie, one trade at
+    a time), plus a trailing-stop and ATR-scaled-limit option. The settings were chosen on 9 Sep - 22 Oct, so polls from 22 Oct on are out of sample for the current rule only;
+    every other variant below was looked at on all the data. Studies use Broker K's own table (it is its own engine, so the Broker-F-only rule does not apply).
+  - *Engine check:* of the 10 replay trades from 22 Oct 19:55 UTC on that the live bot could also have taken, all 10 were also live trades within one minute, same side; replay
+    P/L was $19.6 against $13.7 live (about $0.60 a trade better, the live median spread is $0.60 against the assumed $0.40). The replay missed live #10 and #11 and has no polls for
+    the last two hours of data (live #13-15). So the replay is faithful but flattering.
+  - *The current rule (ADX >= 35, ATR $3-12, RSI 50-70 buy / 30-50 sell, TP $12, SL $8, 60 min), replayed:* +$47.9 on 81 trades (avg +$0.59, win 48%), positive in 6 of 9
+    weeks, +$11.9 without its best three trades, maximum drawdown $43. Out of sample (22 Oct on): +$16.4 on 9 trades. The live result so far is -$4.68 on 14.
+    **It is not distinguishable from zero:** standard deviation $8.48 per trade, standard error $0.94, t = 0.63; bootstrap 90% range of the total -$79 to +$168; 27% of resamples
+    are <= 0. At a $0.80 spread and a 2-minute fill delay it falls to +$16.6 (-$19.4 without the best three); at $1.20 it is -$28.1. With no entry filter at all it loses $563
+    (spread and noise). So the edge, if any, is smaller than the spread uncertainty.
+  - *Is it the RSI direction or the market?* Gold fell from 4,335 (13 Sep) to 3,897 (1 Nov), -10%. Same ADX/ATR trigger with the side forced: always Buy -$55.6 (n=106), always Sell
+    **+$65.3** (n=105, 7 of 9 weeks, +$29 without the best three); RSI side flipped on purpose -$46.0. The replay's sells made +$37.4 and its buys +$10.4. So the RSI side clearly beats
+    the wrong side, but a plain "sell when ADX is high" did as well as the whole rule in this falling market, and nothing here separates trend-following from a short bias. (Live is the
+    reverse so far: buys +$17, sells -$14 over 7 and 6 trades, which is noise.)
+  - *One setting at a time (everything else as current; differences under about $50 are noise at this sample size, the standard error of the total is about $76):*
+    - ADX minimum: 25 +$154.8 (n=207), 30 +$95.8 (139), **35 +$47.9 (81)**, 40 +$84.8 (48), 45 +$16.1, 50 +$37.8. Average per trade is similar (+$0.6 to +$1.8), so a lower minimum
+      mostly adds trades, and the 22 Oct study found 30 "much weaker"; the ranking flipped with 3 more weeks, so it is not stable. Requiring ADX rising is clearly worse (-$55.9,
+      2 of 8 weeks).
+    - ATR: the $3 minimum never binds (0, 2 and 4 give identical results; ADX >= 35 already means ATR above 4). Maximum 8 +$24.9, 10 +$38.5, **12 +$47.9**, 15 +$28.6, none +$30.4. Keep.
+    - RSI: raising the buy-side cap to 75 or removing it gives +$61.6 / +$55.6 (out of sample +$41.9 / +$52.4 on 15 / 23 trades, in sample +$19.6 / +$3.3), so the 70 cap neither
+      clearly helps nor hurts; a floor of 55 or 60 loses (-$8.4, +$1.2), i.e. the 50-55 band is where about $56 of the replay profit came from. +DI/-DI agreement: +$15.1 (worse).
+    - Take-profit / stop-loss: TP 8 -$47.7, 10 -$4.2, **12 +$47.9**, 15 +$46.4, 18 +$6.4, 20 +$14.0, 25 +$2.0; SL 5 -$39.5, 6 -$38.5, **8 +$47.9**, 10 +$60.6, 12 +$2.1, 15 +$41.8.
+      Tight limits ($5-6 stop, $8-10 target) clearly lose to the spread, as the 22 Oct study found; between $12/$8 and $15/$10 the numbers jump around (SL 10 +$61, SL 12 +$2, SL 15
+      +$42), which is noise, not a slope.
+    - Time stop: 20 min -$23.4, 30 +$38.5, 45 +$1.5, **60 +$47.9**, 90 +$52.8, 120 +$51.3 (out of sample +$23.6 / +$20.7). Longer is marginally better, not meaningfully.
+    - Cooldown after a close: 0 (current) +$47.9, 15 min -$28.8, 30 -$41.4, 60 -$51.2: waiting after a trade made the replay worse (consecutive trades in a trend help),
+      but see the 3 Nov cluster below.
+    - Entry hours: no pattern (7h -$11.5, 8h +$36.0, 9h +$32.0, 10h -$14.0, 13h -$34.4, 15h +$15.3); a last-entry-hour cutoff of 16, 15, 14 or 13 gives +$47.7, +$32.4, +$27.9,
+      +$62.3 (nothing consistent).
+  - *Exit structure:* trailing stops (activation 4-10, distance 4-8, with TP 12, 20 or none) ranged from -$19 to +$32 against +$47.9 for the fixed exit, always below it. Limits scaled
+    to ATR (TP 1-2x ATR, SL 0.7-1.5x) ranged from -$43 to +$16. Neither is an improvement.
+  - *Live observations worth knowing (not replay):* (a) live #10 was opened at 16:55 ET on a Friday with a **$3.04 spread** (normal is $0.40-0.66), five minutes before the close, and was
+    held across the weekend (closed at the time-stop level next session); (b) live #13, #14 and #15 on 3 Nov were three Buy entries in 16 minutes (14:10, 14:20, 14:26 UTC) into a
+    reversal: -$8, -$8 and #15 still open when this was written, since the rule re-enters at the next poll after any close; (c) live #1 and #10 were closed retroactively next morning
+    (905 and 3,785 minutes between open and the stored `exit_context`), which is by design; (d) live spread median $0.60.
+  - *Variants evaluated in the whole run: 79* (about 40 distinct settings plus combinations), on 81 trades. The best cells (ADX 25 +$155, SL 10 +$61, RSI cap off) are what a random search
+    on noise would also produce, and several flip sign between neighbouring values, so none is a finding.
+  - *Conclusion and suggestions (nothing changed):*
+    1. **Keep every setting.** No variant is both better and stable (in sample, out of sample, most weeks, and without its best trades). The current numbers are not shown to be wrong, and not shown to be right.
+    2. The evidence problem is sample size, not the settings: to see a +$0.60 average through $8.5 of noise a standard error under $0.3 is needed, about 800 trades; Broker K makes about 2 a day, so that is most of a year.
+       Judge it on the live record, a month at a time, and do not tune it until there are several hundred live trades.
+    3. Two inexpensive protections that do not depend on the fitted numbers, **proposed, needing approval**: skip an entry when the live bid-ask spread is above a cap (for example $1.50, K already
+       records `spread`; live #10 paid $3.04, and the replay shows the result flips sign above about $1.00 average), and optionally pause entries for 15-30 minutes after two consecutive stop-losses
+       (only as a risk limit: the replay says a flat cooldown costs money, so test it on the new live trades before adopting it).
+    4. Record true bid/ask per trade (already done via `spread`) and keep a K-specific note of regime: the replay window was a 10% decline, so re-check whether the buys and sells are
+       separately positive once gold has gone sideways or up.
+  - *Next:* at the 28 Nov review rerun `broker_k_study.py` on fresh bars and the new live trades and check, without re-searching the grid: the out-of-sample total and t-statistic of the current rule;
+    the live-versus-replay match; whether sells and buys are both positive; the spread-cap and consecutive-stop questions; and the handful of settings that came out marginally ahead here
+    (ADX minimum 25-30, time stop 90, SL 10, RSI cap) on the new weeks only.

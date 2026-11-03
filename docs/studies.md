@@ -56,7 +56,7 @@ missing. Add new ones at the bottom of their section (or under "Open / to repeat
 Studies 25 and up (Broker B and F fades, levels, filters, exits, the TA bias study and the quiet-market study, plus the 31 Oct review result) are in `docs/studies-25-plus.md`.
 
 ## Open / to repeat
-**Monthly combined review, every last Saturday of the month (set 2 Nov 2026). Next: Saturday 28 Nov 2026.** Studies 25, 26, 27, 28 and 35 (everything from 25 up) run
+**Monthly combined review, every last Saturday of the month (set 2 Nov 2026). Next: Saturday 28 Nov 2026.** Studies 25, 26, 27, 28, 35 and 36 (everything from 25 up) run
 together as **one study with one result**, on one shared data set and one replay engine, as on 31 Oct. They are not scheduled or reported separately. Studies 1-24 are not part of it.
 New studies from 36 up join this review the same way. Items to cover each time (the first review's list):
 1. Study 26: the effect of `spike_fade` 2.0 on trades since 31 Oct (blocked fades and what they would have done).
@@ -66,6 +66,11 @@ New studies from 36 up join this review the same way. Items to cover each time (
 5. Study 28: the lean on 'live' `ta_bias_grades` rows (about 3 weeks of runs by 28 Nov).
 6. Study 35: the quiet-market rule (ATR < 6 and ADX < 20 -> trail activation +$10) and the looser trail after +$20 (D $12-15), on trades opened since 2 Nov; the
    `shadow_quiet_market` flag in `entry_context` marks them. Replay those trades, not the 136 of study 35.
+7. Study 36: Broker K's settings (`python broker_k_study.py --fetch`, then `python broker_k_study.py`; method and the 3 Nov result in `docs/studies-25-plus.md`). Rerun on
+   fresh 1-minute bars and the new live `broker_k_trades`: (a) the current rule's out-of-sample total since 22 Oct and its t-statistic; (b) the live record against the replay of
+   the same days (does the engine still match?); (c) only the few ideas study 36 left open (ADX minimum 25-30, time stop 90, stop-loss 10, RSI cap, the cooldown and entry-hour
+   findings) judged on the new weeks, not re-searched across the whole grid; (d) the live fill spread, since the result flips sign at a $1.20 spread. Broker K is its own
+   engine with its own table, so the Broker-F-only rule below does not apply to it.
 
 **Studies use Broker F only (rule set 2 Nov 2026, replaces the pair-matching rule of the same day).** Broker B and Broker F trade the same levels, so using both would count a
 level twice. From now on every study, replay and recorded total (the monthly combined review and any ad hoc study) uses **Broker F's trades only**

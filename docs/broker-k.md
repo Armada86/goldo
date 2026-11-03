@@ -45,6 +45,13 @@ sweep too), mid prices plus an assumed spread rather than recorded bid/ask. Thes
 record -- `entry_context` / `exit_context` are there to calibrate them (e.g. `SELECT rule_name, (entry_context->>'adx14')::float, pnl
 FROM broker_k_trades`).
 
+## Study 36 (3 Nov 2026)
+
+`python broker_k_study.py` (see `docs/studies-25-plus.md`, study 36) replays the live rule on 8 Sep - 3 Nov and sweeps each setting. Result: the current rule makes +$47.9 on 81
+replayed trades (t = 0.63, not distinguishable from zero; live is -$4.68 on 14 closed trades), no variant of ADX / ATR / RSI / TP / SL / time stop / trail / cooldown is both
+better and stable, and the result flips sign above about a $1.00-1.20 spread. No setting was changed. Proposed, awaiting approval: a spread cap on entries and a short pause after two
+consecutive stop-losses. It is part of the monthly combined review (last Saturday, first 28 Nov 2026).
+
 ## Not done / ideas
 
 - Honouring `stop trading` / `broker status` for K (needs a `K` branch in `trading_control.trading_pause_reason()` and the Worker).
