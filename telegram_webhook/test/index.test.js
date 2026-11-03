@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { brokerStatus, brokerKSignal, STATUS_RE, parseBrokerScope, evaluatePause, nextWeekdayBoundary, isMarketClosedAt, inEntryWindow, tradingState, REARM_RE, RUN_TA_RE, SLA_RE, BRA_RE, parseStopLoss, parseTrail, parseCommand, parseControlCommand, etToUtc, formatTs, pnl } from "../src/index.js";
+import { brokerStatus, brokerKSignal, kStreakPauseUntil, STATUS_RE, parseBrokerScope, evaluatePause, nextWeekdayBoundary, isMarketClosedAt, inEntryWindow, tradingState, REARM_RE, RUN_TA_RE, SLA_RE, BRA_RE, parseStopLoss, parseTrail, parseCommand, parseControlCommand, etToUtc, formatTs, pnl } from "../src/index.js";
 
 test("parseCommand: open commands, various phrasing", () => {
   assert.deepEqual(parseCommand("sell broker A"), { action: "open", tradeType: "Sell", brokerLetter: "A" });
@@ -298,4 +298,12 @@ test("brokerKSignal: mirrors config.K_* / broker_k.entry_signal()", () => {
   assert.equal(brokerKSignal(72, 36, 6), null); // RSI exhausted
   assert.equal(brokerKSignal(28, 36, 6), null);
   assert.equal(brokerKSignal(null, 36, 6), null);
+});
+
+test("kStreakPauseUntil: two stop-losses in a row pause Broker K for 30 minutes", () => {
+  const t0 = "2026-11-03T14:00:00Z";
+  assert.equal(kStreakPauseUntil([{ exit_reason: "SL", close_ts: t0 }, { exit_reason: "SL", close_ts: "2026-11-03T13:50:00Z" }]), ms(t0) + 30 * 60000);
+  assert.equal(kStreakPauseUntil([{ exit_reason: "SL", close_ts: t0 }, { exit_reason: "Time", close_ts: t0 }]), null);
+  assert.equal(kStreakPauseUntil([{ exit_reason: "SL", close_ts: t0 }]), null);
+  assert.equal(kStreakPauseUntil([]), null);
 });
