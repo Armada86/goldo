@@ -71,8 +71,12 @@ New studies from 38 up join this review the same way. Items to cover each time (
    the same days (does the engine still match?); (c) only the few ideas study 36 left open (ADX minimum 25-30, time stop 90, stop-loss 10, RSI cap, the cooldown and entry-hour
    findings) judged on the new weeks, not re-searched across the whole grid; (d) the live fill spread, since the result flips sign at a $1.20 spread, and how the two protections added on 3 Nov (spread cap $1.50, 2-stop-loss pause 30 min) behaved. Broker K is its own
    engine with its own table, so the Broker-F-only rule below does not apply to it.
-8. Study 37: the DXY entry block (`broker_a_blocked` / `broker_b_blocked` rows whose reason is DXY only). Replay the blocks since 3 Nov with the live exit rule, one at a time, minus the
-   ~$0.68 spread, and add them to the study 37 result (+$41.6 Broker A, +$19.1 Broker B/F before spread). Nothing is logged by a flag; the blocked tables are the record.
+8. Study 37: the DXY entry block (`broker_b_blocked` rows whose reason is DXY only). Replay the blocks since 3 Nov with the live exit rule, one at a time, minus the
+   ~$0.68 spread, and add them to the study 37 result (+$19.1 over 4 touches before spread). Nothing is logged by a flag; the blocked table is the record.
+
+**Broker A is excluded from every study (user rule, 3 Nov 2026).** No study, replay, analysis or recorded total reads Broker A's trades, signals or blocked entries
+(`trades`, `broker_a_blocked`), and nothing Broker A did feeds any setting. Broker B and Broker F run the same rules and are studied as below; a Broker K study uses Broker K's own
+trades only. `get_closed_trades_for_analysis()` (SLA, BRA) now reads Broker B only.
 
 **Studies use Broker F only (rule set 2 Nov 2026, replaces the pair-matching rule of the same day).** Broker B and Broker F trade the same levels, so using both would count a
 level twice. From now on every study, replay and recorded total (the monthly combined review and any ad hoc study) uses **Broker F's trades only**

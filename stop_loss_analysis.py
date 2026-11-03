@@ -1,4 +1,4 @@
-"""Stop loss analysis (SLA): replay every closed Broker A / Broker B trade against a grid of stop-loss and
+"""Stop loss analysis (SLA): replay every closed Broker B trade (Broker A is excluded, 3 Nov 2026) against a grid of stop-loss and
 trailing-stop settings and advise which to use.
 
 Triggered from Telegram ("start stop loss analysis" / "start SLA" -> Worker -> stop_loss_analysis.yml ->
