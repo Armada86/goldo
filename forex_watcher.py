@@ -65,6 +65,7 @@ from block_rules import get_block_rules
 from broker import (
     _format_ts,
     _pnl,
+    _pl_tag,
     _result_marker,
     _exit_detail_text,
     _scan_exit,
@@ -441,8 +442,8 @@ class Watcher:
         _send(_message(
             trade["id"],
             f"closed {trade['trade_type']} 1 oz XAU/USD @ ${exit_price:.2f}{stop_text} (opened @ ${trade['entry_price']:.2f}, "
-            f"rule {trade['rule_name']}) -- {'profit' if pnl >= 0 else 'loss'} of ${abs(pnl):.2f}{note}\nFilled: {_format_ts(exit_ts)}",
-            self.mode, _result_marker(pnl, PROFIT_MARKER, LOSS_MARKER),
+            f"rule {trade['rule_name']}){note}\nFilled: {_format_ts(exit_ts)}",
+            self.mode, _result_marker(pnl, PROFIT_MARKER, LOSS_MARKER) + _pl_tag(pnl),
         ))
         log.info("closed #%s %s pnl %+.2f (%s)", trade["id"], trade["rule_name"], pnl, reason)
         self.open_trade = None

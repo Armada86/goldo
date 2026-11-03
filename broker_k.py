@@ -162,8 +162,8 @@ def _close_message(trade: dict, exit_price: float, exit_ts: datetime, pnl: float
     marker = PROFIT_MARKER if pnl >= 0 else LOSS_MARKER
     why = {"TP": "take-profit", "SL": "stop-loss", "Time": "time stop", "Stop": "closed by stop trading / pause"}[reason]
     return (
-        f"{TRADE_ALERT_PREFIX.rstrip()}{marker}BROKER K #{trade['id']}: closed {trade['trade_type']} 1 oz XAU/USD @ ${exit_price:.2f} "
-        f"(opened @ ${trade['entry_price']:.2f}, {why}) -- {'profit' if pnl >= 0 else 'loss'} of ${abs(pnl):.2f}\n"
+        f"{TRADE_ALERT_PREFIX.rstrip()}{marker}{'P' if pnl >= 0 else 'L'} ${abs(pnl):.2f} BROKER K #{trade['id']}: closed {trade['trade_type']} 1 oz XAU/USD @ ${exit_price:.2f} "
+        f"(opened @ ${trade['entry_price']:.2f}, {why})\n"
         + (f"Closed by: {why} (settings: take-profit ${K_TAKE_PROFIT:g}, stop-loss ${K_STOP_LOSS:g}, time stop {K_TIME_STOP_MINUTES} min; no trail)\n"
            if reason != "Stop" else "")
         + f"Filled: {_format_ts(exit_ts)}"

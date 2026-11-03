@@ -144,6 +144,7 @@ from broker import (
     _exit_detail_text,
     _find_exit,
     _format_ts,
+    _pl_tag,
     _result_marker,
     _pnl,
     _within_entry_window,
@@ -664,11 +665,9 @@ def _open_message(
 
 
 def _close_message(trade: dict, exit_price: float, exit_ts: datetime, pnl: float, info: dict | None = None) -> str:
-    result = "profit" if pnl >= 0 else "loss"
     return (
-        f"{TRADE_ALERT_PREFIX.rstrip()}{_result_marker(pnl, PROFIT_MARKER, LOSS_MARKER)}BROKER B #{trade['id']}: closed {trade['trade_type']} 1 oz XAU/USD @ ${exit_price:.2f} "
-        f"(opened @ ${trade['entry_price']:.2f}, rule {trade['rule_name']}) -- "
-        f"{result} of ${abs(pnl):.2f}"
+        f"{TRADE_ALERT_PREFIX.rstrip()}{_result_marker(pnl, PROFIT_MARKER, LOSS_MARKER)}{_pl_tag(pnl)}BROKER B #{trade['id']}: closed {trade['trade_type']} 1 oz XAU/USD @ ${exit_price:.2f} "
+        f"(opened @ ${trade['entry_price']:.2f}, rule {trade['rule_name']})"
         f"{_exit_detail_text(info)}\n"
         f"Filled: {_format_ts(exit_ts)}"
     )
