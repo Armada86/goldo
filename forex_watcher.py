@@ -92,7 +92,7 @@ from entry_context import DISPLAY_TZ as ENTRY_TZ
 from entry_context import _num, build_exit_context, level_distances, shadow_bias_adx, shadow_quiet_market
 from forex_client import TRADABLE_MARKET_ID, ForexClient, ForexClientError, ForexOrderUncertainError
 from forex_stream import PriceStream
-from market_hours import is_market_closed
+from market_hours import is_daily_break, is_market_closed
 from notifier import send_telegram_message
 from storage import (
     LEASE_TTL_SECONDS,
@@ -750,6 +750,8 @@ class Watcher:
 
     def watch_stream(self, stream: PriceStream, now: datetime) -> None:
         """Watchdog: reconnects (with a fresh login) when the stream has been silent too long, and reports a lagging feed."""
+        if is_daily_break(now) or is_market_closed():
+            return  # the 5-6 PM ET break / weekend close: no ticks are expected, so no reconnects and no silence/lag warnings
         silent = stream.seconds_since_tick()
         if silent > STREAM_SILENT_RECONNECT_SECONDS and time.monotonic() - self.stream_restart_at >= STREAM_RESTART_MIN_SECONDS:
             self.stream_restart_at = time.monotonic()
