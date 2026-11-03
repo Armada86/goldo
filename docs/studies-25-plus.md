@@ -282,3 +282,30 @@ Ranked suggestions, and what was done (user approved all four on 31 Oct 2026):
   - *Next:* at the 28 Nov review rerun `broker_k_study.py` on fresh bars and the new live trades and check, without re-searching the grid: the out-of-sample total and t-statistic of the current rule;
     the live-versus-replay match; whether sells and buys are both positive; how often the spread cap and the stop-streak pause fired (log lines `Broker K: ... skipped` / `stop-losses in a row`) and what the skipped signals would have done; and the handful of settings that came out marginally ahead here
     (ADX minimum 25-30, time stop 90, SL 10, RSI cap) on the new weeks only.
+
+## Study 37 (3 Nov 2026): does the DXY entry block help? (shadow-flag item, log only)
+37. **Did blocking on DXY save money, or is DXY unrelated to whether these entries work?** Every entry that a DXY gate blocked was replayed as if it had been taken.
+  - *Data and engine:* `broker_b_blocked` (7 rows whose reasons mention DXY; shared bookkeeping for Broker B and Broker F) and `broker_a_blocked` (53 rows). 52,066 Twelve Data 1-minute
+    mid bars (28 Sep - 3 Nov; FOREX.com bid/ask only for the last ~2.8 days), the SLA replay (`stop_loss_analysis.py`) with the live exit rule ($20 stop, trail 3/10, +$20/$5 lock,
+    fade rules for `TA-Zone-*`), 1 oz. Entry at the level price at the stored touch time (Broker B) or the stored signal price at the detection time (Broker A). "DXY-only" = DXY was the
+    sole reason; rows that also tripped ADX, RSI or the spike gate would have been blocked anyway and are shown separately. Broker A signals were replayed one position at a time and
+    signals that arrived while a real Broker A trade was open were dropped. **This study used Broker A and the shared blocked tables, not Broker F's closed trades: a what-if on blocked
+    touches, as the Broker-F-only rule allows; Broker A is the only engine with enough DXY blocks (its gate is the strict "must confirm" version).** Scripts were scratch files, not in the repo.
+  - *Result (positive = the block cost that much profit):*
+
+    | | blocks | would-be P/L (mid) | wins / losses | p |
+    |---|---|---|---|---|
+    | Broker A, DXY-only (21 tradable one at a time) | 29 | **+$41.63** | 10 / 11 | 0.43 |
+    | Broker A, every DXY-flagged block | 53 | +$61.25 | 18 / 19 | 0.35 |
+    | Broker B/F, DXY-only | 4 | **+$19.11** | 3 / 1 | 0.32 |
+    | Broker B/F, every DXY-flagged block | 7 | +$34.93 | 4 / 2 | 0.15 |
+
+    With the older $10 stop / 7-7 trail the totals are higher (Broker A DXY-only +$82.89, p 0.08), same direction. Replayed at mid: the typical spread is about $0.68 per trade
+    (median of stored `entry_context.spread`), about $14 over Broker A's 21 tradable DXY-only signals, leaving roughly +$27 at the live settings.
+  - *Reading:* the DXY blocks did not avoid losses; the blocked trades won about half the time and made money overall. Not proven harmful (p 0.35-0.43), not proven helpful: DXY looks unrelated
+    to whether these entries work. The Broker B/F sample is 4 DXY-only touches and says almost nothing. Limits: mid prices, approximate entry times, repeat blocks of one level may not be logged.
+  - *Shadow-flag item (nothing built, nothing changed):* the blocked rows already accumulate in `broker_a_blocked` and `broker_b_blocked`, so no new logging is needed to repeat this replay.
+    A true "flag, don't block" shadow (a `shadow_dxy_adverse` key in `entry_context`) would need the DXY gate turned log-only, which changes behaviour and needs the user's approval. Until then
+    the replay of new blocks is the shadow record. Purpose: decide at the monthly review whether to loosen, drop or keep the DXY block.
+  - *Next:* at the 28 Nov review rerun the replay on blocks since 3 Nov (DXY-only, one at a time, with the spread cost) and combine with this result. Suggested decision rule: if the DXY-only
+    blocks stay positive after spread with at least ~40 DXY-only signals in total, propose loosening or removing the DXY gate (Broker A's strict confirm first, since it blocks most).
