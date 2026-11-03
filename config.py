@@ -250,3 +250,6 @@ K_ATR_MAX = 12.0
 K_TAKE_PROFIT = 12.0   # $ per troy ounce
 K_STOP_LOSS = 8.0
 K_TIME_STOP_MINUTES = 60
+K_MAX_SPREAD = 1.50    # $: no entry when the live bid-ask spread is wider (study 36: live #10 paid $3.04; the replay flips negative near $1.00-1.20). Unknown spread fails open.
+K_PAUSE_AFTER_STOPS = 2          # this many consecutive stop-loss closes ...
+K_PAUSE_MINUTES = 30             # ... pause new entries for this long after the last one (risk limit, study 36)
