@@ -69,7 +69,7 @@ New studies from 36 up join this review the same way. Items to cover each time (
 7. Study 36: Broker K's settings (`python broker_k_study.py --fetch`, then `python broker_k_study.py`; method and the 3 Nov result in `docs/studies-25-plus.md`). Rerun on
    fresh 1-minute bars and the new live `broker_k_trades`: (a) the current rule's out-of-sample total since 22 Oct and its t-statistic; (b) the live record against the replay of
    the same days (does the engine still match?); (c) only the few ideas study 36 left open (ADX minimum 25-30, time stop 90, stop-loss 10, RSI cap, the cooldown and entry-hour
-   findings) judged on the new weeks, not re-searched across the whole grid; (d) the live fill spread, since the result flips sign at a $1.20 spread. Broker K is its own
+   findings) judged on the new weeks, not re-searched across the whole grid; (d) the live fill spread, since the result flips sign at a $1.20 spread, and how the two protections added on 3 Nov (spread cap $1.50, 2-stop-loss pause 30 min) behaved. Broker K is its own
    engine with its own table, so the Broker-F-only rule below does not apply to it.
 
 **Studies use Broker F only (rule set 2 Nov 2026, replaces the pair-matching rule of the same day).** Broker B and Broker F trade the same levels, so using both would count a

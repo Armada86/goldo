@@ -16,7 +16,9 @@ bid/ask bar requests it shares with the other brokers.
 | Fill | live ask (Buy) / bid (Sell) from the FOREX.com demo feed, else the poll's Twelve Data spot |
 | Exit | take-profit $12, stop-loss $8, or 60 minutes after the open, whichever first (`K_TAKE_PROFIT`, `K_STOP_LOSS`, `K_TIME_STOP_MINUTES`) |
 | Exit price | 1-minute bar scan, a Buy exits on the bid, a Sell on the ask; the stop wins if one bar touches both; a time stop closes at the last in-window bar's close. A trade open when the 5pm ET poll cutoff hits is closed retroactively the next morning at the level it really touched |
-| Size / limits | 1 oz, one trade at a time, no cooldown, no daily cap |
+| Spread cap (3 Nov 2026) | no entry when the live bid-ask spread is above $1.50 (`K_MAX_SPREAD`); an unknown spread (FOREX.com unreachable) fails open; logged only, no Telegram notice |
+| Stop-streak pause (3 Nov 2026) | after 2 consecutive stop-loss closes (`K_PAUSE_AFTER_STOPS`) no new entry for 30 minutes (`K_PAUSE_MINUTES`) after the last; the second stop-loss's close message says so; a time stop, take-profit or pause close breaks the streak |
+| Size / limits | 1 oz, one trade at a time, no cooldown otherwise, no daily cap |
 
 Telegram: `🟫 BROKER K #n` opens, `🟫🟩` / `🟫🟥` closes, with ADX/RSI/ATR on the open message and the close reason (take-profit /
 stop-loss / time stop). The `broker_k_trades` row has `exit_reason` (`TP`/`SL`/`Time`), `entry_context` (hour, RSI, ADX, ATR, ADX
@@ -49,11 +51,11 @@ FROM broker_k_trades`).
 
 `python broker_k_study.py` (see `docs/studies-25-plus.md`, study 36) replays the live rule on 8 Sep - 3 Nov and sweeps each setting. Result: the current rule makes +$47.9 on 81
 replayed trades (t = 0.63, not distinguishable from zero; live is -$4.68 on 14 closed trades), no variant of ADX / ATR / RSI / TP / SL / time stop / trail / cooldown is both
-better and stable, and the result flips sign above about a $1.00-1.20 spread. No setting was changed. Proposed, awaiting approval: a spread cap on entries and a short pause after two
-consecutive stop-losses. It is part of the monthly combined review (last Saturday, first 28 Nov 2026).
+better and stable, and the result flips sign above about a $1.00-1.20 spread. No entry/exit setting was changed. Two protections were added and went live on 3 Nov 2026 at the user's
+request: the spread cap and the pause after two consecutive stop-losses (rules table above). The replay cannot test the cap (no recorded bid/ask); the pause on the same bars costs about $10
+(+$47.9 -> +$37.8, 77 trades instead of 81, 20 signals skipped), so it is a risk limit, not a profit gain. It is part of the monthly combined review (last Saturday, first 28 Nov 2026).
 
 ## Not done / ideas
 
-- Honouring `stop trading` / `broker status` for K (needs a `K` branch in `trading_control.trading_pause_reason()` and the Worker).
-- Per-day trade cap or cooldown (the backtest's cooldown 0 was best, but a cap would bound a bad day).
+- Per-day trade cap (a flat cooldown cost money in the replay; only the two-stop-loss pause exists).
 - No Telegram command to open/close K by hand.

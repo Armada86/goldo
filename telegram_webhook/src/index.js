@@ -438,6 +438,15 @@ function brokerKSignal(rsi, adx, atr) {
 
 /** Broker K block of `broker status`. `why` is its tradingState (pause / market / hours). Shows its open trade and the latest
  *  RSI/ADX/ATR the poll saved, with whether that would be an entry. */
+/** Mirrors broker_k.stop_streak_pause_until(): rows are the newest closed trades first ({exit_reason, close_ts}); returns the ms
+ *  timestamp new entries wait until after K_PAUSE_AFTER_STOPS consecutive stop-losses, else null. Keep in step with config.K_PAUSE_*. */
+const K_PAUSE_AFTER_STOPS = 2;
+const K_PAUSE_MINUTES = 30;
+function kStreakPauseUntil(rows) {
+  if (rows.length < K_PAUSE_AFTER_STOPS || rows.slice(0, K_PAUSE_AFTER_STOPS).some((r) => r.exit_reason !== "SL")) return null;
+  return new Date(rows[0].close_ts).getTime() + K_PAUSE_MINUTES * 60000;
+}
+
 async function brokerKStatusLines(sql, now, why) {
   const toMs = (v) => (v == null ? null : new Date(v).getTime());
   const lines = [`${TRADE_ALERT_PREFIX_K}Broker K (paper): ${why ? `\u26D4 NOT TRADING \u2014 ${why}` : "\u2705 TRADING"}`];
@@ -454,6 +463,9 @@ async function brokerKStatusLines(sql, now, why) {
     const [rsi, adx, atr] = [Number(by.rsi.price), Number(by.adx.price), Number(by.atr.price)];
     const age = Math.round((now - toMs(by.adx.ts)) / 60000);
     const signal = brokerKSignal(rsi, adx, atr);
+    const recent = await sql`SELECT exit_reason, close_ts FROM broker_k_trades WHERE status = 'Closed' AND close_ts IS NOT NULL ORDER BY close_ts DESC, id DESC LIMIT ${K_PAUSE_AFTER_STOPS}`;
+    const pauseUntil = kStreakPauseUntil(recent);
+    if (pauseUntil && pauseUntil > now) lines.push(`    \u23F8 ${K_PAUSE_AFTER_STOPS} stop-losses in a row \u2014 no new entries for ${Math.ceil((pauseUntil - now) / 60000)} more min (entries also skipped when the spread is above $1.50)`);
     lines.push(
       `    latest (${age} min ago): ADX ${adx.toFixed(1)} \u00B7 RSI ${rsi.toFixed(1)} \u00B7 ATR $${atr.toFixed(2)} \u2014 ` +
       (signal ? `${signal} signal (enters at the next poll)` : `no signal (needs ADX \u2265 ${K_ADX_MIN}, ATR $${K_ATR_MIN}-${K_ATR_MAX}, RSI ${100 - K_RSI_BUY_MAX}-${K_RSI_BUY_MAX} off 50)`)
@@ -954,4 +966,4 @@ export default {
   },
 };
 
-export { brokerStatus, brokerKSignal, STATUS_RE, parseBrokerScope, evaluatePause, nextWeekdayBoundary, isMarketClosedAt, inEntryWindow, tradingState, REARM_RE, RUN_TA_RE, SLA_RE, BRA_RE, parseStopLoss, parseTrail, parseCommand, parseControlCommand, etToUtc, formatTs, pnl }; // exported for the test file only
+export { brokerStatus, brokerKSignal, kStreakPauseUntil, STATUS_RE, parseBrokerScope, evaluatePause, nextWeekdayBoundary, isMarketClosedAt, inEntryWindow, tradingState, REARM_RE, RUN_TA_RE, SLA_RE, BRA_RE, parseStopLoss, parseTrail, parseCommand, parseControlCommand, etToUtc, formatTs, pnl }; // exported for the test file only

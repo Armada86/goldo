@@ -654,6 +654,17 @@ def get_open_trade_k() -> dict | None:
     }
 
 
+def get_last_closed_trades_k(limit: int) -> list[tuple[str | None, datetime]]:
+    """(exit_reason, close_ts) of Broker K's most recent closed trades, newest first."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT exit_reason, close_ts FROM broker_k_trades WHERE status = 'Closed' AND close_ts IS NOT NULL "
+            "ORDER BY close_ts DESC, id DESC LIMIT %s",
+            (limit,),
+        )
+        return [(r[0], r[1]) for r in cur.fetchall()]
+
+
 def insert_trade_k(
     rule_name: str,
     trade_type: str,

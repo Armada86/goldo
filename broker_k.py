@@ -15,6 +15,9 @@ enter again):
   Rules are named `Trend-buy` / `Trend-sell`. The fill is the live ask (Buy) / bid (Sell) from the FOREX.com demo feed when
   reachable, else the poll's Twelve Data spot price.
 
+Two risk protections (study 36, 3 Nov 2026): no entry while the live bid-ask spread is above K_MAX_SPREAD ($1.50; an unknown
+spread fails open), and after K_PAUSE_AFTER_STOPS (2) stop-loss closes in a row no new entry for K_PAUSE_MINUTES (30) after the last.
+
 Exit (fixed limits, 1 oz): take-profit K_TAKE_PROFIT ($12), stop-loss K_STOP_LOSS ($8), or K_TIME_STOP_MINUTES (60) after the
 open, whichever comes first. Like Broker A/B the exit is a 1-minute bar scan (price_bars.fetch_gold_bars(), a Buy exits on the
 bid, a Sell on the ask), so a touch between polls still closes at the true level; a bar that touches both limits counts as the
@@ -39,6 +42,9 @@ from config import (
     K_ADX_MIN,
     K_ATR_MAX,
     K_ATR_MIN,
+    K_MAX_SPREAD,
+    K_PAUSE_AFTER_STOPS,
+    K_PAUSE_MINUTES,
     K_RSI_BUY_MAX,
     K_RSI_BUY_MIN,
     K_STOP_LOSS,
@@ -49,7 +55,7 @@ from config import (
 from data_fetcher import gold_adx_rising_from_candles, gold_rsi_adx_atr_from_candles
 from notifier import send_telegram_message
 from price_bars import fetch_gold_bars
-from storage import close_trade_row_k, get_open_trade_k, insert_trade_k
+from storage import close_trade_row_k, get_last_closed_trades_k, get_open_trade_k, insert_trade_k
 from trading_control import trading_pause_reason
 
 log = logging.getLogger("gold-monitor")
@@ -88,6 +94,14 @@ def entry_signal(rsi: float | None, adx: float | None, atr: float | None) -> str
     if 100 - K_RSI_BUY_MAX <= rsi <= 100 - K_RSI_BUY_MIN:
         return "Sell"
     return None
+
+
+def stop_streak_pause_until(recent: list[tuple[str | None, datetime]]) -> datetime | None:
+    """`recent` = (exit_reason, close_ts), newest first. If the last K_PAUSE_AFTER_STOPS closed trades were all stop-losses,
+    new entries wait until K_PAUSE_MINUTES after the newest of them; else None. (A pause close, 'Stop', breaks the streak.)"""
+    if len(recent) < K_PAUSE_AFTER_STOPS or any(reason != "SL" for reason, _ in recent[:K_PAUSE_AFTER_STOPS]):
+        return None
+    return recent[0][1] + timedelta(minutes=K_PAUSE_MINUTES)
 
 
 def _pnl(trade_type: str, entry_price: float, price: float) -> float:
@@ -201,7 +215,15 @@ def check_broker_k_trades(prices: dict[str, float], candles: pd.DataFrame | None
         exit_price, exit_ts, reason = result
         pnl = _pnl(trade["trade_type"], trade["entry_price"], exit_price)
         close_trade_row_k(trade["id"], exit_price, exit_ts, pnl, reason, _exit_context(now, trade, reason, candles))
-        send_telegram_message(_close_message(trade, exit_price, exit_ts, pnl, reason))
+        message = _close_message(trade, exit_price, exit_ts, pnl, reason)
+        if reason == "SL":
+            try:
+                until = stop_streak_pause_until(get_last_closed_trades_k(K_PAUSE_AFTER_STOPS))
+                if until is not None and until > now:
+                    message += f"\n{K_PAUSE_AFTER_STOPS} stop-losses in a row: no new entries until {_format_ts(until)}"
+            except Exception:
+                log.exception("Broker K: could not read the stop streak")
+        send_telegram_message(message)
 
     if candles is None or not _within_entry_window(now):
         return
@@ -209,7 +231,18 @@ def check_broker_k_trades(prices: dict[str, float], candles: pd.DataFrame | None
     trade_type = entry_signal(rsi, adx, atr)
     if trade_type is None:
         return
+    try:
+        until = stop_streak_pause_until(get_last_closed_trades_k(K_PAUSE_AFTER_STOPS))
+    except Exception:
+        log.exception("Broker K: could not read the stop streak -- entering anyway")
+        until = None
+    if until is not None and now < until:
+        log.info("Broker K: %d stop-losses in a row -- no entry until %s", K_PAUSE_AFTER_STOPS, _format_ts(until))
+        return
     price, spread = _fill_price(trade_type, spot)
+    if spread is not None and spread > K_MAX_SPREAD:
+        log.info("Broker K: %s signal skipped -- spread $%.2f is above the $%.2f cap", trade_type, spread, K_MAX_SPREAD)
+        return
     context = {
         "hour_et": now.astimezone(DISPLAY_TZ).hour, "minute_et": now.astimezone(DISPLAY_TZ).minute,
         "rsi14": round(rsi, 2), "adx14": round(adx, 2), "atr14": round(atr, 2),
