@@ -28,7 +28,7 @@ force when each forecast run was made.
 
 ## What a run does
 
-1. **Events:** every Broker B touch we know of in the last 45 days: the closed trades, plus the touches blocked by
+1. **Events:** every touch we know of in the last 45 days: Broker F's closed live trades (since 4 Nov 2026; before that Broker B's), plus the touches blocked by
    DXY / ADX / RSI / ATR / spike (`broker_b_blocked`; timing blocks and too-old touches are left out because no value here would
    change them).
 2. **Conditions:** for each event, RSI/ADX/ATR(14) on 15-min candles at that moment, whether ADX was rising (above the previous

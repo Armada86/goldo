@@ -1493,23 +1493,22 @@ def set_trailing_stop_override(activation: float, distance: float) -> None:
 
 
 def get_closed_trades_for_analysis(since: datetime) -> list[dict]:
-    """Every closed Broker B trade opened at or after `since`, oldest first, for the stop loss and
-    block rules analyses (stop_loss_analysis_job.py, block_rules_analysis_job.py). Broker A is deliberately
-    NOT read (user rule, 3 Nov 2026: no study or analysis uses Broker A's results). Only the entry matters to the replay, so trades that
-    were closed by hand or by a "stop trading" command are included like any other. `close_ts` and (Broker B only, else
-    None) `ta_forecast_id` let the analyses find a fade trade's lock level (the opposite fade level of the forecast in force)."""
+    """Every closed LIVE Broker F trade (`forex_b_trades`, mode 'live': the real FOREX.com demo fills) opened at or after `since`, oldest first,
+    for the stop loss and block rules analyses (stop_loss_analysis_job.py, block_rules_analysis_job.py). Since 4 Nov 2026 these read Broker F,
+    like the monthly studies (user decision; before that Broker B, and Broker A until 3 Nov). Broker B and Broker F trade the same levels, so
+    reading both would count each level twice. Only the entry matters to the replay, so trades closed by hand or by a "stop trading" command are
+    included like any other. `close_ts` and `ta_forecast_id` let the analyses find a fade trade's lock level. The "broker" key is "F"."""
     rows: list[dict] = []
     with get_connection() as conn, conn.cursor() as cur:
-        for table, broker, forecast_col in (("broker_b_trades", "B", "ta_forecast_id"),):
-            cur.execute(
-                f"SELECT id, rule_name, trade_type, entry_price, open_ts, close_ts, {forecast_col} FROM {table} "
-                "WHERE status = 'Closed' AND open_ts >= %s ORDER BY open_ts",
-                (since,),
-            )
-            for trade_id, rule_name, trade_type, entry_price, open_ts, close_ts, ta_forecast_id in cur.fetchall():
-                rows.append({"broker": broker, "id": trade_id, "rule_name": rule_name, "trade_type": trade_type,
-                             "entry_price": float(entry_price), "open_ts": open_ts, "close_ts": close_ts,
-                             "ta_forecast_id": ta_forecast_id})
+        cur.execute(
+            "SELECT id, rule_name, trade_type, entry_price, open_ts, close_ts, ta_forecast_id FROM forex_b_trades "
+            "WHERE status = 'Closed' AND mode = 'live' AND open_ts >= %s ORDER BY open_ts",
+            (since,),
+        )
+        for trade_id, rule_name, trade_type, entry_price, open_ts, close_ts, ta_forecast_id in cur.fetchall():
+            rows.append({"broker": "F", "id": trade_id, "rule_name": rule_name, "trade_type": trade_type,
+                         "entry_price": float(entry_price), "open_ts": open_ts, "close_ts": close_ts,
+                         "ta_forecast_id": ta_forecast_id})
     rows.sort(key=lambda r: r["open_ts"])
     return rows
 

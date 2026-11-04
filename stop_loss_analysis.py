@@ -1,4 +1,4 @@
-"""Stop loss analysis (SLA): replay every closed Broker B trade (Broker A is excluded, 3 Nov 2026) against a grid of stop-loss and
+"""Stop loss analysis (SLA): replay every closed live Broker F trade (since 4 Nov 2026; Broker A is excluded since 3 Nov, Broker B since 4 Nov because it trades the same levels) against a grid of stop-loss and
 trailing-stop settings and advise which to use.
 
 Triggered from Telegram ("start stop loss analysis" / "start SLA" -> Worker -> stop_loss_analysis.yml ->
@@ -296,7 +296,7 @@ def format_report(result: dict, first_ts, last_ts, n_bid_ask: int, n_mid: int, n
     ]
     if result.get("n_fade"):
         lines.append(
-            f"{result['n_fade']} are Broker B fade trades, replayed with their own exit rule (stop capped at ${_num(FADE_STOP_LOSS_CAP)}, "
+            f"{result['n_fade']} are fade trades, replayed with their own exit rule (stop capped at ${_num(FADE_STOP_LOSS_CAP)}, "
             f"when the opposite level is within ${_num(FADE_NO_TRAIL_MAX_LOCK_DISTANCE)} a fixed trail of ${_num(FADE_NEAR_TRAIL_DISTANCE)} "
             f"once ${_num(FADE_NEAR_TRAIL_ACTIVATION)} in profit, then ${_num(FADE_LOCK_TRAIL_DISTANCE)} behind the best price from that level; "
             f"fades with a further or unknown level keep the normal trail). "
