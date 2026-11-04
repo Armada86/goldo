@@ -14,7 +14,8 @@ dxy_change_15m, dxy_threshold_15m, bias_score, bias,
 forecast_id, session, spread (ask - bid close), range_15m_bid / range_15m_ask (last 15 one-minute bars),
 plus whatever the calling broker adds via `extra` (Broker A: the flagging indicators; Broker B: scenario,
 trigger price, minutes between the touch and the poll that acted on it, distance to the next resistance /
-support zone, zone width). Fades also get `shadow_bias_adx` (see shadow_bias_adx(); log only); every Broker B/F trade gets `shadow_quiet_market` (see shadow_quiet_market(); log only).
+support zone, zone width). Fades also get `shadow_bias_adx` (see shadow_bias_adx(); log only); every Broker B/F trade gets `shadow_quiet_market` (see shadow_quiet_market(); log only)
+and `bb20_pos_1h` / `ext_sma20_1h_pct` / `shadow_stretched` (see shadow_stretched(); log only).
 """
 
 import logging
@@ -23,7 +24,7 @@ from zoneinfo import ZoneInfo
 
 from config import (
     INTRAHOUR_SWING_ALERT_THRESHOLD, RSI_PERIOD, SHADOW_BIAS_ADX_MIN_ADX, SHADOW_BIAS_ADX_MIN_BIAS,
-    SHADOW_QUIET_MAX_ADX, SHADOW_QUIET_MAX_ATR,
+    SHADOW_QUIET_MAX_ADX, SHADOW_QUIET_MAX_ATR, SHADOW_STRETCHED_BB_POS, SHADOW_STRETCHED_EXT_PCT,
 )
 
 log = logging.getLogger("gold-monitor")
@@ -68,6 +69,31 @@ def shadow_quiet_market(ctx: dict) -> dict:
         if atr is None or adx is None:
             return {}
         return {"shadow_quiet_market": bool(float(atr) < SHADOW_QUIET_MAX_ATR and float(adx) < SHADOW_QUIET_MAX_ADX)}
+    except Exception:
+        return {}
+
+
+def shadow_stretched(trade_type: str, price) -> dict:
+    """{"bb20_pos_1h", "ext_sma20_1h_pct", "shadow_stretched"} from the last 1h gold candles (one Twelve Data call), else {}. bb20_pos_1h is
+    (price - SMA20) / (2 x stdev of the last 20 closes), +1 = on the upper Bollinger band; ext_sma20_1h_pct is the % distance from the 1h SMA(20).
+    shadow_stretched is true when the trade chases the move: a Buy at or above SHADOW_STRETCHED_BB_POS / SHADOW_STRETCHED_EXT_PCT, a Sell at or
+    below the negatives. LOG ONLY (study 39): nothing reads it, and no entry, stop or trail changes. Never raises."""
+    try:
+        from data_fetcher import fetch_gold_candles
+
+        closes = fetch_gold_candles("1h", 40)["close"].astype(float)
+        last20 = closes.tail(20)
+        if len(last20) < 20 or price is None:
+            return {}
+        sma, sd = float(last20.mean()), float(last20.std(ddof=0))
+        if sd <= 0 or sma <= 0:
+            return {}
+        price = float(price)
+        pos = (price - sma) / (2 * sd)
+        ext = (price - sma) / sma * 100
+        side = 1 if trade_type == "Buy" else -1
+        stretched = side * pos >= SHADOW_STRETCHED_BB_POS or side * ext >= SHADOW_STRETCHED_EXT_PCT
+        return {"bb20_pos_1h": round(pos, 2), "ext_sma20_1h_pct": round(ext, 2), "shadow_stretched": bool(stretched)}
     except Exception:
         return {}
 

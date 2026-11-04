@@ -79,6 +79,9 @@ MIN_STOP_BUFFER = 5.0        # stop distance beyond a zone, floored here, else 1
 MIN_LEVEL_GAP_ATR = 0.15     # listed zones at least this x daily ATR apart (~$15 at a $100 ATR)
 DAILY_SWING_LOOKBACK = 125   # ~6 months of finished weekday daily bars scanned for daily swing points
 DAILY_SWING_WING = 3         # a daily swing high/low must beat this many days on each side
+FIB_LOOKBACK_DAYS = 30       # finished daily bars (~6 weeks) scanned for the most recent major swing the Fibonacci levels are drawn on
+FIB_RATIOS = (0.382, 0.5, 0.618)
+FIB_MIN_SWING_ATR = 2.0      # the swing must span at least this x daily ATR, else it is noise and no Fib levels are listed
 
 # How much a level source counts when two candidate zones are too close to both be listed -- the
 # heavier one is kept. Longer-timeframe / more widely watched levels weigh more.
@@ -87,6 +90,7 @@ LABEL_WEIGHTS = {
     "prior-day high": 2, "prior-day low": 2,
     "1h EMA200": 2, "4h EMA100": 2, "daily SMA20": 2, "daily SMA50": 2, "pivot P": 2,
     "daily SMA100": 2, "daily SMA200": 3,
+    "Fib 38.2%": 2, "Fib 50%": 2, "Fib 61.8%": 2,
 }
 # Daily swing labels carry their date and role ("Jul 6 swing high, now support"), so they're weighted
 # by prefix rather than an exact LABEL_WEIGHTS key.
@@ -140,6 +144,34 @@ def _daily_swing_candidates(daily: pd.DataFrame, price: float) -> list[tuple[flo
         if low == window["low"].min():
             out.append((low, f"{day} swing low" + (", now resistance" if low > price else "")))
     return out
+
+
+def _fib_swing_and_levels(daily: pd.DataFrame, atr: float) -> tuple[dict | None, list[tuple[float, str]]]:
+    """Fibonacci retracements (38.2 / 50 / 61.8%) of the major swing in the last FIB_LOOKBACK_DAYS
+    finished daily bars: the highest high and the lowest low, whichever came last ending the swing.
+    Low after high = a down-swing being retraced upward (levels measured up from the low); high after
+    low = an up-swing being retraced down (measured down from the high). Skipped when the swing is
+    under FIB_MIN_SWING_ATR x daily ATR. (Taken from the 4 Nov 2026 reference analysis, whose Fib
+    levels coincided with the cloud top and SMA50 -- a confluence the merge step then rewards.)"""
+    bars = daily.tail(FIB_LOOKBACK_DAYS).reset_index(drop=True)
+    if len(bars) < 20:
+        return None, []
+    hi_i, lo_i = int(bars["high"].idxmax()), int(bars["low"].idxmin())
+    high, low = float(bars["high"].iloc[hi_i]), float(bars["low"].iloc[lo_i])
+    span = high - low
+    if span < FIB_MIN_SWING_ATR * atr:
+        return None, []
+    rebound = lo_i > hi_i
+    swing = {
+        "high": round(high, 2), "low": round(low, 2),
+        "high_date": str(bars["datetime"].iloc[hi_i].date()), "low_date": str(bars["datetime"].iloc[lo_i].date()),
+        "direction": "down-swing retraced up" if rebound else "up-swing retraced down",
+    }
+    out = []
+    for r in FIB_RATIOS:
+        value = low + r * span if rebound else high - r * span
+        out.append((round(value, 2), f"Fib {r * 100:g}%"))
+    return swing, out
 
 
 def _completed_weekday_bars(daily: pd.DataFrame) -> pd.DataFrame:
@@ -218,6 +250,9 @@ def compute_snapshot() -> dict:
     candidates += [(v, "4h swing high") for v in swing_highs]
     candidates += [(v, "4h swing low") for v in swing_lows]
     candidates += _daily_swing_candidates(daily, price)
+    fib_swing, fib_candidates = _fib_swing_and_levels(daily, atr)
+    ind["fib"] = fib_swing
+    candidates += fib_candidates
     base = int(price // ROUND_NUMBER_STEP) * ROUND_NUMBER_STEP
     candidates += [(float(base + k * ROUND_NUMBER_STEP), "round number") for k in range(-3, 5)]
 
@@ -595,6 +630,8 @@ def render(snap: dict, bias: tuple, resistances, supports, scenarios, review_lin
         f"- MACD(12,26,9) 1h: {ind['macd_1h']:+.2f} vs signal {ind['macd_signal_1h']:+.2f} "
         f"(histogram {ind['macd_hist_1h']:+.2f}, {hist_dir})",
         f"- Daily ATR(14) ${ind['atr14_1d']:,.0f} -> stop buffer ${snap['buffer']:.0f}",
+        *([f"- Fib swing: {fib['high']:,.0f} ({fib['high_date']}) to {fib['low']:,.0f} ({fib['low_date']}), {fib['direction']}"]
+          if (fib := ind.get('fib')) else []),
         f"- Bias inputs: {'; '.join(reasons)}",
         "",
         "PLAN (zones are fade levels; the stop of each fade is the breakout trigger the other way)",
