@@ -33,6 +33,14 @@ message), `.github/workflows/stop_loss_analysis.yml` (the job, started by the Wo
    current live setting by at least $10 (or 10% of the current total) **and** still beats it with the single
    most-improved trade removed. Otherwise it says keep.
 
+## 4 Nov 2026: Broker F, and how the run lines up with the studies
+
+- **Source:** the run reads Broker F's closed live trades (`forex_b_trades`, mode `live`), the same trades the monthly studies use (rule of 2 Nov); Broker B trades the same levels, so reading both would count each level twice. Reports label trades `F #n`.
+- **Parity re-check (4 Nov):** the replay and `broker._scan_exit_crossing()` agreed on 6,000 random price paths (fades and non-fades, lock levels near, far and against the trade, every stop / activation / distance in the grid, paths that reached the +$20 profit lock): 0 mismatches in exit price and exit bar.
+- **First run on Broker F:** 54 trades (43 fades; 7 priced on FOREX.com bid/ask, 47 on Twelve Data mid), 12 Oct to 4 Nov. Keep. The current settings (stop -$20, trail +$3 / $10) replay at +$71.03; the best other setting (trail 10 / 10) at +$82.02, but only through F #48 (-$22.97 without it).
+- **What matches the studies:** same trades, same replay function (`stop_loss_analysis.replay()`), so the same match to the live exit rule.
+- **What differs from the studies:** (1) the grid only moves the stop loss, trail activation and trail distance, so the profit lock, the fade cap, the quiet-market trail (study 35) and a looser trail after +$20 are only tested by one-off scripts in the monthly review; the grid also does not drive a fade whose opposite level is within $15 (fixed $10 / $5 trail); (2) 47 of 54 trades are on mid prices with no spread charged, while some studies subtract about $0.60 per trade; (3) the replay skips a trade when an earlier simulated one is still open (19 of 112 Broker B trades on 4 Nov), while some studies score each trade alone; (4) the pass test is the single-best-trade test, the studies use stricter ones (without the best three, by halves, out of sample).
+
 ## Reading the message
 
 The message is deliberately short (since 4 Oct 2026):
@@ -59,6 +67,7 @@ used to be in the message; they are no longer sent (the analysis still computes 
   activation and distance therefore drive Broker A, breakouts and the fades without a near level, and the report says how many trades were fades. The lock level is the
   opposite level of the latest forecast written before the trade closed (else the one it opened under), a static stand-in for the level each live poll saw, so a trade that
   ran across a new TA run is approximate.
+- Broker F has traded since 12 Oct, so the window holds about 54 trades (Broker B had 112 over a longer span): "keep" is the usual answer until the sample grows.
 - With dozens of trades the advice is a lean, not proof. A different market (gold has been trending down
   through this period) can reverse it.
 - Trades that were blocked at the time cannot be replayed; only the trades that really happened are known.
