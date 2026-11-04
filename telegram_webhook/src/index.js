@@ -529,12 +529,12 @@ const BIAS_STATUS_RE = /\bbias\s+status\b|\bstatus\s+of\s+(?:the\s+)?bias\b/i;
 
 /** Mirrors bias_filter.allowed_direction(): {direction: "Buy"|"Sell"|null, label, score}; score null = no readable bias. */
 function allowedDirection(levels) {
-  if (!levels || levels.bias_score === null || levels.bias_score === undefined) return { direction: null, label: "unknown", score: null };
+  if (!levels || levels.bias_score === null || levels.bias_score === undefined || !levels.bias) return { direction: null, label: "unknown", score: null };
   const score = Number(levels.bias_score);
-  const label = String(levels.bias ?? "?");
-  if (score > 0) return { direction: "Buy", label, score };
-  if (score < 0) return { direction: "Sell", label, score };
-  return { direction: null, label, score };
+  const label = String(levels.bias);
+  if (label === "Bullish") return { direction: "Buy", label, score };
+  if (label === "Bearish") return { direction: "Sell", label, score };
+  return { direction: null, label, score }; // Neutral and the Neutral-to-... labels
 }
 
 function biasRuleText({ direction, label, score }) {
@@ -542,7 +542,7 @@ function biasRuleText({ direction, label, score }) {
   const signed = `${score > 0 ? "+" : ""}${score}`;
   return direction
     ? `Latest forecast bias: ${label} (score ${signed}) → ${direction} trades only.`
-    : `Latest forecast bias: ${label} (score ${signed}) → no direction, so NO new trades.`;
+    : `Latest forecast bias: ${label} (score ${signed}) → not Bullish or Bearish, so NO new trades.`;
 }
 
 async function ensureBiasTable(sql) {

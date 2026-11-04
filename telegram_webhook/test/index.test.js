@@ -319,13 +319,12 @@ test("bias commands: start / stop / status are recognised and do not collide wit
   assert.equal(parseControlCommand("stop bias"), null);
 });
 
-test("allowedDirection: bullish scores allow Buy only, bearish Sell only, neutral and unreadable none", () => {
+test("allowedDirection: only Bullish allows Buy and only Bearish allows Sell", () => {
   assert.deepEqual(allowedDirection({ bias: "Bullish", bias_score: 4 }), { direction: "Buy", label: "Bullish", score: 4 });
-  assert.equal(allowedDirection({ bias: "Neutral-to-bullish", bias_score: 1 }).direction, "Buy");
-  assert.equal(allowedDirection({ bias: "Neutral-to-bearish", bias_score: -2 }).direction, "Sell");
   assert.equal(allowedDirection({ bias: "Bearish", bias_score: -5 }).direction, "Sell");
+  assert.equal(allowedDirection({ bias: "Neutral-to-bullish", bias_score: 2 }).direction, null);
+  assert.equal(allowedDirection({ bias: "Neutral-to-bearish", bias_score: -2 }).direction, null);
   assert.equal(allowedDirection({ bias: "Neutral", bias_score: 0 }).direction, null);
-  assert.equal(allowedDirection({ bias: "Neutral", bias_score: 0 }).score, 0);
   assert.equal(allowedDirection(null).score, null);
   assert.equal(allowedDirection({}).score, null);
 });
