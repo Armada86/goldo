@@ -1,12 +1,12 @@
 # Block rules analysis (BRA)
 
-Tunes Broker B's five entry filters (DXY, ADX, RSI, ATR, spike) from history and applies the result. Runs by itself every weekday at 6:30 AM ET (cron-job.org) and can also be triggered from Telegram with
+Tunes the five entry filters (DXY, ADX, RSI, ATR, spike) that Broker B and Broker F share, from history, and applies the result. It scores on Broker F's live trades (since 4 Nov 2026). Runs by itself every weekday at 6:30 AM ET (cron-job.org) and can also be triggered from Telegram with
 `start block rules analysis` or `start BRA` (Worker -> `.github/workflows/block_rules_analysis.yml` ->
 `block_rules_analysis_job.py`). Code: `block_rules_analysis.py` (pure analysis), `block_rules.py` (the values).
 
 ## The `block_rules` table
 
-Append-only: every row is a full set of the ten values, and the **newest row is the active one**, so the table is also
+Append-only: every row is a full set of the twelve values, and the **newest row is the active one**, so the table is also
 the history of every change. `broker_b.py` reads it once per poll. `config.py` stays as the fallback for any value the
 table can't supply (table missing or empty, database unreachable), so Broker B never stops trading over it.
 
@@ -48,6 +48,25 @@ force when each forecast run was made.
 6. **Result:** a new `block_rules` row is written (changed or not) and the report goes to Telegram. Under 12 events
    nothing changes.
 
+## 4 Nov 2026: spike pairs per family, and Broker F as the source
+
+- **Spike gate tuned as a pair, fades and breakouts separately.** The spike gate blocks when the last 15 one-minute bars' entry-side range reaches `spike_*` x ATR(14) or the dollar ceiling
+  `spike_*_ceiling`, whichever comes first. The two interact (study 26, 52 fade events: a $16 ceiling scored +$6.99 with a 2.0x multiple and +$17.68 with 3.0x; the old $10 / 2.0x pair
+  +$13.27), so `block_rules_analysis.UNITS` makes each family's multiple and ceiling one 2-D search unit: `("spike_fade", "spike_fade_ceiling")` and
+  `("spike_breakout", "spike_breakout_ceiling")`. Every point of the grid product is scored with its neighbours (a 3x3 mean), a unit moves at most one step on each axis per run, the
+  `max($10, 10%)` margin and the without-best-event test are unchanged, and moving a pair fully off (both values off) needs twice the margin. All other rules are still single 1-D units and
+  produce the same values as before (checked on 171 live events: identical for every non-spike rule).
+- **Grids:** `spike_fade` 1.75 / 2 / 2.25 / 2.5 / 3 / 3.5 / off; `spike_fade_ceiling` $10 / 12 / 14 / 16 / 18 / 20 / 25 / off; `spike_breakout` 1.25 to 3 or off; `spike_breakout_ceiling` $8 / 10 / 12 / 14 / 16 / 18 / 20 / 25 / off.
+- **New columns:** `spike_fade_ceiling`, `spike_breakout_ceiling` (nullable, added by `init_db()`; defaults `config.SPIKE_FADE_RANGE_MAX_DOLLARS` $16 and `SPIKE_RANGE_MAX_DOLLARS` $10, used when a row has NULL). `get_block_rules(as_of)` shows a
+  past run with the flat $10 from 21 Oct 2026 and off before that. `broker_b._spike_confirms()` reads the ceilings from the active rules and falls back to config.
+- **Broker F is the source (user decision):** `storage.get_closed_trades_for_analysis()` reads `forex_b_trades` (mode `live`) like the monthly studies, instead of Broker B. Broker B and Broker F trade the same levels, so one
+  source avoids double counting. The blocked touches still come from the shared `broker_b_blocked` table. Cost: a smaller sample (54 live trades from 12 Oct against 112 for Broker B), so changes will be rarer and noisier at first.
+  Reports say "Broker F events" and label trades `F #n`.
+- **First runs:** row 32 (on Broker B's trades, 171 events) moved the breakout pair 2.0x / $10 to 1.75x / $12 (+$25.60 replay, +$3.98 without its best event, B #16): a narrow pass, re-check at the 28 Nov review.
+  Row 33 (Broker F, 113 events): reviewed, no change (+$118.65 either way).
+- **Run history since the doc was last written:** rows 11-25 daily reviews, no change (72 to 151 events); row 26 (31 Oct, manual) `spike_fade` 3.0 -> 2.0; rows 27-29 reviews, no change; row 30 (4 Nov, manual) `spike_fade` 2.0 -> 3.0
+  with the $16 fade ceiling in the code; row 31 (manual) stores the two ceilings (fades $16, breakouts $10); row 32 and 33 as above.
+
 ## Gate changes
 
 - **6 Oct 2026, RSI never waived:** `broker_b._rsi_confirms()` no longer skips its block at ADX >= `adx_trending`.
@@ -67,6 +86,7 @@ force when each forecast run was made.
 
 ## Limits
 
+- Broker F's live trades are the only trades read (from 12 Oct), so expect a hundred events or so, most of them blocked touches. The spike pair is scored on the total P/L of all events one position at a time, while study 26 scored a family on its own events, so the two can differ slightly.
 - Small samples: a few dozen events at most for now. Treat early changes as provisional and re-run after more trading.
 - Only touches that were recorded can be judged; a value that would let in a touch no filter ever saw is invisible.
 - Blocked touches are replayed from an approximate entry time (the stored time is when the poll saw the bar).
