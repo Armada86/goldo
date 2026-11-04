@@ -159,6 +159,9 @@ def broker_b_entry_rules_html(as_of=None) -> str:
     def v(key: str) -> str:
         return "off" if rules[key] == OFF_VALUES[key] else f"{rules[key]:.4f}".rstrip("0").rstrip(".")
 
+    def m(key: str) -> str:  # dollar amount, or "off"
+        return "off" if rules[key] == OFF_VALUES[key] else f"${rules[key]:g}"
+
     rows = [
         ("DXY", f"Skip a Buy if DXY rose, or a Sell if it fell, by &ge; {v('dxy_threshold')} over 15 min, on 3 polls in a row."),
         (
@@ -173,7 +176,8 @@ def broker_b_entry_rules_html(as_of=None) -> str:
         ("ATR(14)", f"All rules blocked when 15-min ATR &ge; ${v('atr_max')}."),
         (
             "Spike",
-            f"Last 15 one-minute bars' range &ge; {v('spike_fade')}&times; ATR blocks fades; &ge; {v('spike_breakout')}&times; ATR blocks breakouts.",
+            f"Last 15 one-minute bars' range blocks fades at &ge; {v('spike_fade')}&times; ATR or &ge; {m('spike_fade_ceiling')}; "
+            f"breakouts at &ge; {v('spike_breakout')}&times; ATR or &ge; {m('spike_breakout_ceiling')}.",
         ),
         ("Exits", exit_text),
     ]

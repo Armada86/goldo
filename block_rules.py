@@ -15,6 +15,9 @@ can't supply (table missing or empty, database unreachable): broker_b.py behaves
     ATR   atr_max                every rule blocked when 15-min ATR(14) >= this ($)
     Spike spike_fade             fades (TA-Zone-*) blocked when the last 15 one-minute bars' entry-side range >= this x ATR(14)
           spike_breakout         breakouts (TA-Breakout-*) blocked at this multiple (tighter: they follow the move, fades want it)
+          spike_fade_ceiling     fades blocked when that same range is >= this many dollars, whatever ATR says (4 Nov 2026)
+          spike_breakout_ceiling breakouts blocked at this dollar range
+          (the multiple and the ceiling of each family are tuned together by BRA, as a pair)
 
 A value of 99 / 0 / 101 (see OFF_VALUES below) effectively switches a block off."""
 
@@ -32,6 +35,8 @@ from config import (
     RSI_OVERSOLD_THRESHOLD,
     SPIKE_BREAKOUT_ATR_MULTIPLE,
     SPIKE_FADE_ATR_MULTIPLE,
+    SPIKE_FADE_RANGE_MAX_DOLLARS,
+    SPIKE_RANGE_MAX_DOLLARS,
 )
 
 log = logging.getLogger(__name__)
@@ -49,10 +54,14 @@ RULE_KEYS = (
     "atr_max",
     "spike_fade",
     "spike_breakout",
+    "spike_fade_ceiling",
+    "spike_breakout_ceiling",
 )
 
 
 SPIKE_KEYS = ("spike_fade", "spike_breakout")  # added 8 Oct 2026: older block_rules rows have NULL here
+CEILING_KEYS = ("spike_fade_ceiling", "spike_breakout_ceiling")  # added 4 Nov 2026: rows before that have NULL here
+CEILING_FIRST_LIVE_TS = "2026-10-21"  # the flat $10 ceiling came in on 21 Oct 2026 (config.SPIKE_RANGE_MAX_DOLLARS)
 
 # Values that switch a block off, per rule.
 OFF_VALUES = {
@@ -66,6 +75,8 @@ OFF_VALUES = {
     "atr_max": 99.0,
     "spike_fade": 99.0,
     "spike_breakout": 99.0,
+    "spike_fade_ceiling": 99.0,
+    "spike_breakout_ceiling": 99.0,
 }
 
 
@@ -82,6 +93,8 @@ def default_rules() -> dict[str, float]:
         "atr_max": float(ATR_HIGH_VOLATILITY_THRESHOLD),
         "spike_fade": float(SPIKE_FADE_ATR_MULTIPLE),
         "spike_breakout": float(SPIKE_BREAKOUT_ATR_MULTIPLE),
+        "spike_fade_ceiling": float(SPIKE_FADE_RANGE_MAX_DOLLARS),
+        "spike_breakout_ceiling": float(SPIKE_RANGE_MAX_DOLLARS),
     }
 
 
@@ -103,6 +116,10 @@ def get_block_rules(as_of=None) -> dict[str, float]:
             for k in SPIKE_KEYS:
                 if row.get(k) is None:
                     rules[k] = OFF_VALUES[k]
+            # Ceilings: rows before 4 Nov 2026 have none stored; the flat $10 on every rule was in force from 21 Oct.
+            for k in CEILING_KEYS:
+                if row.get(k) is None:
+                    rules[k] = float(SPIKE_RANGE_MAX_DOLLARS) if as_of.strftime("%Y-%m-%d") >= CEILING_FIRST_LIVE_TS else OFF_VALUES[k]
     if as_of is None:  # live gate only: a past run's display shows what was really in force then
         rules["adx_chop"] = max(rules["adx_chop"], float(ADX_CHOP_FLOOR))
     return rules

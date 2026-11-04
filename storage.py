@@ -265,13 +265,18 @@ def init_db() -> None:
                 fade_rsi_oversold DOUBLE PRECISION NOT NULL,
                 atr_max DOUBLE PRECISION NOT NULL,
                 spike_fade DOUBLE PRECISION,
-                spike_breakout DOUBLE PRECISION
+                spike_breakout DOUBLE PRECISION,
+                spike_fade_ceiling DOUBLE PRECISION,
+                spike_breakout_ceiling DOUBLE PRECISION
             )
             """
         )
         # Spike gate (8 Oct 2026): nullable, since the rows written before it have no value.
         cur.execute("ALTER TABLE block_rules ADD COLUMN IF NOT EXISTS spike_fade DOUBLE PRECISION")
         cur.execute("ALTER TABLE block_rules ADD COLUMN IF NOT EXISTS spike_breakout DOUBLE PRECISION")
+        # Spike dollar ceilings per family (4 Nov 2026): nullable, rows before that fall back to config.py (see block_rules.get_block_rules()).
+        cur.execute("ALTER TABLE block_rules ADD COLUMN IF NOT EXISTS spike_fade_ceiling DOUBLE PRECISION")
+        cur.execute("ALTER TABLE block_rules ADD COLUMN IF NOT EXISTS spike_breakout_ceiling DOUBLE PRECISION")
         # First run only: seed the table with the rules currently in config.py (see block_rules.py).
         cur.execute("SELECT 1 FROM block_rules LIMIT 1")
         if cur.fetchone() is None:
@@ -293,7 +298,7 @@ def init_db() -> None:
                 old_keys = [k for k in RULE_KEYS if not k.startswith("spike_")]
                 defaults = default_rules()
                 cur.execute(
-                    f"INSERT INTO block_rules (source, changed, note, {', '.join(RULE_KEYS)}) "
+                    f"INSERT INTO block_rules (source, changed, note, {', '.join(old_keys)}, spike_fade, spike_breakout) "
                     f"SELECT 'seed', FALSE, 'Spike gate added (config.py defaults)', {', '.join(old_keys)}, %s, %s "
                     "FROM block_rules ORDER BY id DESC LIMIT 1",
                     [defaults["spike_fade"], defaults["spike_breakout"]],
