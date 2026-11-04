@@ -116,8 +116,8 @@ cost money, and the bias idea is too thin to act on.
     best settings and the live one are $4-5 on 3 events, well inside noise.
   - **Proposal (for the 28 Nov review):** fades only, replace the flat $10 ceiling with **$16** (`SPIKE_RANGE_MAX_DOLLARS` for fades; breakouts keep $10) and set `spike_fade`
     back to **2.5-3.0** (the 2.0x multiple is the part that costs most). Expected gain over live: about +$4 on this set, i.e. no proven edge; the case is that it blocks only
-    ranges of $16 and more (the extreme-range losers: -$15 on 22 Oct, 28 Oct, 2 Nov) while freeing $10-16 fades, which won more than they lost. Needs a code change
-    (separate fade ceiling constant) and a `block_rules` row. Do not apply before the review confirms it on the trades since 4 Nov.
+    ranges of $16 and more (the extreme-range losers: -$15 on 22 Oct, 28 Oct, 2 Nov) while freeing $10-16 fades, which won more than they lost. Applied: `config.SPIKE_FADE_RANGE_MAX_DOLLARS` = 16.0,
+    `SPIKE_FADE_ATR_MULTIPLE` = 3.0 and a `block_rules` row (source `manual`) with `spike_fade` 3.0. The 28 Nov review confirms or reverts it on the trades since 4 Nov.
   - Check at the review: (a) fades opened since 4 Nov with range $10-16 (would the live gate have blocked them? what did they make); (b) blocked fade touches since 4 Nov with
     range $10-16 replayed the same way; (c) whether $14-18 still beats $10, using the same method and Broker F trades only.
 

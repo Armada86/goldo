@@ -225,13 +225,17 @@ SHADOW_QUIET_MAX_ADX = 20.0
 # was blocked and the bounce was +$13. A 3.0 limit still blocks the one real spike in the B #54-61 sample (#59, 3.28x).
 # Fade multiple lowered 3.0 -> 2.0 on 31 Oct 2026 (studies review, user approved): 9 trades in 6 events, expected +$39-52 in replay, medium-low confidence.
 # Defaults/fallback only: the live values come from the block_rules table, which `start BRA` tunes (see block_rules.py).
-SPIKE_FADE_ATR_MULTIPLE = 2.0
+# Fade multiple raised 2.0 -> 3.0 on 4 Nov 2026 together with the separate fade ceiling below (user approved; study 26 in docs/studies-25-plus.md).
+SPIKE_FADE_ATR_MULTIPLE = 3.0
 SPIKE_BREAKOUT_ATR_MULTIPLE = 2.0
 SPIKE_RANGE_BARS = 15  # one-minute bars in the range window
 # Absolute ceiling on that range, all four Broker B rules (21 Oct 2026): the ATR multiples above never bit in Broker F's first 30 live trades
 # (3.0x ATR is $15-27). The 8 entries with a 15-min range >= $10 won 2 and lost $52.11 (the 22 others made +$53.09), 4 of the 6 full-stop
 # losses among them. Hand-picked from 30 trades -- not in block_rules, so BRA does not tune it.
-SPIKE_RANGE_MAX_DOLLARS = 10.0
+SPIKE_RANGE_MAX_DOLLARS = 10.0  # breakouts: unchanged (fades use the separate ceiling below)
+# Fades have their own, higher ceiling since 4 Nov 2026 (user approved): on 52 Broker F fades + spike-blocked fade touches, a $16 ceiling with a 3.0x
+# multiple gained +$17.68 against +$13.27 for the live $10/2.0x pair, blocking only 3 events (2 full stops). Small sample: re-check at the 28 Nov review.
+SPIKE_FADE_RANGE_MAX_DOLLARS = 16.0
 # RSI(14) exhaustion on the two FADE rules (the breakout rules already use RSI_OVERBOUGHT/OVERSOLD above):
 # TA-Zone-sell blocked at/above the first, TA-Zone-buy at/below the second (both 68-and-up fade-sells lost).
 FADE_RSI_OVERBOUGHT_THRESHOLD = 68
