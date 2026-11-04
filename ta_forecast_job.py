@@ -82,7 +82,6 @@ DAILY_SWING_WING = 3         # a daily swing high/low must beat this many days o
 FIB_LOOKBACK_DAYS = 30       # finished daily bars (~6 weeks) scanned for the most recent major swing the Fibonacci levels are drawn on
 FIB_RATIOS = (0.382, 0.5, 0.618)
 FIB_MIN_SWING_ATR = 2.0      # the swing must span at least this x daily ATR, else it is noise and no Fib levels are listed
-STOP_ATR_MULTIPLE = 1.5      # reference stop distance quoted in the plan text (entry -/+ 1.5 x daily ATR); informational only
 
 # How much a level source counts when two candidate zones are too close to both be listed -- the
 # heavier one is kept. Longer-timeframe / more widely watched levels weigh more.
@@ -630,9 +629,7 @@ def render(snap: dict, bias: tuple, resistances, supports, scenarios, review_lin
         f"- RSI(14): 1h {ind['rsi_1h']}, 4h {ind['rsi_4h']}",
         f"- MACD(12,26,9) 1h: {ind['macd_1h']:+.2f} vs signal {ind['macd_signal_1h']:+.2f} "
         f"(histogram {ind['macd_hist_1h']:+.2f}, {hist_dir})",
-        f"- Daily ATR(14) ${ind['atr14_1d']:,.0f} -> stop buffer ${snap['buffer']:.0f} "
-        f"(reference only: {STOP_ATR_MULTIPLE:g} x daily ATR = ${STOP_ATR_MULTIPLE * ind['atr14_1d']:,.0f} from entry; "
-        f"the fade stops below use the buffer)",
+        f"- Daily ATR(14) ${ind['atr14_1d']:,.0f} -> stop buffer ${snap['buffer']:.0f}",
         *([f"- Fib swing: {fib['high']:,.0f} ({fib['high_date']}) to {fib['low']:,.0f} ({fib['low_date']}), {fib['direction']}"]
           if (fib := ind.get('fib')) else []),
         f"- Bias inputs: {'; '.join(reasons)}",
