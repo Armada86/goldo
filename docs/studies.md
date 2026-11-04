@@ -37,7 +37,7 @@ missing. Add new ones at the bottom of their section (or under "Open / to repeat
 
 ## Tools these studies became
 17. **SLA** (`stop_loss_analysis.py`). Parity with the live exit code checked on 4,000 random paths, 0 mismatches.
-18. **BRA** (`block_rules_analysis.py`).
+18. **BRA** (`block_rules_analysis.py`). From 4 Nov 2026 it also tunes the spike gate per family (fades and breakouts separately), each as a pair: ATR multiple x dollar ceiling, Broker B data only.
 19. **`spike_gate_replay.py`.**
 20. **End-of-day Broker review** (`broker_review.py`).
 
