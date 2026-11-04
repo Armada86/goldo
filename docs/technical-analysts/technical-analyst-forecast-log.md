@@ -150,6 +150,38 @@ hawkish Fed bets, all capping upside."
   zone, stating a timeframe, the daily-chart bearish read) our generator already does natively; its one
   distinctive claim (the support/failure clause) doesn't survive a sanity check.
 
+**5. Risk-diagnosis / scenario-playbook report (undated header "Nov 04, 2026, 07:17 PM UTC", checked 2026-11-04).**
+Price $4,072.42 after a V-bottom from $3,879.30 (swing from $4,259.00). Bulls: price above the Ichimoku
+cloud (3990.39-4021.80), MACD 1.87 > -17.67, price above SMA(50) $4,020.67. Bears: upper Bollinger Band
+$4,080.24, price below SMA(200) $4,200.25, +2.59% from SMA(20). Fib 50% $4,069.15, 61.8% $4,113.95.
+Long zone $4,000-4,025, short zone $4,114-4,200, "No-Trade" $4,025-4,114. Bull plan: aggressive entry
+$4,085 on a 5h close above the upper band, conservative entry $4,025; stop $3,966 (entry - 1.5 x ATR 39.16);
+targets $4,114 / $4,200 / $4,259 with risk:reward 1.51 / 2.97 / 3.97.
+- Checked: the Fibonacci levels are exact (50% 4069.15, 61.8% 4113.95, 38.2% 4024.35 on the stated
+  swing). The 4000-4025 long zone is a real confluence (cloud top 4021.80, SMA(50) 4020.67, 38.2% Fib
+  4024.35 within $4). ATR 39.16 is 0.96% of price, and the +2.59% extension implies SMA(20) 3969.7, the
+  bull invalidation level, so the report agrees with itself. The target risk:reward figures are correct
+  for the conservative entry. Against our Twelve Data candles: 4 Nov daily range 3917-4070 (their price
+  4072, ~$2 feed gap) and the low is 3866 on 2 Nov (their 3879.30, feed/timeframe difference). The
+  swing high $4,259 was not re-derived (our daily bars show 4,305-4,317 in late September).
+- Weak points: (1) the 3966 stop is sized from the $4,025 entry, so from the aggressive $4,085 entry
+  the risk is $119 and the targets pay only 0.24R / 0.97R / 1.46R, not the quoted ratios; (2) the
+  timeframe is never stated beyond one "5h close" -- its SMA(50) 4020 / SMA(200) 4200 are intraday, while
+  our daily SMA50 is ~4163 and SMA200 ~4444 (price far below both), so "macro downtrend intact" is
+  understated and "short-term trend shift" holds only on the intraday chart (1h SMA20/50/200 were
+  4017 / 3966 / 3960, price above all); (3) "Volume surging" is tick volume on a spot instrument;
+  (4) "V-bottom 80% complete" is subjective and unprovable, the SuperTrend re-entry (3944) has no
+  stated settings; (5) it undercuts itself ("Optimal Now: Bull @ 4025" means waiting for a $47 pullback
+  while the scenario's own risk is rejection where price already sits); (6) the bull table is printed
+  twice and a ~$39 5h ATR is a swing-trade scale, not our 7am-5pm intraday one (15-min ATR ~$6-16).
+- **Taken from it (proposed, not yet implemented):** (a) Fibonacci retracement levels (38.2 / 50 /
+  61.8%) of the latest major daily swing as level candidates, scored for confluence with the EMAs/SMAs;
+  (b) an explicit ATR-based stop formula recorded in the plan text, keeping our existing caps
+  (`FADE_STOP_LOSS_CAP`); (c) a labelled mid-range "No-Trade" zone between the nearest support and
+  resistance; (d) Bollinger-band position / extension from SMA(20) as a possible "stretched" flag for
+  breakout entries -- only after a backtest, and log-only first (like the `shadow_*` flags). Nothing
+  here changes `ta_forecast_job.py` until the user approves a concrete diff.
+
 ## How each section is computed
 
 All from Twelve Data XAU/USD candles (`data_fetcher.fetch_candles`, UTC): 1h (500 bars), 4h (300),
