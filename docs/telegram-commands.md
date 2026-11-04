@@ -22,6 +22,9 @@ the message is sent, not on the next poll. All times are Eastern (`America/New_Y
 | `start block rules analysis` / `start BRA` | Replays every Broker B touch (the trades that opened, plus touches blocked by the DXY / ADX / RSI / ATR filters) against different filter values, **writes the resulting rules to the `block_rules` table** (Broker B reads them on its next poll) and sends back a report listing what changed. A row is written on every run, even when nothing changes. It arrives in a few minutes, and it also runs by itself every weekday at 6:30 AM ET. See `docs/block-rules-analysis.md`. |
 | `run TA` | Starts a new technical forecast, the same job as the 7:00am, 10:00am and 2:00pm runs. It becomes the active forecast for Broker B and Broker F. |
 | `rearm levels` | Resets Broker B's trade counts and stop-outs for the current forecast, so each of the four levels can trade again, for Broker B and Broker F (Broker F counts its own trades after the reset time). Broker A is unaffected. |
+| `start bias` | Bias mode ON: Brokers A, B, F and K may only open trades in the direction of the latest TA forecast's bias score (label exactly Bullish → Buy only; exactly Bearish → Sell only; Neutral, Neutral-to-bullish and Neutral-to-bearish → no new trades). Open trades are untouched and manual `buy/sell broker X` is not blocked. Stays on until `stop bias`. A blocked B/F/A entry sends the usual ⛔ notice; K only logs. |
+| `stop bias` | Bias mode OFF: brokers trade both directions again. |
+| `bias status` | Replies ACTIVE or INACTIVE (and since when), plus the latest forecast's bias and the direction it allows (or would allow). |
 
 ## Notes
 

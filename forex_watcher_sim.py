@@ -73,6 +73,8 @@ fw.get_pending_forex_b_commands = lambda: []
 fw.get_last_close_ts_forex_b = lambda: None
 fw.get_recent_readings = lambda *a, **k: []
 fw.get_block_rules = lambda: None
+import broker_b
+broker_b.bias_confirms = lambda trade_type: (True, None, None)  # the "start bias" filter reads the database
 fw.fetch_gold_candles = lambda: (_ for _ in ()).throw(RuntimeError("offline"))
 fw.touch_forex_b_heartbeat = lambda mode, tick_ts=None: None
 fw.get_forex_b_heartbeat = lambda: None

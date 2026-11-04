@@ -1777,6 +1777,18 @@ def get_broker_trading_override(broker: str) -> tuple[str, datetime] | None:
     return (row[0], row[1]) if row else None
 
 
+def get_bias_mode() -> tuple[bool, datetime | None]:
+    """(active, set_ts) of the Telegram "start bias" / "stop bias" switch (one-row `bias_setting` table, created by the Worker on first
+    use). (False, None) if it was never set. Raises on a DB error -- bias_filter.py decides how to fail."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('bias_setting')")
+        if cur.fetchone()[0] is None:
+            return False, None
+        cur.execute("SELECT active, set_ts FROM bias_setting WHERE id = 1")
+        row = cur.fetchone()
+    return (bool(row[0]), row[1]) if row else (False, None)
+
+
 def touch_forex_b_heartbeat(mode: str, tick_ts=None) -> None:
     """The Broker F watcher is alive right now, in this mode (shown by the Telegram "broker status" command). `tick_ts` is the
     newest price tick it has evaluated; None leaves the stored value unchanged."""
