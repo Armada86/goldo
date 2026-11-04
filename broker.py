@@ -81,6 +81,7 @@ from entry_context import build_entry_context, build_exit_context
 from price_bars import fetch_gold_bars
 from notifier import send_telegram_message
 from trading_control import trading_pause_reason
+from bias_filter import bias_confirms
 from storage import (
     close_trade_row,
     get_last_blocked_signal_ts_a,
@@ -663,8 +664,9 @@ def check_broker_trades(prices: dict[str, float]) -> None:
             rsi_ok, rsi_category, rsi_detail = _rsi_confirms(trade_type, rsi_value, adx_value)
             dxy_ok, dxy_category, dxy_detail = _dxy_confirms(trade_type, dxy_readings)
             adx_ok, adx_category, adx_detail = _adx_confirms(adx_value)
+            bias_ok, bias_category, bias_detail = bias_confirms(trade_type)  # Telegram "start bias"; no-op unless on
 
-            if rsi_ok and dxy_ok and adx_ok:
+            if rsi_ok and dxy_ok and adx_ok and bias_ok:
                 triggering_text = _triggering_text(alerts, trade_type)
                 flagging = _triggering_names(alerts, trade_type)
                 context = build_entry_context(
@@ -677,6 +679,6 @@ def check_broker_trades(prices: dict[str, float]) -> None:
                 triggering_names = _triggering_names(alerts, trade_type)
                 send_telegram_message(_open_message(trade_id, trade_type, rule_name, gold_price, triggering_names, now))
             else:
-                dedup_reasons = "; ".join(r for r in (rsi_category, dxy_category, adx_category) if r)
-                message_reasons = "; ".join(r for r in (rsi_detail, dxy_detail, adx_detail) if r)
+                dedup_reasons = "; ".join(r for r in (rsi_category, dxy_category, adx_category, bias_category) if r)
+                message_reasons = "; ".join(r for r in (rsi_detail, dxy_detail, adx_detail, bias_detail) if r)
                 _notify_blocked(rule_name, gold_price, dedup_reasons, message_reasons, since_ts, signal_ts)

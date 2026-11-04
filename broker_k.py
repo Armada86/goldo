@@ -57,6 +57,7 @@ from notifier import send_telegram_message
 from price_bars import fetch_gold_bars
 from storage import close_trade_row_k, get_last_closed_trades_k, get_open_trade_k, insert_trade_k
 from trading_control import trading_pause_reason
+from bias_filter import bias_confirms
 
 log = logging.getLogger("gold-monitor")
 
@@ -238,6 +239,10 @@ def check_broker_k_trades(prices: dict[str, float], candles: pd.DataFrame | None
         until = None
     if until is not None and now < until:
         log.info("Broker K: %d stop-losses in a row -- no entry until %s", K_PAUSE_AFTER_STOPS, _format_ts(until))
+        return
+    bias_ok, _bias_category, bias_detail = bias_confirms(trade_type)  # Telegram "start bias"; no-op unless on
+    if not bias_ok:
+        log.info("Broker K: %s signal skipped -- %s", trade_type, bias_detail)
         return
     price, spread = _fill_price(trade_type, spot)
     if spread is not None and spread > K_MAX_SPREAD:

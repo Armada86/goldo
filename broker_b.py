@@ -150,6 +150,7 @@ from broker import (
     _within_entry_window,
 )
 from trading_control import trading_pause_reason
+from bias_filter import bias_confirms
 from config import (
     ADX_PERIOD,
     ATR_PERIOD,
@@ -579,14 +580,16 @@ def _fade_lock_level(trade: dict) -> float | None:
 def evaluate_gates(
     scenario_name: str, trade_type: str, dxy_readings, rsi_value, adx_value, adx_rising, atr_value, range_15m, rules
 ) -> tuple[bool, str | None, str | None]:
-    """All five entry filters (DXY, RSI, ADX, ATR, spike) for one touch: (ok, dedup_reasons, message_reasons), the reasons
-    joined in that order and None when ok. Shared with forex_watcher.py so the live gate and the Forex engine cannot drift."""
+    """All entry filters (DXY, RSI, ADX, ATR, spike, and the Telegram "start bias" direction filter, which is a no-op unless switched on)
+    for one touch: (ok, dedup_reasons, message_reasons), the reasons joined in that order and None when ok. Shared with
+    forex_watcher.py so the live gate and the Forex engine cannot drift."""
     results = (
         _dxy_confirms(trade_type, dxy_readings, rules),
         _rsi_confirms(scenario_name, rsi_value, adx_value, rules),
         _adx_confirms(scenario_name, adx_value, rules, adx_rising),
         _atr_confirms(atr_value, rules),
         _spike_confirms(scenario_name, range_15m, atr_value, rules),
+        bias_confirms(trade_type),
     )
     if all(ok for ok, _category, _detail in results):
         return True, None, None

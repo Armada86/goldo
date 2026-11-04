@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { brokerStatus, brokerKSignal, kStreakPauseUntil, STATUS_RE, parseBrokerScope, evaluatePause, nextWeekdayBoundary, isMarketClosedAt, inEntryWindow, tradingState, REARM_RE, RUN_TA_RE, SLA_RE, BRA_RE, parseStopLoss, parseTrail, parseCommand, parseControlCommand, etToUtc, formatTs, pnl } from "../src/index.js";
+import { allowedDirection, START_BIAS_RE, STOP_BIAS_RE, BIAS_STATUS_RE, brokerStatus, brokerKSignal, kStreakPauseUntil, STATUS_RE, parseBrokerScope, evaluatePause, nextWeekdayBoundary, isMarketClosedAt, inEntryWindow, tradingState, REARM_RE, RUN_TA_RE, SLA_RE, BRA_RE, parseStopLoss, parseTrail, parseCommand, parseControlCommand, etToUtc, formatTs, pnl } from "../src/index.js";
 
 test("parseCommand: open commands, various phrasing", () => {
   assert.deepEqual(parseCommand("sell broker A"), { action: "open", tradeType: "Sell", brokerLetter: "A" });
@@ -306,4 +306,26 @@ test("kStreakPauseUntil: two stop-losses in a row pause Broker K for 30 minutes"
   assert.equal(kStreakPauseUntil([{ exit_reason: "SL", close_ts: t0 }, { exit_reason: "Time", close_ts: t0 }]), null);
   assert.equal(kStreakPauseUntil([{ exit_reason: "SL", close_ts: t0 }]), null);
   assert.equal(kStreakPauseUntil([]), null);
+});
+
+test("bias commands: start / stop / status are recognised and do not collide with other commands", () => {
+  assert.ok(START_BIAS_RE.test("Start bias"));
+  assert.ok(STOP_BIAS_RE.test("stop BIAS"));
+  assert.ok(BIAS_STATUS_RE.test("bias status"));
+  assert.ok(!START_BIAS_RE.test("start trading") && !STOP_BIAS_RE.test("stop trading broker F"));
+  assert.ok(!BRA_RE.test("start bias") && !SLA_RE.test("start bias"));
+  assert.ok(!BIAS_STATUS_RE.test("broker status"));
+  assert.equal(parseControlCommand("start bias"), null);
+  assert.equal(parseControlCommand("stop bias"), null);
+});
+
+test("allowedDirection: bullish scores allow Buy only, bearish Sell only, neutral and unreadable none", () => {
+  assert.deepEqual(allowedDirection({ bias: "Bullish", bias_score: 4 }), { direction: "Buy", label: "Bullish", score: 4 });
+  assert.equal(allowedDirection({ bias: "Neutral-to-bullish", bias_score: 1 }).direction, "Buy");
+  assert.equal(allowedDirection({ bias: "Neutral-to-bearish", bias_score: -2 }).direction, "Sell");
+  assert.equal(allowedDirection({ bias: "Bearish", bias_score: -5 }).direction, "Sell");
+  assert.equal(allowedDirection({ bias: "Neutral", bias_score: 0 }).direction, null);
+  assert.equal(allowedDirection({ bias: "Neutral", bias_score: 0 }).score, 0);
+  assert.equal(allowedDirection(null).score, null);
+  assert.equal(allowedDirection({}).score, null);
 });

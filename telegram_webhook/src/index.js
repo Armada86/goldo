@@ -521,6 +521,69 @@ async function brokerStatus(sql) {
   return lines.join("\n");
 }
 
+// ---- "start bias" / "stop bias" / "bias status": trade only in the direction of the latest TA forecast. Enforced by the Python
+// brokers (bias_filter.py) from the one-row `bias_setting` table written here. ----
+const START_BIAS_RE = /\bstart\s+bias\b/i;
+const STOP_BIAS_RE = /\bstop\s+bias\b/i;
+const BIAS_STATUS_RE = /\bbias\s+status\b|\bstatus\s+of\s+(?:the\s+)?bias\b/i;
+
+/** Mirrors bias_filter.allowed_direction(): {direction: "Buy"|"Sell"|null, label, score}; score null = no readable bias. */
+function allowedDirection(levels) {
+  if (!levels || levels.bias_score === null || levels.bias_score === undefined) return { direction: null, label: "unknown", score: null };
+  const score = Number(levels.bias_score);
+  const label = String(levels.bias ?? "?");
+  if (score > 0) return { direction: "Buy", label, score };
+  if (score < 0) return { direction: "Sell", label, score };
+  return { direction: null, label, score };
+}
+
+function biasRuleText({ direction, label, score }) {
+  if (score === null) return "No forecast bias is readable right now, so nothing is blocked until one is.";
+  const signed = `${score > 0 ? "+" : ""}${score}`;
+  return direction
+    ? `Latest forecast bias: ${label} (score ${signed}) → ${direction} trades only.`
+    : `Latest forecast bias: ${label} (score ${signed}) → no direction, so NO new trades.`;
+}
+
+async function ensureBiasTable(sql) {
+  await sql`CREATE TABLE IF NOT EXISTS bias_setting (id INTEGER PRIMARY KEY CHECK (id = 1), active BOOLEAN NOT NULL, set_ts TIMESTAMPTZ NOT NULL)`;
+}
+
+async function latestForecastBias(sql) {
+  const rows = await sql`SELECT ts, levels FROM ta_forecasts ORDER BY ts DESC LIMIT 1`;
+  if (rows.length === 0) return { ...allowedDirection(null), ts: null };
+  return { ...allowedDirection(rows[0].levels), ts: rows[0].ts };
+}
+
+async function setBias(sql, active) {
+  await ensureBiasTable(sql);
+  await sql`
+    INSERT INTO bias_setting (id, active, set_ts) VALUES (1, ${active}, ${new Date().toISOString()})
+    ON CONFLICT (id) DO UPDATE SET active = EXCLUDED.active, set_ts = EXCLUDED.set_ts
+  `;
+  const bias = await latestForecastBias(sql);
+  if (active) {
+    return (
+      "\u{1F9ED} Bias mode ON. Brokers A, B, F and K only open trades in the direction of the latest TA forecast bias " +
+      "(bullish → Buy only, bearish → Sell only, neutral → no new trades).\n" +
+      `${biasRuleText(bias)}\n` +
+      'Open trades are left alone and manual "buy/sell broker X" commands are not blocked. It stays on until you send "stop bias".'
+    );
+  }
+  return "\u{1F9ED} Bias mode OFF. Brokers trade in either direction again.";
+}
+
+async function biasStatus(sql) {
+  await ensureBiasTable(sql);
+  const row = (await sql`SELECT active, set_ts FROM bias_setting WHERE id = 1`)[0];
+  const active = Boolean(row?.active);
+  const bias = await latestForecastBias(sql);
+  const lines = [`\u{1F9ED} Bias mode: ${active ? "ACTIVE" : "INACTIVE"}${row ? ` (since ${formatTs(new Date(row.set_ts))})` : ""}`];
+  lines.push(active ? biasRuleText(bias) : `Not filtering. If it were on: ${biasRuleText(bias)}`);
+  if (bias.ts) lines.push(`Forecast written ${formatTs(new Date(bias.ts))}.`);
+  return lines.join("\n");
+}
+
 const REARM_RE = /\bre-?arm\s+(?:all\s+)?levels?\b/i;
 
 async function rearmLevels(sql) {
@@ -904,6 +967,17 @@ export default {
 
     const sql = neon(env.DATABASE_URL);
 
+    if (STOP_BIAS_RE.test(message.text) || START_BIAS_RE.test(message.text) || BIAS_STATUS_RE.test(message.text)) {
+      // "stop bias" is checked first so a message naming both never turns the mode on by accident.
+      const biasReply = STOP_BIAS_RE.test(message.text)
+        ? await setBias(sql, false)
+        : START_BIAS_RE.test(message.text)
+          ? await setBias(sql, true)
+          : await biasStatus(sql);
+      await sendTelegram(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, biasReply);
+      return new Response("OK", { status: 200 });
+    }
+
     if (REARM_RE.test(message.text)) {
       await sendTelegram(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, await rearmLevels(sql));
       return new Response("OK", { status: 200 });
@@ -964,4 +1038,4 @@ export default {
   },
 };
 
-export { brokerStatus, brokerKSignal, kStreakPauseUntil, STATUS_RE, parseBrokerScope, evaluatePause, nextWeekdayBoundary, isMarketClosedAt, inEntryWindow, tradingState, REARM_RE, RUN_TA_RE, SLA_RE, BRA_RE, parseStopLoss, parseTrail, parseCommand, parseControlCommand, etToUtc, formatTs, pnl }; // exported for the test file only
+export { allowedDirection, START_BIAS_RE, STOP_BIAS_RE, BIAS_STATUS_RE, brokerStatus,brokerKSignal, kStreakPauseUntil, STATUS_RE, parseBrokerScope, evaluatePause, nextWeekdayBoundary, isMarketClosedAt, inEntryWindow, tradingState, REARM_RE, RUN_TA_RE, SLA_RE, BRA_RE, parseStopLoss, parseTrail, parseCommand, parseControlCommand, etToUtc, formatTs, pnl }; // exported for the test file only
