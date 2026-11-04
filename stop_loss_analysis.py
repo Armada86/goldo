@@ -303,12 +303,19 @@ def format_report(result: dict, first_ts, last_ts, n_bid_ask: int, n_mid: int, n
             f"The settings below drive the other {result['n'] - result['n_fade']} trades and those fades."
         )
     lines.append("")
+    # The headline says what happened, not just what was advised: since 4 Oct 2026 the job applies a change itself (reworded 4 Nov 2026,
+    # after "ADVICE: ..." was read as a recommendation that still needed a manual step).
     if result["change"]:
-        lines.append("ADVICE: CHANGE")
+        if applied:
+            lines.append("RESULT: SETTINGS CHANGED (applied automatically)")
+        elif applied is False:
+            lines.append("RESULT: CHANGE NEEDED BUT NOT APPLIED (database error, see below)")
+        else:
+            lines.append("RESULT: WOULD CHANGE SETTINGS (dry run, nothing applied)")
     elif result["gain"] >= result["needed_gain"] and rec["gain_without_best"] <= 0:
-        lines.append(f"ADVICE: KEEP CURRENT SETTINGS (the best setting only wins because of one trade, {rec['best_trade']})")
+        lines.append(f"RESULT: NO CHANGE, current settings kept (the best setting only wins because of one trade, {rec['best_trade']})")
     else:
-        lines.append("ADVICE: KEEP CURRENT SETTINGS (no setting beats them by a clear margin)")
+        lines.append("RESULT: NO CHANGE, current settings kept (no setting beats them by a clear margin)")
     if result["change"]:
         shown, tag, label = rec, "", "this setting"
     else:  # keep: the bullets show what is still in force, not the better-looking setting that was not applied
