@@ -542,7 +542,7 @@ function biasRuleText({ direction, label, score }) {
   const signed = `${score > 0 ? "+" : ""}${score}`;
   return direction
     ? `Latest forecast bias: ${label} (score ${signed}) → ${direction} trades only.`
-    : `Latest forecast bias: ${label} (score ${signed}) → not Bullish or Bearish, so NO new trades.`;
+    : `Latest forecast bias: ${label} (score ${signed}) → not restricted, both directions allowed.`;
 }
 
 async function ensureBiasTable(sql) {
@@ -565,7 +565,7 @@ async function setBias(sql, active) {
   if (active) {
     return (
       "\u{1F9ED} Bias mode ON. Brokers A, B, F and K only open trades in the direction of the latest TA forecast bias " +
-      "(bullish → Buy only, bearish → Sell only, neutral → no new trades).\n" +
+      "(Bullish → Buy only, Bearish → Sell only; Neutral and Neutral-to-bullish/bearish → not restricted).\n" +
       `${biasRuleText(bias)}\n` +
       'Open trades are left alone and manual "buy/sell broker X" commands are not blocked. It stays on until you send "stop bias".'
     );
