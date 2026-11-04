@@ -47,7 +47,7 @@ The message is deliberately short (since 4 Oct 2026):
 
 - The title, how many closed trades it used and over which dates (and how many were priced on FOREX.com bid/ask
   versus Twelve Data mid prices).
-- The advice (change, or keep). On a change, the lines show the advised stop loss and trailing stop. On a keep, they show
+- The headline says what happened (reworded 4 Nov 2026; it used to read "ADVICE: ..."): `RESULT: SETTINGS CHANGED (applied automatically)`, `RESULT: NO CHANGE, current settings kept (...)`, or, only if the database write fails, `RESULT: CHANGE NEEDED BUT NOT APPLIED`. A dry run says `WOULD CHANGE SETTINGS (dry run, nothing applied)`. On a change, the lines show the new stop loss and trailing stop. On a keep, they show
   your **current** settings, marked "(current)", and the replay line names the best setting tried (which was not applied).
 - The replay total for the advised setting, for your current setting, and for the old fixed +$10 / -$10 rule, and by
   how much it beats the current one (also without its single best trade).
