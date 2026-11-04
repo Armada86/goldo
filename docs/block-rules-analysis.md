@@ -18,6 +18,7 @@ table can't supply (table missing or empty, database unreachable), so Broker B n
 | `rsi_overbought` / `rsi_oversold` | breakout buy blocked at RSI >= / breakout sell at RSI <= | 70 / 30 |
 | `fade_rsi_overbought` / `fade_rsi_oversold` | fade sell blocked at RSI >= / fade buy at RSI <= | 68 / 32 |
 | `atr_max` | everything blocked when 15-min ATR(14) >= this ($) | 12 |
+| `spike_fade_ceiling` / `spike_breakout_ceiling` | **4 Nov 2026:** the dollar ceiling on the same 15-minute range, one per family (fades default $16, breakouts $10, `config.SPIKE_FADE_RANGE_MAX_DOLLARS` / `SPIKE_RANGE_MAX_DOLLARS`; nullable columns, older rows fall back to those). BRA grids: fade ceiling $10-25 or off, breakout ceiling $8-25 or off. BRA tunes each ceiling **together with its family's ATR multiple** (see step 5). |
 | `spike_fade` / `spike_breakout` | spike gate (8 Oct 2026): fades / breakouts blocked when the entry-side high-low range of the last 15 one-minute bars is >= this x ATR(14). Fades get the looser multiple (they enter after a run into the level and bet on the reversal). Added later than the other columns: older rows are NULL, which the dashboard shows as off for those times; `init_db()` appended a row with the defaults when the gate went in. BRA's grids: fade 1.75-3.5 or off, breakout 1.25-3.0 or off. The event's range is measured from the same 1-minute bars the replay already fetches (FOREX.com bid/ask, else Twelve Data mid), ending at the event time; the live gate measures it at the poll, a few minutes later at most. Unknown range fails open. **31 Oct 2026: the `spike_fade` default went 3.0 -> 2.0** (studies review; `block_rules` row id 26, source `manual`). **9 Oct 2026: it had gone 2.5 -> 3.0** (a 2.59x support fade that bounced +$13 was blocked; a `block_rules` row with source `manual` set the live value, and BRA is free to move it from there). Since 9 Oct 2026 BRA's replay models the fade exit rule (hard stop capped at $15, no ordinary trail before a near opposite level (within $15), then the lock), like the live engine. | 2.0 / 2.0 |
 | `set_ts`, `source`, `changed`, `n_events`, `note` | when, who (`seed` or `BRA`), whether the run changed anything, how many events, a one-line note | |
 
@@ -37,12 +38,12 @@ force when each forecast run was made.
    `start SLA`.
 4. **Scoring:** a candidate set of values runs the real gate functions from `broker_b.py` on every event; events that
    pass are taken, one position at a time like Broker B, the rest are blocked.
-5. **Search:** each of the ten values is swept over its own grid with the others held; each grid point is scored with
+5. **Search:** each single rule is swept over its own grid with the others held; **the spike gate of each family is one 2-D search unit (ATR multiple x dollar ceiling), fades and breakouts separately, from 4 Nov 2026** (the two interact: a $16 ceiling scored +$7 with a 2.0x fade multiple and +$18 with 3.0x in study 26). Each grid point is scored with
    its neighbours (a plateau beats a lucky spike). The best change is applied only if it beats the current total by
    `max($10, 10%)` **and** still wins without the single event that gained the most; then it repeats from the new
    values until nothing qualifies.
-   Guards: a rule moves **at most one grid step per run** (so a block can't be switched off, or jump across its range, on one
-   run's evidence), and moving a rule to its off value needs **twice** that margin and the margin without its best event.
+   Guards: a rule moves **at most one grid step per run** (a spike pair: one step on each axis, so up to 8 neighbouring points) (so a block can't be switched off, or jump across its range, on one
+   run's evidence), and moving a rule to its off value (a spike pair: both values off) needs **twice** that margin and the margin without its best event.
    (Added after the first run switched both ADX blocks off from 40 events; the ADX values were restored by hand, table row 3.)
 6. **Result:** a new `block_rules` row is written (changed or not) and the report goes to Telegram. Under 12 events
    nothing changes.

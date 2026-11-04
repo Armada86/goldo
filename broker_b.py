@@ -519,7 +519,11 @@ def _spike_confirms(
     missing data. `category` has no live number (dedup key). `rules`: see _dxy_confirms()."""
     rules = rules or default_rules()
     multiple = rules["spike_fade"] if scenario_name in FADE_SCENARIOS else rules["spike_breakout"]
-    ceiling = SPIKE_FADE_RANGE_MAX_DOLLARS if scenario_name in FADE_SCENARIOS else SPIKE_RANGE_MAX_DOLLARS
+    ceiling = (
+        rules.get("spike_fade_ceiling", SPIKE_FADE_RANGE_MAX_DOLLARS)
+        if scenario_name in FADE_SCENARIOS
+        else rules.get("spike_breakout_ceiling", SPIKE_RANGE_MAX_DOLLARS)
+    )
     if range_15m is not None and range_15m >= ceiling:
         return (
             False,

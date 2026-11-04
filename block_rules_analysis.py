@@ -16,18 +16,20 @@ A candidate set of rules is scored by running the REAL gate functions (broker_b.
 _rsi_confirms() / _atr_confirms() / _spike_confirms()) on every event: events that pass are taken (one position at a time, like
 Broker B), the rest are blocked. So the analysis can't drift from what the live gates do.
 
-Choosing values: greedy coordinate search. Each of the ten values is swept over its own grid with the others
+Choosing values: greedy coordinate search over units. Each single rule, and each family's spike pair (ATR multiple x dollar
+ceiling, fades and breakouts separately, added 4 Nov 2026), is swept over its own grid with the others
 held at their current setting; a grid point is scored by the mean total P/L of itself and its neighbours one step
 away (a plateau beats a lucky spike). The best change is applied only if it beats the current total by a real
 margin AND still wins without the single event that gained the most; then the sweep repeats from the new rules
 until nothing qualifies. Guards (added 4 Oct 2026, after a first run switched both ADX blocks off from 40 events): a rule
-moves at most one grid step per run, and moving one to its OFF value needs twice the margin and the margin without
+moves at most one grid step per run (per axis for a spike pair), and moving one to its OFF value needs twice the margin and the margin without
 its best event. With fewer than MIN_EVENTS events nothing changes.
 
 Limits, stated in the report: the event pool only contains touches that were recorded (traded, or blocked by one of
 these filters), so a value that would have let in a touch no filter ever saw can't be judged; blocked touches are
 replayed from an approximate entry time."""
 
+import itertools
 from dataclasses import dataclass
 
 import numpy as np
@@ -55,7 +57,17 @@ GRIDS = {
     "fade_rsi_oversold": [0.0, 28.0, 30.0, 32.0, 34.0, 36.0, 40.0],
     "spike_fade": [1.75, 2.0, 2.25, 2.5, 3.0, 3.5, 99.0],  # x ATR(14); fades want a spike, so no value below 1.75
     "spike_breakout": [1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 3.0, 99.0],
+    # Dollar ceilings on the same 15-minute range (4 Nov 2026). Tuned together with the multiple above, per family (see UNITS).
+    "spike_fade_ceiling": [10.0, 12.0, 14.0, 16.0, 18.0, 20.0, 25.0, 99.0],
+    "spike_breakout_ceiling": [8.0, 10.0, 12.0, 14.0, 16.0, 18.0, 20.0, 25.0, 99.0],
 }
+# What is searched together. A single rule is its own unit; the spike gate of each family is one 2-D unit (ATR multiple x dollar
+# ceiling), because the two interact: a $16 ceiling with a 2.0x multiple scored +$7 on fades while $16 with 3.0x scored +$18
+# (study 26, 4 Nov 2026). Fades and breakouts are separate units, so each family gets its own study.
+UNITS = tuple((k,) for k in RULE_KEYS if k not in ("spike_fade", "spike_breakout", "spike_fade_ceiling", "spike_breakout_ceiling")) + (
+    ("spike_fade", "spike_fade_ceiling"),
+    ("spike_breakout", "spike_breakout_ceiling"),
+)
 DXY_FACTORS = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
 
 LABELS = {
@@ -69,6 +81,8 @@ LABELS = {
     "atr_max": "ATR: block everything at >= $",
     "spike_fade": "Spike: block fades at range >= x ATR",
     "spike_breakout": "Spike: block breakouts at range >= x ATR",
+    "spike_fade_ceiling": "Spike: block fades at range >= $",
+    "spike_breakout_ceiling": "Spike: block breakouts at range >= $",
 }
 
 
@@ -152,51 +166,62 @@ def analyse(events: list[Event], current_rules: dict, stop_loss: float, activati
                 "new_total": start_total, "changed": False, "per_rule": {}}
 
     steps = []
-    moved = set()  # each rule moves at most once per run
-    for _ in range(len(RULE_KEYS)):
+    moved = set()  # each unit (a single rule, or a family's multiple + ceiling pair) moves at most once per run
+    for _ in range(len(UNITS)):
         cur_total = float(sum(cur_pnls))
         needed = max(CHANGE_MIN_GAIN, CHANGE_MIN_GAIN_PCT * abs(cur_total))
         best = None
-        for key in RULE_KEYS:
-            if key in moved:
+        for unit in UNITS:
+            if unit in moved:
                 continue
-            grid = grid_for(key, rules)
-            totals = [float(sum(event_pnls(events, {**rules, key: v}, stop_loss, activation, distance))) for v in grid]
-            # Guard: a rule moves at most ONE grid step per run (so a block can never be switched off, or jump across
-            # its range, on one run's evidence), chosen among the current value and its two neighbours.
-            smooth = _smooth(totals)
-            cur_i = grid.index(rules[key])
-            near = range(max(0, cur_i - 1), min(len(grid), cur_i + 2))
-            pick = grid[max(near, key=lambda i: smooth[i])]
-            if pick == rules[key]:
+            grids = [grid_for(k, rules) for k in unit]
+            totals = {
+                idx: float(sum(event_pnls(events, {**rules, **{k: grids[d][i] for d, (k, i) in enumerate(zip(unit, idx))}}, stop_loss, activation, distance)))
+                for idx in itertools.product(*[range(len(g)) for g in grids])
+            }
+            cur_idx = tuple(g.index(rules[k]) for g, k in zip(grids, unit))
+
+            def near_of(idx):
+                return list(itertools.product(*[range(max(0, i - 1), min(len(g), i + 2)) for i, g in zip(idx, grids)]))
+
+            smooth = {idx: sum(totals[j] for j in near_of(idx)) / len(near_of(idx)) for idx in totals}
+            # Guard: a unit moves at most ONE grid step per axis per run (so a block can never be switched off, or jump across
+            # its range, on one run's evidence), chosen among the current value and its neighbours (2 in a 1-D grid, up to 8 in the 2-D spike pair).
+            near = near_of(cur_idx)
+            pick_idx = max(near, key=lambda i: (smooth[i], i == cur_idx))
+            if pick_idx == cur_idx:
                 continue
-            cand_pnls = event_pnls(events, {**rules, key: pick}, stop_loss, activation, distance)
+            pick = {k: grids[d][i] for d, (k, i) in enumerate(zip(unit, pick_idx))}
+            cand_pnls = event_pnls(events, {**rules, **pick}, stop_loss, activation, distance)
             diffs = [a - b for a, b in zip(cand_pnls, cur_pnls)]
             gain = float(sum(diffs))
             best_i = int(np.argmax(diffs))
             gain_without_best = gain - diffs[best_i]
-            # Removing a block altogether needs a bigger win: twice the margin, and still clearing the margin
-            # without its single best event.
-            if pick == OFF_VALUES[key]:
+            # Removing a block altogether (every value of the unit off) needs a bigger win: twice the margin, and still clearing
+            # the margin without its single best event.
+            if all(pick[k] == OFF_VALUES[k] for k in unit):
                 ok = gain >= OFF_MARGIN_FACTOR * needed and gain_without_best >= needed
             else:
                 ok = gain >= needed and gain_without_best > 0
             if ok and (best is None or gain > best["gain"]):
-                best = {"key": key, "old": rules[key], "new": pick, "gain": gain, "needed": needed,
+                best = {"unit": unit, "old": {k: rules[k] for k in unit}, "new": pick, "gain": gain, "needed": needed,
                         "gain_without_best": float(gain_without_best), "best_event": events[best_i].label,
                         "pnls": cand_pnls}
         if best is None:
             break
-        rules[best["key"]] = best["new"]
-        moved.add(best["key"])
+        rules.update(best["new"])
+        moved.add(best["unit"])
         cur_pnls = best.pop("pnls")
         steps.append(best)
 
-    # What each rule looks like at the final setting, for the report.
+    # What each rule looks like at the final setting, for the report (single rules only: the spike pairs are 2-D).
     per_rule = {}
     for key in RULE_KEYS:
         grid = grid_for(key, rules)
-        totals = [float(sum(event_pnls(events, {**rules, key: v}, stop_loss, activation, distance))) for v in grid]
+        if (key,) in UNITS:
+            totals = [float(sum(event_pnls(events, {**rules, key: v}, stop_loss, activation, distance))) for v in grid]
+        else:
+            totals = None
         per_rule[key] = {"grid": grid, "totals": totals, "current": rules[key]}
     return {**base, "enough": True, "new_rules": rules, "steps": steps, "current_total": start_total,
             "new_total": float(sum(cur_pnls)), "changed": bool(steps), "per_rule": per_rule}
@@ -209,7 +234,17 @@ def _money(x: float) -> str:
 def fmt_value(key: str, v: float) -> str:
     if v == OFF_VALUES[key]:
         return "off"
+    if key.endswith("_ceiling"):
+        return f"${v:g}"
     return f"{v:.4f}".rstrip("0").rstrip(".") if key == "dxy_threshold" else f"{v:g}"
+
+
+def fmt_unit(unit: tuple, values: dict) -> str:
+    """A step's old/new value: one number, or 'multiple + ceiling' for a spike pair (e.g. '3x ATR / $16')."""
+    if len(unit) == 1:
+        return fmt_value(unit[0], values[unit[0]])
+    mult, ceil = unit
+    return f"{fmt_value(mult, values[mult])}x ATR / {fmt_value(ceil, values[ceil])}"
 
 
 def confidence(n: int) -> str:
@@ -238,8 +273,10 @@ def format_report(result: dict, first_ts, last_ts, n_skipped: int = 0) -> str:
     lines.append("RULES UPDATED IN THE block_rules TABLE" if result["changed"] else "NO CHANGE (no setting beats the current rules by a clear margin)")
     if result["changed"]:
         for step in result["steps"]:
+            unit = step["unit"]
+            label = LABELS[unit[0]] if len(unit) == 1 else ("Spike gate for fades (multiple / ceiling)" if "fade" in unit[0] else "Spike gate for breakouts (multiple / ceiling)")
             lines.append(
-                f"- {LABELS[step['key']]}: {fmt_value(step['key'], step['old'])} -> {fmt_value(step['key'], step['new'])} "
+                f"- {label}: {fmt_unit(unit, step['old'])} -> {fmt_unit(unit, step['new'])} "
                 f"({_money(step['gain'])}; {_money(step['gain_without_best'])} without its best event, {step['best_event']})"
             )
     lines += [
