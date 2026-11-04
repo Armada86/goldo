@@ -1,6 +1,6 @@
 # Stop loss analysis (SLA)
 
-Send `start stop loss analysis` or `start SLA` to the Telegram bot. It replays every closed Broker B trade (Broker A is excluded since 3 Nov 2026) against a grid of stop-loss and trailing-stop settings and sends back advice: a stop loss
+Send `start stop loss analysis` or `start SLA` to the Telegram bot. It replays every closed live Broker F trade (`forex_b_trades`, mode `live`; since 4 Nov 2026 -- before that Broker B, and Broker A until 3 Nov, which trade the same levels and are no longer read) against a grid of stop-loss and trailing-stop settings and sends back advice: a stop loss
 (for example -$10 or -$15) and a trailing stop (how much profit switches it on, and how far behind the best
 price it follows). **When it advises a change it applies it automatically** (from 4 Oct 2026): the new values go
 into the same tables `make SL <n>` and `make trail <activation> <distance>` write, so both brokers use them from their
@@ -13,15 +13,15 @@ message), `.github/workflows/stop_loss_analysis.yml` (the job, started by the Wo
 
 ## Method
 
-1. **Trades.** Every closed trade of the last 45 days from `trades` and `broker_b_trades`. Only each trade's
+1. **Trades.** Every closed live Broker F trade of the last 45 days from `forex_b_trades` (real FOREX.com demo fills; Broker F has traded since 12 Oct 2026, so the window holds fewer trades than Broker B had). Only each trade's
    entry (price, time, direction) is used. How the trade really closed is ignored, so manual closes and
    "stop trading" closes count like any other.
 2. **Prices.** 1-minute gold bars. Trades inside the last ~2.8 days use FOREX.com bid/ask bars (a Buy exits on
    the bid, a Sell on the ask). Older trades use Twelve Data mid prices, which can differ by a few dollars. A
    trade is skipped if its price data has a hole or does not match its entry.
 3. **Exit rule.** The same rule the brokers run live (`broker._scan_exit_crossing()`; the replay is a
-   vectorised copy that was checked against it on 875 cases with identical results): the stop starts at the
-   stop loss and, once the trade has been `activation` in profit, follows `distance` behind the best price. No
+   vectorised copy; re-checked 4 Nov 2026 on 6,000 random paths with fades, lock levels and the +$20 profit lock, 0 mismatches): the stop starts at the
+   stop loss and, once the trade has been `activation` in profit, follows `distance` behind the best price; from +$20 profit (`config.PROFIT_LOCK_*`) it trails $5 behind. No
    fixed take-profit. Each bar is checked against the stop as it stood before that bar can raise the peak, and the exit fills at the stop level.
 4. **Horizon.** A trade is followed until its stop is hit or 5 PM ET that day, then counted at that price.
    Without the cap a wide stop lets one trade run for days.

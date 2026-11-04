@@ -1,7 +1,7 @@
 """One-shot block rules analysis, run by .github/workflows/block_rules_analysis.yml when you send "start block
 rules analysis" or "start BRA" on Telegram (the Worker dispatches the workflow, same as "start SLA").
 
-Replays every Broker B touch we know of (trades that opened, plus touches blocked by the DXY/ADX/RSI/ATR/spike filters)
+Replays every touch we know of (Broker F's live trades, which opened, plus touches blocked by the DXY/ADX/RSI/ATR/spike filters)
 against candidate filter values with block_rules_analysis.py, sends the report to Telegram, and writes the
 resulting rules as a new row in the `block_rules` table, which Broker B reads on its next poll. A row is written
 on every run, changed or not, so the table doubles as a log of runs; the newest row is the active one.
@@ -102,16 +102,16 @@ def dedupe_blocked(touches: list[dict]) -> list[dict]:
 def build_events(trades: list[dict], blocked: list[dict], first_ts, now) -> tuple[list, int]:
     """(events, n_skipped): paths and entry conditions for every trade and blocked touch."""
     raw = [
-        {"broker": "B", "id": t["id"], "trade_type": t["trade_type"], "entry_price": t["entry_price"],
+        {"broker": "F", "id": t["id"], "trade_type": t["trade_type"], "entry_price": t["entry_price"],
          "open_ts": t["open_ts"], "close_ts": t.get("close_ts"), "ta_forecast_id": t.get("ta_forecast_id"),
          "rule_name": t["rule_name"], "was_trade": True,
-         "label": f"B #{t['id']} {t['rule_name']}"}
+         "label": f"F #{t['id']} {t['rule_name']}"}
         for t in trades
     ]
     for i, b in enumerate(blocked):
         if b["rule_name"] not in RULE_TO_SCENARIO:
             continue
-        raw.append({"broker": "B", "id": f"blocked-{i}", "trade_type": RULE_TO_SCENARIO[b["rule_name"]][1],
+        raw.append({"broker": "F", "id": f"blocked-{i}", "trade_type": RULE_TO_SCENARIO[b["rule_name"]][1],
                     "entry_price": b["trigger_price"], "open_ts": b["touch_ts"], "rule_name": b["rule_name"],
                     "ta_forecast_id": b.get("ta_forecast_id"), "was_trade": False, "label": f"blocked {b['rule_name']} {b['touch_ts']:%d %b %H:%M}Z"})
     raw.sort(key=lambda r: r["open_ts"])
@@ -152,7 +152,7 @@ def build_events(trades: list[dict], blocked: list[dict], first_ts, now) -> tupl
 def run(dry_run: bool = False) -> None:
     now = datetime.now(timezone.utc)
     since = now - timedelta(days=LOOKBACK_DAYS)
-    trades = [t for t in get_closed_trades_for_analysis(since) if t["broker"] == "B"]
+    trades = [t for t in get_closed_trades_for_analysis(since) if t["broker"] == "F"]
     blocked = dedupe_blocked(get_broker_b_blocked_touches(since))
     events, n_skipped = build_events(trades, blocked, since, now)
 

@@ -1,10 +1,10 @@
-"""Block rules analysis (BRA): tune Broker B's entry filters (DXY, ADX, RSI, ATR, spike) from history.
+"""Block rules analysis (BRA): tune Broker B's and Broker F's shared entry filters (DXY, ADX, RSI, ATR, spike) from history, scored on Broker F's live trades since 4 Nov 2026.
 
 Triggered from Telegram ("start block rules analysis" / "start BRA" -> Worker -> block_rules_analysis.yml ->
 block_rules_analysis_job.py). This module is the pure part (no DB, no network) so it can be tested directly;
 the job fetches the data, calls analyse(), sends the report, and writes the result to the `block_rules` table.
 
-Events: every Broker B touch we know of is replayed -- the trades that really opened (their real entry), plus the
+Events: every touch we know of is replayed (the opened trades are Broker F's live trades since 4 Nov 2026; the blocked touches are the shared broker_b_blocked rows) -- the trades that really opened (their real entry), plus the
 touches that one of these filters blocked (broker_b_blocked; entered at the level price at the recorded touch
 time, an approximation: the stored time is when the poll saw the bar, not the exact touch). Each event carries the
 conditions at that moment (RSI/ADX/ATR(14) on 15-min candles, DXY's 15-min move, the entry-side range of the last 15 one-minute bars) and a price path from
@@ -259,7 +259,7 @@ def format_report(result: dict, first_ts, last_ts, n_skipped: int = 0) -> str:
     """The Telegram message."""
     lines = [
         f"{BRA_PREFIX}BLOCK RULES ANALYSIS",
-        f"{result['n_events']} Broker B events {first_ts.astimezone(sla.DISPLAY_TZ):%d %b} - "
+        f"{result['n_events']} Broker F events {first_ts.astimezone(sla.DISPLAY_TZ):%d %b} - "
         f"{last_ts.astimezone(sla.DISPLAY_TZ):%d %b %Y} ET: {result['n_trades']} trades that opened + "
         f"{result['n_blocked']} touches blocked by DXY/ADX/RSI/ATR/spike"
         + (f" ({n_skipped} skipped, no price data)" if n_skipped else "") + ".",
