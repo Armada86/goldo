@@ -217,6 +217,13 @@ SHADOW_BIAS_ADX_MIN_ADX = 25.0
 # (Broker F #48). Cutoffs picked from a 136-trade replay with about 70 variants tried, so they are a hypothesis to judge on later trades.
 SHADOW_QUIET_MAX_ATR = 6.0
 SHADOW_QUIET_MAX_ADX = 20.0
+# Stretched shadow flag (4 Nov 2026, LOG ONLY, Broker B and Broker F, every rule, study 39 in docs/studies-25-plus.md): from 1h gold candles at entry,
+# `bb20_pos_1h` = (price - SMA20) / (2 x stdev of the last 20 closes), i.e. +1 = on the upper Bollinger band (20, 2) and -1 = on the lower, and
+# `ext_sma20_1h_pct` = % distance of price from the 1h SMA(20). `shadow_stretched: true` when the trade chases the move: a Buy with
+# bb20_pos_1h >= SHADOW_STRETCHED_BB_POS or ext >= SHADOW_STRETCHED_EXT_PCT, a Sell with the mirror image. Nothing is blocked or changed. Cutoffs are
+# hand-picked from a third-party report (4 Nov 2026), not calibrated; the raw values are logged so the 28 Nov review can pick better ones.
+SHADOW_STRETCHED_BB_POS = 1.0
+SHADOW_STRETCHED_EXT_PCT = 2.0
 # Spike gate (live since 8 Oct 2026, Broker B, split by rule type): blocks an entry when the last 15 one-minute bars' entry-side
 # high-low range is at/above this multiple of ATR(14) on 15-min candles -- ATR lags a sudden spike (B #48: range 12.5 vs ATR 6.08
 # = 2.06x, lost the full stop). Fades (TA-Zone-*) trade the reversal AFTER a run into the level, so they get the looser gate (only

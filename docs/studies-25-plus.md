@@ -318,3 +318,30 @@ Ranked suggestions, and what was done (user approved all four on 31 Oct 2026):
     blocks is the shadow record.
   - *Next:* at the 28 Nov review rerun the replay on DXY blocks since 3 Nov (Broker B/F only, one at a time, minus the spread) and add them to the 4 above. Suggested decision rule: with at
     least ~20 DXY-only blocks in total and a positive result after spread, propose loosening or dropping the DXY gate.
+
+## Study 38 (4 Nov 2026): Fibonacci levels in the TA forecast (live, to be judged)
+38. **Do the Fibonacci levels (38.2 / 50 / 61.8% of the latest major daily swing) make the forecast's levels better?** Source: reference analysis 5 in
+    `docs/technical-analysts/technical-analyst-forecast-log.md` (a third-party report whose Fib levels coincided with the cloud top and SMA50). Approved and live from the first TA run after
+    PR #283 merged; it changes which zones get picked, so Broker B and Broker F levels can differ from before.
+  - *What was built:* `ta_forecast_job._fib_swing_and_levels()`: highest high and lowest low of the last 30 finished daily bars (`FIB_LOOKBACK_DAYS`), skipped under 2 x daily ATR,
+    candidates "Fib 38.2%" / "Fib 50%" / "Fib 61.8%" with weight 2 each, swing saved in `levels.indicators.fib`. A 60-day lookback was tried first and picked the 25 Aug peak ($832
+    swing, every level $120+ from price), so it was cut to 30 on one day's output, not a backtest.
+  - *Dry run 4 Nov 2026:* fade entries and stops unchanged (sell 4077/4073, buy 4050); Fib 38.2% joined the 4077 zone as "nearby", Fib 50% merged with the Jul 30 swing high into 4120/4119,
+    changing the targets.
+  - *Next (28 Nov review):* from `ta_forecasts.levels` since the first Fib run, count zones whose labels contain "Fib", and how many were a fade entry or target. Then, from Broker F's live
+    trades (`forex_b_trades`, joined on `ta_forecast_id` and the scenario's zone), compare trades at Fib-labelled levels with the rest (win rate, P/L, replayed with the live exit rule, spread
+    subtracted); also check whether targets that include a Fib zone were reached more often (the existing grading in `levels.review`). Expect few trades; do not decide on fewer than about 20
+    at Fib levels. Options: keep, change the lookback (20-60 days), or remove. Nothing is changed without the user's approval.
+
+## Study 39 (4 Nov 2026): the stretched shadow flag (log only)
+39. **Do entries taken when gold is already stretched (at the upper/lower Bollinger band, or far from its mean) do worse?** Source: the same reference analysis (price at the upper
+    Bollinger band, +2.59% from SMA(20), "bull trap" warning). Related to the RSI/ADX exhaustion blocks (Broker B #45 bought a breakout at RSI 80, ADX 34), but an independent measure.
+  - *Built (4 Nov 2026, user approved, log only):* `entry_context.shadow_stretched(trade_type, price)` adds `bb20_pos_1h`, `ext_sma20_1h_pct` and `shadow_stretched` to every Broker B and Broker F
+    trade's `entry_context` at entry (one extra Twelve Data 1h call per entry; best effort, never raises; nothing is added when the candles can't be read). `bb20_pos_1h` = (price - SMA20) /
+    (2 x stdev of the last 20 1h closes), so +1 is the upper Bollinger band (20, 2); `ext_sma20_1h_pct` = % from the 1h SMA(20). `shadow_stretched` is true for a Buy at
+    `bb20_pos_1h >= SHADOW_STRETCHED_BB_POS` (1.0) or `ext >= SHADOW_STRETCHED_EXT_PCT` (2.0), and for a Sell at the mirror image. It blocks nothing, changes no stop or trail, sends nothing,
+    and no gate, BRA, SLA or review reads it. Wired in `broker_b.check_broker_b_trades()` and `forex_watcher._try_open()`. Cutoffs are hand-picked (the report's numbers were on 5h candles), not calibrated.
+  - *Next (28 Nov review):* on Broker F trades opened since 4 Nov: flagged against unflagged (win rate, average P/L, replayed with the live exit rule, spread subtracted), breakouts and fades
+    separately; look at the raw values to see whether other cutoffs (for example 0.8 or 1.5 in `bb20_pos_1h`, 1% or 3% in `ext_sma20_1h_pct`) separate winners from losers, and whether flagged
+    trades are mostly the ones RSI/ADX already block. Strong trends sit at the band for long, so a block could remove good breakouts; turn it into a real block only if flagged trades are clearly
+    losing on about 20 or more of them, otherwise remove the flag. Nothing is changed without the user's approval.

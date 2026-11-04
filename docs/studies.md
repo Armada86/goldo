@@ -56,7 +56,7 @@ missing. Add new ones at the bottom of their section (or under "Open / to repeat
 Studies 25 and up (Broker B and F fades, levels, filters, exits, the TA bias study, the quiet-market study, Broker K, the DXY block study, plus the 31 Oct review result) are in `docs/studies-25-plus.md`.
 
 ## Open / to repeat
-**Monthly combined review, every last Saturday of the month (set 2 Nov 2026). Next: Saturday 28 Nov 2026.** Studies 25, 26, 27, 28, 35, 36 and 37 (everything from 25 up) run
+**Monthly combined review, every last Saturday of the month (set 2 Nov 2026). Next: Saturday 28 Nov 2026.** Studies 25, 26, 27, 28, 35, 36, 37, 38 and 39 (everything from 25 up) run
 together as **one study with one result**, on one shared data set and one replay engine, as on 31 Oct. They are not scheduled or reported separately. Studies 1-24 are not part of it.
 New studies from 38 up join this review the same way. Items to cover each time (the first review's list):
 1. Study 26: the effect of `spike_fade` 2.0 on trades since 31 Oct (blocked fades and what they would have done).
@@ -74,6 +74,10 @@ New studies from 38 up join this review the same way. Items to cover each time (
    engine with its own table, so the Broker-F-only rule below does not apply to it.
 8. Study 37: the DXY entry block (`broker_b_blocked` rows whose reason is DXY only). Replay the blocks since 3 Nov with the live exit rule, one at a time, minus the
    ~$0.68 spread, and add them to the study 37 result (+$19.1 over 4 touches before spread). Nothing is logged by a flag; the blocked table is the record.
+9. Study 38: the Fibonacci levels (live in `ta_forecast_job.py` from the first TA run after PR #283 merged). Method in `docs/studies-25-plus.md`: how often a Fib-labelled zone was a fade
+   entry level or a target, and Broker F's trades at Fib-labelled levels against the others (win rate, P/L, with the live exit rule). Keep, change the lookback, or remove.
+10. Study 39: `shadow_stretched` (log only, from 4 Nov 2026). Method in `docs/studies-25-plus.md`: flagged against unflagged Broker F trades, the raw `bb20_pos_1h` / `ext_sma20_1h_pct`
+    values to pick better cutoffs, and whether the flag adds anything to the RSI/ADX blocks. Real block only if clearly losing on enough flagged trades; otherwise remove the flag.
 
 **Broker A is excluded from every study (user rule, 3 Nov 2026).** No study, replay, analysis or recorded total reads Broker A's trades, signals or blocked entries
 (`trades`, `broker_a_blocked`), and nothing Broker A did feeds any setting. Broker B and Broker F run the same rules and are studied as below; a Broker K study uses Broker K's own
