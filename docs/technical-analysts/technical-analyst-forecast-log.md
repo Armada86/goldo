@@ -174,13 +174,24 @@ targets $4,114 / $4,200 / $4,259 with risk:reward 1.51 / 2.97 / 3.97.
   stated settings; (5) it undercuts itself ("Optimal Now: Bull @ 4025" means waiting for a $47 pullback
   while the scenario's own risk is rejection where price already sits); (6) the bull table is printed
   twice and a ~$39 5h ATR is a swing-trade scale, not our 7am-5pm intraday one (15-min ATR ~$6-16).
-- **Taken from it (proposed, not yet implemented):** (a) Fibonacci retracement levels (38.2 / 50 /
+- **Taken from it (4 Nov 2026: (a) and (b) implemented, (c) and (d) still proposed):** (a) Fibonacci retracement levels (38.2 / 50 /
   61.8%) of the latest major daily swing as level candidates, scored for confluence with the EMAs/SMAs;
   (b) an explicit ATR-based stop formula recorded in the plan text, keeping our existing caps
   (`FADE_STOP_LOSS_CAP`); (c) a labelled mid-range "No-Trade" zone between the nearest support and
   resistance; (d) Bollinger-band position / extension from SMA(20) as a possible "stretched" flag for
   breakout entries -- only after a backtest, and log-only first (like the `shadow_*` flags). Nothing
   here changes `ta_forecast_job.py` until the user approves a concrete diff.
+  *Implemented (a):* `_fib_swing_and_levels()` adds Fib 38.2/50/61.8% of the highest high / lowest low
+  in the last `FIB_LOOKBACK_DAYS` (30) finished daily bars (swing ends at whichever came last; skipped
+  under `FIB_MIN_SWING_ATR` (2) x daily ATR), weight 2 each in `LABEL_WEIGHTS`; the swing is stored in
+  `levels.indicators.fib` and printed under INDICATORS. A 60-day lookback was tried first and picked the
+  25 Aug peak ($832 swing), putting every level $120+ from price, so it was shortened. Dry run on 4 Nov:
+  the fade entry levels (sell 4077/4073, buy 4050) and stops were unchanged; Fib 38.2% joined the 4077
+  zone as "nearby" and Fib 50% merged with the Jul 30 swing high into 4120/4119, which changed the
+  targets. *Implemented (b), text only:* the INDICATORS ATR line also quotes `STOP_ATR_MULTIPLE` (1.5) x
+  daily ATR as a reference distance (4 Nov: $120 against the $8 zone buffer). Scenario stops, and so
+  Broker B / Broker F invalidation, are untouched, because a 1.5 x daily ATR stop is far wider than
+  `FADE_STOP_LOSS_CAP` ($15).
 
 ## How each section is computed
 

@@ -833,6 +833,8 @@ saving the row, it sends a short version of the analysis text (`telegram_summary
 saved first, so a Telegram failure never loses the forecast. Full methodology, the reference
 analyses, and known gaps are in `docs/technical-analysts/technical-analyst-forecast-log.md`.
 
+**Fibonacci levels (4 Nov 2026, reference analysis 5 in `docs/technical-analysts/technical-analyst-forecast-log.md`)**: `ta_forecast_job._fib_swing_and_levels()` adds Fib 38.2/50/61.8% of the major swing in the last `FIB_LOOKBACK_DAYS` (30) finished daily bars as level candidates (weight 2 each), skipped when the swing is under `FIB_MIN_SWING_ATR` (2) x daily ATR; the swing is stored in `levels.indicators.fib`. The INDICATORS line also quotes `STOP_ATR_MULTIPLE` (1.5) x daily ATR as a reference only; scenario stops are unchanged (still zone buffer), so Broker B / Broker F entry and invalidation logic is unaffected except through which zones get picked.
+
 **Regime / lean split and breakout confirmation (29 Oct 2026, study 28 in `docs/studies-25-plus.md`)**: the combined `bias`/`bias_score` (-6..+6) showed no skill at 1h/3h/5pm
 (hit rate 49-50% over 447 rebuilt forecasts), so `ta_forecast_job._regime_and_lean()` adds, beside the unchanged `bias`/`bias_score` (the dashboard and the study 26
 shadow flag still read those), `levels.regime`/`regime_score` (price vs 1h EMA200, 4h EMA100, daily SMA50; a multi-day read) and `levels.lean`/`lean_score` (1h EMA20 vs EMA50, MACD
