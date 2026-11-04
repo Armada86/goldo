@@ -98,9 +98,9 @@ the round-trip back down, all inside the 9-11pm ET window, the market's thinnest
 
 6. **Spike gate, all four rules** (8 Oct 2026, `_spike_confirms()`): blocks when the last 15 one-minute bars' entry-side high-low range
    (`_entry_range()`, the same number entry_context logs as `range_15m_bid/ask`) is >= `spike_fade` x ATR(14) for the two fade rules
-   (default `SPIKE_FADE_ATR_MULTIPLE` 2.0; was 3.0 until 31 Oct 2026 and 2.5 until 9 Oct 2026) or >= `spike_breakout` x ATR(14) for the two breakout rules (default 2.0). ATR on 15-min
+   (default `SPIKE_FADE_ATR_MULTIPLE` 3.0 since 4 Nov 2026; was 2.0 from 31 Oct, 3.0 before that and 2.5 until 9 Oct 2026) or >= `spike_breakout` x ATR(14) for the two breakout rules (default 2.0). ATR on 15-min
    candles lags a sudden spike (B #48: range 12.5 vs ATR 6.08); fades get the looser multiple because they enter after a run into the
-   level and bet on the reversal. **Since 21 Oct 2026 an absolute ceiling also applies to all four rules: range >= `config.SPIKE_RANGE_MAX_DOLLARS` ($10) blocks
+   level and bet on the reversal. **Since 21 Oct 2026 an absolute ceiling also applies: breakouts range >= `config.SPIKE_RANGE_MAX_DOLLARS` ($10), fades (since 4 Nov 2026) range >= `config.SPIKE_FADE_RANGE_MAX_DOLLARS` ($16) blocks
    regardless of ATR** (Broker F's first 30 live trades: the 8 entries at >= $10 won 2 and lost $52.11; not tuned by BRA). Chosen from a 35-trade replay (`spike_gate_replay.py`), so `start BRA` re-tunes both. Same ⛔ notice.
 
 **The DXY/ADX/RSI/ATR/spike thresholds are not read from config.py directly (4 Oct 2026)**: they come from the newest row of the Postgres
@@ -156,6 +156,7 @@ from config import (
     ATR_PERIOD,
     RSI_PERIOD,
     SPIKE_RANGE_BARS,
+    SPIKE_FADE_RANGE_MAX_DOLLARS,
     SPIKE_RANGE_MAX_DOLLARS,
 )
 from block_rules import default_rules, get_block_rules
@@ -518,11 +519,12 @@ def _spike_confirms(
     missing data. `category` has no live number (dedup key). `rules`: see _dxy_confirms()."""
     rules = rules or default_rules()
     multiple = rules["spike_fade"] if scenario_name in FADE_SCENARIOS else rules["spike_breakout"]
-    if range_15m is not None and range_15m >= SPIKE_RANGE_MAX_DOLLARS:
+    ceiling = SPIKE_FADE_RANGE_MAX_DOLLARS if scenario_name in FADE_SCENARIOS else SPIKE_RANGE_MAX_DOLLARS
+    if range_15m is not None and range_15m >= ceiling:
         return (
             False,
             "recent spike (15-min range above the dollar ceiling)",
-            f"recent spike: 15-min range ${range_15m:.2f} (>= ${SPIKE_RANGE_MAX_DOLLARS:g} ceiling)",
+            f"recent spike: 15-min range ${range_15m:.2f} (>= ${ceiling:g} ceiling)",
         )
     if range_15m is None or atr_value is None or atr_value <= 0:
         return True, None, None

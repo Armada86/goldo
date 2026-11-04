@@ -101,6 +101,25 @@ cost money, and the bias idea is too thin to act on.
   - Range / ATR cutoff: works at about 2.0x, not 1.5x; the 1.5-2.0x band made about +$49 in replay. **Applied: `spike_fade` 3.0 -> 2.0**
     (9 trades in 6 events, +$39-52 expected, medium-low confidence; `block_rules` row id 26, source `manual`, `config.SPIKE_FADE_ATR_MULTIPLE`
     = 2.0). `spike_breakout` stays 2.0.
+- **Fade spike cutoff, proposal (4 Nov 2026, one-off scripts, not in the repo; NOT applied, needs approval).** Trigger: the user asked whether a fade that
+  spikes into its level and bounces should be blocked at all. Data set: Broker F's 43 live fades with `range_15m` and ATR logged (12 Oct-3 Nov) plus the 9 fade
+  touches that ONLY the spike gate blocked (`broker_b_blocked`, replayed from the trigger price with the live exit rule on FOREX.com bid/ask, else Twelve Data mid;
+  3 of 38 spike-blocked touches could not be replayed). 52 events, +$74.21 if nothing is blocked. "Gain" = minus the P/L of what a setting would have blocked.
+  - Blocked touches alone (all rules, 35 replayed): +$54.98; spike-only 19 touches +$33.42 (8 wins +$89.54, 6 losses -$56.12, 5 no trade); spike-only fades 9 touches
+    +$27.67 (5 wins, 2 losses). By range: touches at $20 or more net -$34.94 (7 trades), so the gate earned its keep there; $7-20 netted about +$90, so it cost money there.
+  - Ceiling only (fades): $10 (live) +$13.27 (15 blocked, 7 wins); $11 -$5.01; $12-13 -$7.99; $14 +$15.66; $15 +$9.43; **$16-18 +$17.68 (3 blocked: 1 win, 2 losses)**; $20 +$2.67;
+    $22-25 +$15.00 (1 event). Noisy: not a smooth plateau, only $14-18 is positive throughout.
+  - ATR multiple only (fades): 1.5x -$8.79; 1.75x +$22.02 (7 blocked); **2.0x (live) +$6.99**; 2.5x +$2.67; 3.0x -$12.33.
+  - Combined (ceiling OR multiple), best cells: ceiling $16-18 with the multiple at 2.5x or higher/off +$17.68; ceiling $14 + 2.0x +$13.77; the live pair ($10 + 2.0x) +$13.27;
+    ceiling $16-18 + live 2.0x +$6.99 (the 2.0x multiple blocks winners the ceiling alone would not).
+  - Reading: the live gate is positive on this set (+$13.27), so the earlier statement that it "costs money" only holds for the blocked touches alone. Differences between the
+    best settings and the live one are $4-5 on 3 events, well inside noise.
+  - **Proposal (for the 28 Nov review):** fades only, replace the flat $10 ceiling with **$16** (`SPIKE_RANGE_MAX_DOLLARS` for fades; breakouts keep $10) and set `spike_fade`
+    back to **2.5-3.0** (the 2.0x multiple is the part that costs most). Expected gain over live: about +$4 on this set, i.e. no proven edge; the case is that it blocks only
+    ranges of $16 and more (the extreme-range losers: -$15 on 22 Oct, 28 Oct, 2 Nov) while freeing $10-16 fades, which won more than they lost. Applied: `config.SPIKE_FADE_RANGE_MAX_DOLLARS` = 16.0,
+    `SPIKE_FADE_ATR_MULTIPLE` = 3.0 and a `block_rules` row (source `manual`) with `spike_fade` 3.0. The 28 Nov review confirms or reverts it on the trades since 4 Nov.
+  - Check at the review: (a) fades opened since 4 Nov with range $10-16 (would the live gate have blocked them? what did they make); (b) blocked fade touches since 4 Nov with
+    range $10-16 replayed the same way; (c) whether $14-18 still beats $10, using the same method and Broker F trades only.
 
 ### 27. Fade and breakout exits
 *In plain words:* How should a trade be closed? Tests on the stop-loss size, the lock at the opposite level, reversing into the other

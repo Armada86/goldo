@@ -60,6 +60,7 @@ Studies 25 and up (Broker B and F fades, levels, filters, exits, the TA bias stu
 together as **one study with one result**, on one shared data set and one replay engine, as on 31 Oct. They are not scheduled or reported separately. Studies 1-24 are not part of it.
 New studies from 38 up join this review the same way. Items to cover each time (the first review's list):
 1. Study 26: the effect of `spike_fade` 2.0 on trades since 31 Oct (blocked fades and what they would have done).
+   Also the fade spike cutoff APPLIED 4 Nov (fade ceiling $10 -> $16, `spike_fade` 2.0 -> 3.0; breakouts unchanged) -- confirm or revert: replay fades with range $10-16 since 4 Nov, method in `docs/studies-25-plus.md` study 26.
 2. Study 26: `shadow_bias_adx`: about 20 flagged fades? Then flagged vs unflagged; clearly losing = real block, else remove the flag.
 3. Study 25: a new TA run against an open losing trade: add events until about 20 independent ones. Also the TA re-run shadow log (`ta_rerun_shadow`).
 4. Study 27: breakout rules and the +$20 lock, rechecked with the new trades (both rest on a handful of winners).
