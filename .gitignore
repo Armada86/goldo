@@ -5,3 +5,4 @@ __pycache__/
 market_data.db
 streamlit.log
 broker_k_gold1m.pkl
+ta_levels_gold1m.pkl
