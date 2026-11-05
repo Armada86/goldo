@@ -358,7 +358,8 @@ def load_broker_pnl_for_date(d) -> dict:
             broker_r = float(cur.fetchone()[0])
     return {
         "broker_b": broker_b, "broker_f": broker_f, "broker_k": broker_k, "broker_r": broker_r,
-        "total": broker_b + broker_f + broker_k + broker_r,
+        # Broker B is left out of the total: B and F trade the same rules, so counting both would count each level twice (user request, 5 Nov 2026).
+        "total": broker_f + broker_k + broker_r,
     }
 
 
