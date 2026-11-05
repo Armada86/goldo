@@ -328,3 +328,43 @@ test("allowedDirection: only Bullish restricts to Buy and only Bearish to Sell; 
   assert.equal(allowedDirection(null).score, null);
   assert.equal(allowedDirection({}).score, null);
 });
+
+test("brokerStatus: Broker R block shows trading state, open trade and the latest short-range levels", async () => {
+  const realNow = Date.now;
+  Date.now = () => ms("2026-11-05T15:30:00Z"); // Thursday 10:30am ET: market open, inside trading hours
+  try {
+    const answers = (rows) => [
+      ["FROM trading_override", []],
+      ["FROM broker_trading_override", []],
+      ["FROM trading_pauses", []],
+      ["to_regclass('forex_b_trades')", [{ t: null }]],
+      ["to_regclass('forex_b_heartbeat')", [{ t: null }]],
+      ["to_regclass('broker_k_trades')", [{ t: null }]],
+      ["FROM trades WHERE", []],
+      ["FROM broker_b_trades WHERE", []],
+      ["to_regclass('broker_r_trades')", rows.exists ? [{ t: "broker_r_trades", f: "ta_short_forecasts" }] : [{ t: null, f: null }]],
+      ["FROM broker_r_trades WHERE", rows.open ?? []],
+      ["FROM ta_short_forecasts", rows.fc ?? []],
+    ];
+    const fresh = await brokerStatus(fakeSql(answers({
+      exists: true,
+      open: [{ trade_type: "Sell", entry_price: 4136.66, rule_name: "R-Fade-sell" }],
+      fc: [{ ts: "2026-11-05T15:01:00Z", levels: { session: "R2", price: 4132.32, scenarios: [
+        { name: "sell_resistance", entry: { low: 4136.66, high: 4136.66 } }, { name: "buy_support", entry: { low: 4125, high: 4125 } } ] } }],
+    })));
+    assert.match(fresh, /Broker R \(paper\): ✅ TRADING/);
+    assert.match(fresh, /open: Sell 1 oz @ \$4136\.66 \(R-Fade-sell; exits \+\$5 \/ -\$5\)/);
+    assert.match(fresh, /R2 \(29 min ago\): Sell 4136\.66 · Buy 4125\.00 · price at the run \$4132\.32/);
+    assert.doesNotMatch(fresh, /older than 40 min/);
+    const stale = await brokerStatus(fakeSql(answers({
+      exists: true,
+      fc: [{ ts: "2026-11-05T14:30:00Z", levels: { session: "R1", scenarios: [] } }],
+    })));
+    assert.match(stale, /R1 \(60 min ago\): no resistance in range · no support in range/);
+    assert.match(stale, /levels older than 40 min/);
+    const missing = await brokerStatus(fakeSql(answers({ exists: false })));
+    assert.match(missing, /Broker R \(paper\).*\n\s+⚠️ tables not created yet/);
+  } finally {
+    Date.now = realNow;
+  }
+});
