@@ -103,6 +103,7 @@ const LOSS_MARKER_B = "\u{1F7E5} "; // red square -- broker_b.LOSS_MARKER
 
 const TRADE_ALERT_PREFIX_F = "\u{1F7EA} "; // purple square -- forex_watcher.TRADE_PREFIX (Broker F, the FOREX.com demo account)
 
+const TRADE_ALERT_PREFIX_R = "\u{1F7E7} "; // Broker R: orange square (mirrors broker_r.TRADE_ALERT_PREFIX)
 const TRADE_ALERT_PREFIX_K = "\u{1F7EB} "; // brown square -- broker_k.TRADE_ALERT_PREFIX (Broker K, the RSI/ADX/ATR trend follower)
 
 const REJECT_MARKER = "⛔ "; // no-entry sign -- same as broker.BLOCKED_MARKER/broker_b.BLOCKED_MARKER
@@ -474,6 +475,36 @@ async function brokerKStatusLines(sql, now, why) {
   return lines;
 }
 
+// Broker R (short-range fade paper broker, broker_r.py): mirrored from config.R_*; keep in step.
+const R_TA_FORECAST_MAX_AGE_MINUTES = 40;
+const R_TAKE_PROFIT = 5, R_STOP_LOSS = 5;
+
+/** Broker R block of `broker status`: trading state, open trade, and the latest short-range levels with whether they are still armed. */
+async function brokerRStatusLines(sql, now, why) {
+  const toMs = (v) => (v == null ? null : new Date(v).getTime());
+  const lines = [`${TRADE_ALERT_PREFIX_R}Broker R (paper): ${why ? `⛔ NOT TRADING — ${why}` : "✅ TRADING"}`];
+  const exists = (await sql`SELECT to_regclass('broker_r_trades') AS t, to_regclass('ta_short_forecasts') AS f`)[0];
+  if (!exists?.t || !exists?.f) {
+    lines.push("    ⚠️ tables not created yet — the poll creates them on its first run with Broker R");
+    return lines;
+  }
+  const open = (await sql`SELECT trade_type, entry_price, rule_name FROM broker_r_trades WHERE status = 'Open' ORDER BY open_ts DESC LIMIT 1`)[0];
+  if (open) lines.push(`    open: ${open.trade_type} 1 oz @ $${Number(open.entry_price).toFixed(2)} (${open.rule_name}; exits +$${R_TAKE_PROFIT} / -$${R_STOP_LOSS})`);
+  const fc = (await sql`SELECT ts, levels FROM ta_short_forecasts ORDER BY ts DESC LIMIT 1`)[0];
+  if (!fc) {
+    lines.push("    no short-range analysis yet (one is written every 30 min, 7:00 AM-5:00 PM ET)");
+    return lines;
+  }
+  const ageMin = Math.round((now - toMs(fc.ts)) / 60000);
+  const sc = Object.fromEntries(((fc.levels && fc.levels.scenarios) || []).map((x) => [x.name, x]));
+  const sell = sc.sell_resistance ? `Sell ${Number(sc.sell_resistance.entry.low).toFixed(2)}` : "no resistance in range";
+  const buy = sc.buy_support ? `Buy ${Number(sc.buy_support.entry.low).toFixed(2)}` : "no support in range";
+  const price = fc.levels && fc.levels.price != null ? ` · price at the run $${Number(fc.levels.price).toFixed(2)}` : "";
+  lines.push(`    ${(fc.levels && fc.levels.session) || "R"} (${ageMin} min ago): ${sell} · ${buy}${price}`);
+  if (ageMin > R_TA_FORECAST_MAX_AGE_MINUTES) lines.push(`    ⚠️ levels older than ${R_TA_FORECAST_MAX_AGE_MINUTES} min — nothing is armed until the next run`);
+  return lines;
+}
+
 async function brokerStatus(sql) {
   const now = Date.now();
   const toMs = (v) => (v == null ? null : new Date(v).getTime());
@@ -518,6 +549,12 @@ async function brokerStatus(sql) {
     }
     lines.push(line);
   }
+  // Broker R (5 Nov 2026) is not in BROKER_LETTERS (the `stop trading` scope is unchanged); it follows its own override row if one
+  // exists, else the global one, plus pauses that name no broker -- the same fallback trading_pause_reason(now, "R") uses.
+  const ownR = ownRows.find((r) => r.broker === "R");
+  const overrideR = ownR ? { mode: ownR.mode, setTs: toMs(ownR.set_ts) } : legacy;
+  const pausesR = pauseRows.filter((r) => !r.brokers || r.brokers.split(",").includes("R")).map((r) => ({ start: toMs(r.start_ts), end: toMs(r.end_ts) }));
+  lines.push(...(await brokerRStatusLines(sql, now, tradingState(now, overrideR, pausesR))));
   return lines.join("\n");
 }
 
