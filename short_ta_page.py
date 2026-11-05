@@ -147,11 +147,24 @@ def render() -> None:
     if trades.empty:
         st.caption("No Broker R trades on this date.")
         return
+    # Same look as the main page's Recent Trades table: "#" first, colored green (win) / red (loss) from the raw pnl sign,
+    # P&L as the second column. The "#" is a real data column because st.dataframe ignores Styler styling on the index.
+    trade_won = [None if pd.isna(v) else (True if v > 0 else (False if v < 0 else None)) for v in trades["pnl"]]
     table = pd.DataFrame({
-        "#": trades["id"], "rule": trades["rule"], "opened": trades["open_ts"].map(_fmt_ts), "entry": trades["entry"].map("${:,.2f}".format),
+        "#": trades["id"],
+        "P&L": trades["pnl"].map(lambda v: "—" if pd.isna(v) else f"${v:+,.2f}"),
+        "rule": trades["rule"], "opened": trades["open_ts"].map(_fmt_ts), "entry": trades["entry"].map("${:,.2f}".format),
         "closed": trades["close_ts"].map(_fmt_ts),
         "exit": trades["exit"].map(lambda v: "—" if pd.isna(v) else f"${v:,.2f}"),
-        "P&L": trades["pnl"].map(lambda v: "—" if pd.isna(v) else f"${v:+,.2f}"),
         "reason": trades["reason"].fillna("open"),
     })
-    st.dataframe(table, hide_index=True, use_container_width=True)
+
+    def _color_row_number(_col):
+        return [
+            "background-color: #1a7f37; color: white; font-weight: 700;" if won is True
+            else "background-color: #cf222e; color: white; font-weight: 700;" if won is False
+            else ""
+            for won in trade_won
+        ]
+
+    st.dataframe(table.style.apply(_color_row_number, subset=["#"]), hide_index=True, use_container_width=True)
