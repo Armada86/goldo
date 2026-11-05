@@ -12,8 +12,8 @@ Level candidates (each with a weight; a cluster's weight is the sum of its label
   - today's (ET) high / low so far                                      weight 2
   - round numbers every $10                                             weight 2
   - round numbers every $5 (R_LEVEL_STEP)                               weight 1  (guarantees a level each side)
-Candidates within CLUSTER_DOLLARS of each other are merged. The chosen resistance is the heaviest cluster whose near edge is in
-the $3-$10 band above price (ties: nearer); the support is its mirror. The trade level is the edge price reaches first
+Candidates within CLUSTER_DOLLARS of each other are merged. The chosen resistance is the NEAREST cluster whose near edge is in
+the $3-$10 band above price; the support is its mirror. Only these two are kept and drawn. The trade level is the edge price reaches first
 (a resistance's low, a support's high). The stored `levels` mirror ta_forecast_job.py's shape (`price`, `resistances`,
 `supports`, `scenarios`) so the diagram renderer and Broker B's scenario helpers can be reused; only the two fade scenarios
 exist -- no breakouts.
@@ -108,14 +108,15 @@ def _cluster(cands: list[tuple[float, str, int]]) -> list[dict]:
 
 
 def pick_levels(cands: list[tuple[float, str, int]], price: float) -> tuple[list[dict], list[dict]]:
-    """(resistances, supports): clusters whose near edge is R_LEVEL_MIN_DISTANCE..R_LEVEL_MAX_DISTANCE from price, strongest
-    first (ties nearer first), at most 3 a side. The first of each list is the one Broker R trades."""
+    """(resistances, supports): exactly the NEAREST resistance and the NEAREST support whose near edge is
+    R_LEVEL_MIN_DISTANCE..R_LEVEL_MAX_DISTANCE from price (a list of at most one zone each; empty if none in range). These are
+    the only two fade levels Broker R trades and the only two its chart shows (user, 5 Nov 2026)."""
     zones = _cluster(cands)
     res = [z for z in zones if R_LEVEL_MIN_DISTANCE <= z["low"] - price <= R_LEVEL_MAX_DISTANCE]
     sup = [z for z in zones if R_LEVEL_MIN_DISTANCE <= price - z["high"] <= R_LEVEL_MAX_DISTANCE]
-    res.sort(key=lambda z: (-z["weight"], z["low"] - price))
-    sup.sort(key=lambda z: (-z["weight"], price - z["high"]))
-    return res[:3], sup[:3]
+    res.sort(key=lambda z: z["low"] - price)
+    sup.sort(key=lambda z: price - z["high"])
+    return res[:1], sup[:1]
 
 
 def build_scenarios(resistances: list[dict], supports: list[dict]) -> list[dict]:
