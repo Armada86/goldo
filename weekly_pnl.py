@@ -15,6 +15,7 @@ BROKER_TABLES = [
     ("Broker B", "broker_b_trades", ""),
     ("Broker F", "forex_b_trades", " AND mode = 'live'"),
     ("Broker K", "broker_k_trades", ""),
+    ("Broker R", "broker_r_trades", ""),
 ]
 
 

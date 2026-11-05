@@ -174,6 +174,38 @@ def init_db() -> None:
             )
             """
         )
+        # Broker R (5 Nov 2026): its own short-range TA rows and its own trades, never mixed with ta_forecasts / broker_b_trades.
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ta_short_forecasts (
+                id SERIAL PRIMARY KEY,
+                forecast_date DATE NOT NULL,
+                ts TIMESTAMPTZ NOT NULL,
+                analysis TEXT NOT NULL,
+                levels JSONB
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS broker_r_trades (
+                id SERIAL PRIMARY KEY,
+                rule_name TEXT NOT NULL,
+                trade_type TEXT NOT NULL,
+                entry_price DOUBLE PRECISION NOT NULL,
+                open_ts TIMESTAMPTZ NOT NULL,
+                triggering_alerts TEXT NOT NULL,
+                ta_short_id INTEGER,
+                exit_price DOUBLE PRECISION,
+                close_ts TIMESTAMPTZ,
+                pnl DOUBLE PRECISION,
+                exit_reason TEXT,
+                entry_context JSONB,
+                exit_context JSONB,
+                status TEXT NOT NULL DEFAULT 'Open'
+            )
+            """
+        )
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS broker_a_blocked (
@@ -695,6 +727,105 @@ def close_trade_row_k(
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
             "UPDATE broker_k_trades SET exit_price = %s, close_ts = %s, pnl = %s, exit_reason = %s, exit_context = %s, "
+            "status = 'Closed' WHERE id = %s",
+            (exit_price, close_ts, pnl, exit_reason, Json(exit_context) if exit_context else None, trade_id),
+        )
+
+
+# --- Broker R: short-range fade broker (broker_r.py) and its half-hourly TA (ta_short.py) ---
+
+
+def insert_ta_short_forecast(ts: datetime, forecast_date: date, analysis: str, levels: dict) -> int:
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO ta_short_forecasts (forecast_date, ts, analysis, levels) VALUES (%s, %s, %s, %s) RETURNING id",
+            (forecast_date, ts, analysis, Json(levels)),
+        )
+        return cur.fetchone()[0]
+
+
+def get_latest_ta_short_forecast() -> dict | None:
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, forecast_date, ts, analysis, levels FROM ta_short_forecasts ORDER BY ts DESC LIMIT 1"
+        )
+        row = cur.fetchone()
+    if row is None:
+        return None
+    return {"id": row[0], "forecast_date": row[1], "ts": row[2], "analysis": row[3], "levels": row[4]}
+
+
+def get_ta_short_forecasts_for_date(forecast_date: date) -> list[dict]:
+    """Every short-range TA row of one ET date, oldest first (the dashboard's run picker)."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, forecast_date, ts, analysis, levels FROM ta_short_forecasts WHERE forecast_date = %s ORDER BY ts",
+            (forecast_date,),
+        )
+        rows = cur.fetchall()
+    return [{"id": r[0], "forecast_date": r[1], "ts": r[2], "analysis": r[3], "levels": r[4]} for r in rows]
+
+
+def count_ta_short_forecasts_for_date(forecast_date: date) -> int:
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM ta_short_forecasts WHERE forecast_date = %s", (forecast_date,))
+        return cur.fetchone()[0]
+
+
+def get_open_trade_r() -> dict | None:
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, rule_name, trade_type, entry_price, open_ts, triggering_alerts, ta_short_id "
+            "FROM broker_r_trades WHERE status = 'Open' ORDER BY open_ts DESC LIMIT 1"
+        )
+        row = cur.fetchone()
+    if row is None:
+        return None
+    return {
+        "id": row[0], "rule_name": row[1], "trade_type": row[2], "entry_price": row[3],
+        "open_ts": row[4], "triggering_alerts": row[5], "ta_short_id": row[6],
+    }
+
+
+def get_last_close_ts_r() -> datetime | None:
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT MAX(close_ts) FROM broker_r_trades WHERE status = 'Closed'")
+        return cur.fetchone()[0]
+
+
+def trade_r_level_history(ta_short_id: int, rule_name: str, min_win_pnl: float = 0.0) -> dict:
+    """Broker R's trades at one (short-range forecast, rule) level: how many, and whether any closed below `min_win_pnl`
+    (a stop-out retires the level for that forecast row, same re-arm idea as Broker B's trade_b_level_history())."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT COUNT(*), COALESCE(BOOL_OR(pnl < %s), FALSE), MAX(close_ts) FROM broker_r_trades "
+            "WHERE ta_short_id = %s AND rule_name = %s",
+            (min_win_pnl, ta_short_id, rule_name),
+        )
+        count, stopped_out, last_close_ts = cur.fetchone()
+    return {"count": count, "stopped_out": stopped_out, "last_close_ts": last_close_ts}
+
+
+def insert_trade_r(
+    rule_name: str, trade_type: str, entry_price: float, open_ts: datetime, triggering_alerts: str,
+    ta_short_id: int, entry_context: dict | None = None,
+) -> int:
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO broker_r_trades (rule_name, trade_type, entry_price, open_ts, triggering_alerts, ta_short_id, "
+            "status, entry_context) VALUES (%s, %s, %s, %s, %s, %s, 'Open', %s) RETURNING id",
+            (rule_name, trade_type, entry_price, open_ts, triggering_alerts, ta_short_id,
+             Json(entry_context) if entry_context else None),
+        )
+        return cur.fetchone()[0]
+
+
+def close_trade_row_r(
+    trade_id: int, exit_price: float, close_ts: datetime, pnl: float, exit_reason: str, exit_context: dict | None = None
+) -> None:
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE broker_r_trades SET exit_price = %s, close_ts = %s, pnl = %s, exit_reason = %s, exit_context = %s, "
             "status = 'Closed' WHERE id = %s",
             (exit_price, close_ts, pnl, exit_reason, Json(exit_context) if exit_context else None, trade_id),
         )

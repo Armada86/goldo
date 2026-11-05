@@ -30,6 +30,7 @@ from config import (
     FADE_STOP_LOSS_CAP,
 )
 from storage import get_connection, get_stop_settings_as_of
+import short_ta_page
 import weekly_pnl
 from ta_forecast_job import render_diagram_svg
 
@@ -99,7 +100,7 @@ st.caption(f"Page refreshes every 5 min · last loaded {now_local.strftime('%Y-%
 
 # Top menu. The page lives in the URL (?page=weekly) so the 5-minute meta refresh above doesn't bounce the
 # viewer back to the first page.
-PAGES = {"dashboard": "Dashboard", "weekly": "Weekly P&L"}
+PAGES = {"dashboard": "Dashboard", "weekly": "Weekly P&L", "short": "Short TA (R)"}
 _current = st.query_params.get("page", "dashboard")
 if _current not in PAGES:
     _current = "dashboard"
@@ -112,6 +113,9 @@ if _choice != _current:
     st.rerun()
 if _choice == "weekly":
     weekly_pnl.render()
+    st.stop()
+if _choice == "short":
+    short_ta_page.render()
     st.stop()
 
 # The daily XAU/USD technical forecast (ta_forecast_job.py, 12am/midday ET weekdays) -- shown at the
