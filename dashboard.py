@@ -449,11 +449,15 @@ if min_forecast_date is not None:
         # Plain "$" here, not "\$" -- unlike a plain-text st.caption()/st.markdown() string (see the
         # LaTeX gotcha noted below), this whole line is one HTML block (starts with "<div"), which
         # CommonMark passes through verbatim rather than scanning for a $-pair to treat as math.
+        # One small table, a row per broker, instead of a single run-on line (user request, 5 Nov 2026).
+        pnl_rows = "".join(
+            f"<tr><td style='padding:3px 16px 3px 0;'>{label}</td>"
+            f"<td style='padding:3px 0;text-align:right;font-weight:700;font-size:18px;color:{pnl_color(pnl[key])};'>${pnl[key]:+,.2f}</td></tr>"
+            for label, key in (("Broker B", "broker_b"), ("Broker F", "broker_f"), ("Broker K", "broker_k"))
+        )
         st.markdown(
-            f"<div style='font-size:12px;color:#444;'>P&amp;L ({selected_date:%b %d}): "
-            f"Broker B <b style='color:{pnl_color(pnl['broker_b'])};font-size:24px;'>${pnl['broker_b']:+,.2f}</b> · "
-            f"Broker F <b style='color:{pnl_color(pnl['broker_f'])};font-size:24px;'>${pnl['broker_f']:+,.2f}</b> · "
-            f"Broker K <b style='color:{pnl_color(pnl['broker_k'])};font-size:24px;'>${pnl['broker_k']:+,.2f}</b></div>",
+            f"<div style='font-size:12px;color:#444;margin-bottom:2px;'>P&amp;L ({selected_date:%b %d})</div>"
+            f"<table style='border-collapse:collapse;font-size:14px;'>{pnl_rows}</table>",
             unsafe_allow_html=True,
         )
 
