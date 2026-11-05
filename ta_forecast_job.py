@@ -658,6 +658,8 @@ def render_diagram_svg(
     candle: dict | None = None,
     live_price: float | None = None,
     scenario_outcomes: dict[str, dict] | None = None,
+    tick_step: int | None = None,
+    stop_legend: str = "Breakout/breakdown stop",
 ) -> str:
     """Self-contained SVG price ladder: resistance zones above price in red, support zones below in
     green, a thin price line, and the two breakout/breakdown stop lines -- modelled on the reference
@@ -735,7 +737,7 @@ def render_diagram_svg(
         return DIAGRAM_TOP + (hi - p) / (hi - lo) * DIAGRAM_PLOT_HEIGHT
 
     span = hi - lo
-    step = 100 if span > 500 else 50 if span > 200 else 25 if span > 80 else 10
+    step = tick_step or (100 if span > 500 else 50 if span > 200 else 25 if span > 80 else 10)
     ticks = []
     t = math.ceil(lo / step) * step
     while t <= hi:
@@ -971,7 +973,7 @@ def render_diagram_svg(
         f'{live_legend}'
         f'<line x1="4" x2="18" y1="{height - 8}" y2="{height - 8}" stroke="{DIAGRAM_COLOR_MUTED}" '
         f'stroke-dasharray="4 3"/>'
-        f'<text x="22" y="{height - 5}">Breakout/breakdown stop</text>'
+        f'<text x="22" y="{height - 5}">{escape(stop_legend)}</text>'
         f'{candle_legend}'
         f'</g></svg>'
     )

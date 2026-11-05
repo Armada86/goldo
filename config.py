@@ -264,3 +264,14 @@ K_TIME_STOP_MINUTES = 60
 K_MAX_SPREAD = 1.50    # $: no entry when the live bid-ask spread is wider (study 36: live #10 paid $3.04; the replay flips negative near $1.00-1.20). Unknown spread fails open.
 K_PAUSE_AFTER_STOPS = 2          # this many consecutive stop-loss closes ...
 K_PAUSE_MINUTES = 30             # ... pause new entries for this long after the last one (risk limit, study 36)
+
+# --- Broker R: short-range fade paper broker (broker_r.py, ta_short.py; 5 Nov 2026) ---
+# Fades only, tight levels, fixed exits: no trail, no block rules, no stop-loss analysis.
+R_TAKE_PROFIT = 5.0              # $ per troy ounce: strict +$5 ...
+R_STOP_LOSS = 5.0                # ... or strict -$5, nothing in between (no trail, no time stop)
+R_LEVEL_MIN_DISTANCE = 3.0       # short-range TA: a resistance/support must be at least this far from price ...
+R_LEVEL_MAX_DISTANCE = 10.0      # ... and at most this far (user: "not more than 5 to $10 away")
+R_LEVEL_STEP = 5.0               # round-number candidates every $5 (guarantees a level each side)
+R_TA_INTERVAL_MINUTES = 30       # a new short-range TA every half hour (ET :00 / :30 slots, 7am-5pm weekdays)
+R_TA_FORECAST_MAX_AGE_MINUTES = 40   # Broker R ignores a short-range forecast older than this (a missed run must not leave stale levels armed)
+R_MAX_TRADES_PER_LEVEL = 2       # like Broker B: a level re-arms only after a win, at most this many trades per forecast row

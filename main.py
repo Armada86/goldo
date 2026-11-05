@@ -7,6 +7,7 @@ from apscheduler.schedulers.blocking import BlockingScheduler   #runs in the for
 from broker import check_broker_trades
 from broker_b import check_broker_b_trades
 from broker_k import check_broker_k_trades
+from broker_r import check_broker_r_trades
 from config import (
     ATR_PERIOD,
     ADX_PERIOD,
@@ -28,6 +29,7 @@ from rules import (
     check_value_change_alerts,
 )
 from storage import init_db, save_alert, save_readings
+from ta_short import maybe_run as run_short_ta_if_due
 from ta_rerun_shadow import check_ta_rerun_shadow
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
@@ -119,6 +121,17 @@ def poll_once() -> None:
         check_broker_k_trades(prices, candles)
     except Exception:
         log.exception("Broker K check failed")
+
+    # Broker R (5 Nov 2026) -- short-range fade paper broker. First the half-hourly short-range TA (one 5-min candle call per
+    # half hour, nothing otherwise), then the broker itself. Each isolated so neither can break the rest of the poll.
+    try:
+        run_short_ta_if_due(prices.get("gold"))
+    except Exception:
+        log.exception("Short-range TA (Broker R) failed")
+    try:
+        check_broker_r_trades(prices)
+    except Exception:
+        log.exception("Broker R check failed")
 
     # Read-only toward forex.com (never places an order): records Forex-broker positions its TP/SL
     # closed and starts tracking manual ones, alerting on each. Isolated so a forex.com/credentials
