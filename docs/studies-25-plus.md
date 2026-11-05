@@ -345,3 +345,37 @@ Ranked suggestions, and what was done (user approved all four on 31 Oct 2026):
     separately; look at the raw values to see whether other cutoffs (for example 0.8 or 1.5 in `bb20_pos_1h`, 1% or 3% in `ext_sma20_1h_pct`) separate winners from losers, and whether flagged
     trades are mostly the ones RSI/ADX already block. Strong trends sit at the band for long, so a block could remove good breakouts; turn it into a real block only if flagged trades are clearly
     losing on about 20 or more of them, otherwise remove the flag. Nothing is changed without the user's approval.
+
+## Study 40 (5 Nov 2026): how the TA levels performed against the next 2 hours
+40. **How did the support/resistance zones of every stored TA forecast perform against what gold did 0-2 and 1-2 hours later, and how could the level selection improve?** Triggered by the
+    5 Nov 7 AM run, whose buy-support entry (4111) sat $4.7 above the morning's real low (4116.3 at 07:40 ET, retested at 08:00). Observation only: nothing was changed. It reads no trades
+    (only `ta_forecasts` and gold bars), so the Broker-F-only rule does not apply. Script: `ta_levels_study.py` (`--fetch` downloads about 65,000 one-minute Twelve Data bars, ~2 minutes).
+  - *Data and method:* all 95 weekday forecasts, 23 Sep to 5 Nov 2026 (94 usable), each with 4 resistance and 4 support zones; Twelve Data mid bars (the brokers fill on FOREX.com bid/ask, about $0.7
+    wider). A zone is REACHED when a 1-minute bar trades through its entry edge (a resistance's low edge, a support's high edge) inside the window; then BOUNCE = price retreats $8 before it runs
+    $8 through, BREAK = the reverse, DRIFT = neither in 90 minutes. A TURNING POINT is the window's high or low, counted when price then reverses $8 within an hour; its distance is measured to
+    the nearest zone of that side. The chance baseline shifts the same forecast's zones by a random $15-40 either way (200 draws). The hours 1-2 window only counts zones not already reached in
+    hour 1.
+  - *Do the levels beat chance? Yes, but loosely.* Over 0-2 h, 163 confirmed turns: median distance to the nearest zone $5.5 against $11.4 for shifted zones; within $5 of a zone 45% against 28%; within
+    $10 82% against 47%. Only 7% of turns fell inside a zone (zones are narrow). Hours 1-2 (138 turns): median $6.3 against $11.1; within $5 40% against 28%; within $10 72% against 47%.
+  - *Only the nearest zone per side matters inside 2 hours.* Rank 1 was reached in 57% of windows (51 bounce / 43 break / 14 drift, 47% bounce); rank 2 in 8% (10/4/1); rank 3 in 1%; rank 4 never. Zones
+    within $15 of price were reached 68% of the time, $15-30 in 15%, $30-50 in 4%, beyond $50 never. In hours 1-2 only 18% of rank-1 zones were reached for the first time then (8/6/3).
+  - *Near misses are common.* Of in-play zones (within $30) that were not reached in 0-2 h, 22% came within $5 (resistance 26%, support 17%), in line with the 5 Nov morning.
+  - *Sources (in-play zones within $30, 0-2 h; bounce rate among reached, n reached in brackets):* 4h swing 58% (45), pivot 55% (38), moving average 46% (26), daily swing 43% (54), round number 41% (32),
+    prior-day high/low 32% (22), 20-day high/low 25% (8). Hours 1-2 are too thin to rank (4h swing 60%, daily swing 60%, pivot 62%, round number 50%, prior-day 40%; 5-15 reached each).
+    More source labels did not mean a better level: zones with 1 label bounced 62% (45 reached), 2 labels 42%, 3 labels 40%. By TA run: TA1 49%, TA2 47%, TA3 43%, TA4 43% (differences are within noise).
+    Fibonacci zones exist only in the last 2-3 forecasts, so there is nothing to say yet (study 38). Note `LABEL_WEIGHTS` in `ta_forecast_job.py` (which zone survives when two candidates are too close
+    to both be listed) gives the 20-day high/low weight 3 and prior-day high/low weight 2, the two sources that bounced worst here, while 4h swings carry no weight at all.
+  - *Systematic offset to the entry edge (confirmed turns, + = turned beyond the edge):* resistances median -1.2 (58% turned short of the edge, hours 1-2: -1.8, 63%); supports median +0.5 (48% short;
+    hours 1-2: -0.7, 55%). By source of the nearest zone (turns within $12, 0-2 h): 20-day range +5.6 (n 7), 4h swing +1.1 (55), daily swing +0.4 (71), prior-day +0.2 (22), round number -1.1 (33), moving
+    average -1.3 (35), pivot -1.3 (51); the inter-quartile range is about $8-10 wide for all of them, so the median shifts ($1-3) are small against the spread. The zone midpoint is not a better
+    level than the entry edge (median |offset| $6.1 against $5.8).
+  - *What this means for selecting levels (proposals only; none applied):* (1) The levels carry real information but are only good to about $5; a flat entry tolerance does not fix that (replayed 5 Nov, the
+    fade rules with a $3-5 tolerance moved the +$106.8 baseline by +$42 to -$144 when filled at the price reached and by -$177 to -$302 when filled at the shifted level, and a bounce-confirmed entry came out below the baseline in every setting). (2) Rank beyond the nearest zone per side is irrelevant for a 2-hour
+    horizon, so the third and fourth zones are only useful as targets. (3) `LABEL_WEIGHTS` could be re-ranked (4h swing and pivot up; prior-day and 20-day range down), but the evidence is 8-54 reached zones per
+    source, so re-check it on more forecasts at the 28 Nov review before touching it. (4) Stacking more labels in one zone should not be treated as extra strength. (5) Not established: the "nearby"
+    candidates absorbed into each zone were closer to the turn more often (median distance $2.8 against $5.8), but that comparison is unreliable because it has many more candidate points than the
+    four zones; it needs a matched chance baseline before it means anything.
+  - *Limits:* six weeks, 94 forecasts and 45-60 reached rank-1 zones per side, so every per-source number is a sample of tens; mid prices; the $8 bounce and the $5 near-miss definition are choices (not
+    tuned); the last few forecasts include Fibonacci zones, the earlier ones do not.
+  - *Next (28 Nov review):* rerun `python ta_levels_study.py --fetch` and compare with this table; once there are about 15 more forecast days, decide on re-weighting sources with a replay of the fade
+    rules restricted to the better-bouncing sources. Nothing is changed without the user's approval.
