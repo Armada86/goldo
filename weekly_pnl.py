@@ -87,7 +87,7 @@ def render() -> None:
         we = ws + pd.Timedelta(days=6)
         totals = week.sum()
         html.append(
-            f"<tr class='wk'><td><b>Week {ws:%b %d} – {we:%b %d}</b></td>"
+            f"<tr class='wk'><td><b>{ws:%b %d} – {we:%b %d}</b></td>"
             + "".join(_cell(totals[b], bold=True) for b in brokers)
             + _cell(totals[counted].sum(), bold=True)
             + "</tr>"
