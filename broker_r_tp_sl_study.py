@@ -7,7 +7,6 @@ trades accumulate:
     python broker_r_tp_sl_study.py                  # grid TP 2..10 x SL 2..10 on every closed Broker R trade
     python broker_r_tp_sl_study.py --since 2026-11-10 --tp 3-8 --sl 3-8
     python broker_r_tp_sl_study.py --bidask         # side-correct FOREX.com bars (last ~2.8 days only), no cost fudge
-    python broker_r_tp_sl_study.py --shadow         # forward test: live +5/-5 vs the logged shadow +7/-4 (study 41), no replay
     python broker_r_tp_sl_study.py --cost 0.8 --csv grid.csv
 
 How it works
@@ -116,51 +115,6 @@ def fetch_mid_bars(start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
     return pd.concat(frames).drop_duplicates("datetime").sort_values("datetime").reset_index(drop=True)
 
 
-def shadow_report(since: str | None) -> None:
-    """Forward comparison (study 41): each closed trade's booked P&L against the shadow exit `broker_r.resolve_shadow_exits()` logged
-    for the same entry (R_SHADOW_TAKE_PROFIT / R_SHADOW_STOP_LOSS). Both use the same side-correct bars, so no cost assumption is needed.
-    Trades closed by `stop trading` (exit_reason 'Stop') are left out, and the one-position-at-a-time effect is NOT applied to the shadow
-    (a longer-held shadow trade would have blocked a later entry): the "overlap" line counts how often that would have happened."""
-    from broker_review import _sql
-
-    try:
-        rows = _sql(
-            "SELECT id, trade_type, open_ts, close_ts, pnl, exit_reason, shadow_exit FROM broker_r_trades "
-            "WHERE status = 'Closed' AND shadow_exit IS NOT NULL" + (" AND open_ts >= %s" if since else "") + " ORDER BY open_ts",
-            [since] if since else None,
-        )
-    except Exception as e:  # column missing until the first poll after the deploy ran init_db()
-        raise SystemExit(f"No shadow data yet ({e}).")
-    d = pd.DataFrame(rows)
-    d = d[d["exit_reason"] != "Stop"] if not d.empty else d
-    if d.empty:
-        raise SystemExit("No closed Broker R trades with a resolved shadow exit yet.")
-    d["open_ts"] = pd.to_datetime(d["open_ts"], utc=True)
-    d["close_ts"] = pd.to_datetime(d["close_ts"], utc=True)
-    d["live"] = d["pnl"].astype(float)
-    d["sh"] = d["shadow_exit"].apply(lambda x: float(x["pnl"]))
-    d["sh_reason"] = d["shadow_exit"].apply(lambda x: x["reason"])
-    d["sh_exit"] = d["shadow_exit"].apply(lambda x: pd.Timestamp(x["exit_ts"]))
-    d["sh_hold"] = d["shadow_exit"].apply(lambda x: float(x["held_minutes"]))
-    d["live_hold"] = (d["close_ts"] - d["open_ts"]).dt.total_seconds() / 60
-    d["diff"] = d["sh"] - d["live"]
-    n = len(d)
-    sd = d["diff"].std(ddof=1) if n > 1 else float("nan")
-    t = d["diff"].mean() / (sd / math.sqrt(n)) if n > 1 and sd > 0 else float("nan")
-    nxt = d["open_ts"].shift(-1)
-    overlap = int((d["sh_exit"] > nxt + timedelta(minutes=OVERLAP_TOLERANCE_MIN)).sum())
-    days = d.assign(day=d["open_ts"].dt.tz_convert(DISPLAY_TZ).dt.date).groupby("day")[["live", "sh"]].sum()
-    print(f"Broker R shadow forward test: {n} closed trades with a resolved shadow exit ({d['open_ts'].min():%d %b} - {d['open_ts'].max():%d %b})")
-    print(f"  live  +{R_TAKE_PROFIT:g}/-{R_STOP_LOSS:g}: net ${d['live'].sum():+.2f}, ${d['live'].mean():+.2f}/trade, win {(d['live'] > 0).mean():.0%}, avg hold {d['live_hold'].mean():.1f} min")
-    print(f"  shadow +{d['shadow_exit'].iloc[0]['take_profit']:g}/-{d['shadow_exit'].iloc[0]['stop_loss']:g}: net ${d['sh'].sum():+.2f}, ${d['sh'].mean():+.2f}/trade, win {(d['sh'] > 0).mean():.0%}, avg hold {d['sh_hold'].mean():.1f} min  (EOD exits: {(d['sh_reason'] == 'EOD').sum()})")
-    print(f"  shadow minus live per trade: ${d['diff'].mean():+.2f}, t = {t:.2f} (paired; under ~2 is indistinguishable from noise); shadow ahead on {int((d['diff'] > 0).sum())}, behind on {int((d['diff'] < 0).sum())}, equal on {int((d['diff'] == 0).sum())}")
-    print(f"  overlap: {overlap} shadow trades were still open when the next real entry happened (the live one-position rule would have skipped that entry)")
-    print("\nBy ET day (live / shadow):")
-    for day, r in days.iterrows():
-        print(f"  {day}: ${r['live']:+.2f} / ${r['sh']:+.2f}")
-    print(f"\nSample: {n} trades -- " + ("enough to judge." if n >= MIN_TRADES_FOR_ADVICE else f"below {MIN_TRADES_FOR_ADVICE}: a hint, not a decision."))
-
-
 def fetch_bidask_bars() -> dict[str, pd.DataFrame]:
     from forex_client import ForexClient
 
@@ -258,11 +212,7 @@ def main() -> None:
     ap.add_argument("--bidask", action="store_true", help="side-correct FOREX.com bars (last ~2.8 days only), cost 0")
     ap.add_argument("--csv", help="write the full grid to this file")
     ap.add_argument("--top", type=int, default=10)
-    ap.add_argument("--shadow", action="store_true", help="forward test: booked P&L vs the logged shadow exit (study 41); no replay")
     args = ap.parse_args()
-    if args.shadow:
-        shadow_report(args.since)
-        return
 
     trades = load_trades(args.since)
     if trades.empty:

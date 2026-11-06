@@ -378,21 +378,3 @@ Ranked suggestions, and what was done (user approved all four on 31 Oct 2026):
     tuned); the last few forecasts include Fibonacci zones, the earlier ones do not.
   - *Next (28 Nov review):* rerun `python ta_levels_study.py --fetch` and compare with this table; once there are about 15 more forecast days, decide on re-weighting sources from their reach and bounce
     rates alone (still a price study, no trades). Nothing is changed without the user's approval.
-
-## Study 41 (6 Nov 2026): Broker R's take-profit / stop-loss, +$7/-$4 shadow exit (log only)
-41. **Would a wider target and tighter stop (+$7 / -$4) have done better than Broker R's strict +$5 / -$5, on the same entries?** Triggered by `broker_r_tp_sl_study.py` (grid replay of
-    Broker R's first 30 trades, 5-6 Nov 2026). Broker R is its own engine with its own table (`broker_r_trades`), so the Broker-F-only rule does not apply (same exception as Broker K, study 36);
-    it is read by nothing else. Observation only: the live exit stays +$5 / -$5 until the user approves a change.
-  - *Replay result (30 trades, 5-6 Nov):* FOREX.com bid/ask bars reproduce all 30 booked outcomes (+$30). +$7/-$4 replays at +$56 ($1.87/trade, 53% wins, 11 min average hold, $10.06 P&L per hour in position);
-    the mid-price replay (cost $0.50 assumed) gives +$58.6. The whole region TP 7-10 x SL 3.5-5 made +$41 to +$62; SL -$3 or tighter and TP above $9 were worse (longer holds, more skipped entries, lower P&L per hour);
-    +$3 targets are close to break-even once spread is paid. t about 1.7-2.0, both days wide-range, grid searched on the same trades: a hint only.
-  - *Built (6 Nov 2026, user approved, log only):* `broker_r.resolve_shadow_exits()` (called from `main.poll_once()` after Broker R, own `try/except`) scores `config.R_SHADOW_TAKE_PROFIT` (7) /
-    `R_SHADOW_STOP_LOSS` (4) on every Broker R trade, open or closed, that has no shadow yet, and stores it in `broker_r_trades.shadow_exit` (JSONB: reason `TP`/`SL`/`EOD`, exit price and time,
-    pnl, held minutes). Same entry, same side-correct 1-minute bars and stop-wins-a-tie rule as the live exit (`scan_exit()` now takes the two limits as arguments, defaults unchanged); a shadow still
-    open at 5 PM ET closes at that bar's close (`EOD`), resolved at the next poll; trades older than 48 h whose bars cannot be fetched stay unresolved. It trades nothing, sends no Telegram, and the live
-    exit, the dashboard and every other job ignore it. Bars are only fetched when a shadow is unresolved (normally for the first ~20 minutes after an entry).
-  - *Next (28 Nov review):* `python broker_r_tp_sl_study.py --shadow` for the forward test (live against shadow on the same entries, paired difference per trade and its t-stat, by day, plus the overlap count:
-    shadow trades still open when the next real entry happened, which the one-position rule would have skipped). Then `python broker_r_tp_sl_study.py --bidask` and the mid replay on all closed trades
-    to re-check the grid region (is 7/4 still inside the best region? is SL 3.5-4.5 still better than 5? did TP 8-9 take over?). Judge on out-of-sample trades since 6 Nov only; trades closed by `stop trading`
-    (`exit_reason` Stop) are excluded. A change of `R_TAKE_PROFIT` / `R_STOP_LOSS` also needs `brokerRStatusLines()` in the Worker and the Broker R text in `CLAUDE.md` / `docs/broker-r.md` updated.
-    Switch only if the shadow is ahead with a paired t of about 2 or more on 100 or more trades (fewer: keep logging); nothing is changed without the user's approval.
