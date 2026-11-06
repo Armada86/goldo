@@ -56,7 +56,7 @@ missing. Add new ones at the bottom of their section (or under "Open / to repeat
 Studies 25 and up (Broker B and F fades, levels, filters, exits, the TA bias study, the quiet-market study, Broker K, the DXY block study, plus the 31 Oct review result) are in `docs/studies-25-plus.md`.
 
 ## Open / to repeat
-**Monthly combined review, every last Saturday of the month (set 2 Nov 2026). Next: Saturday 28 Nov 2026.** Studies 25, 26, 27, 28, 35, 36, 37, 38, 39 and 40 (everything from 25 up) run
+**Monthly combined review, every last Saturday of the month (set 2 Nov 2026). Next: Saturday 28 Nov 2026.** Studies 25, 26, 27, 28, 35, 36, 37, 38, 39, 40 and 41 (everything from 25 up) run
 together as **one study with one result**, on one shared data set and one replay engine, as on 31 Oct. They are not scheduled or reported separately. Studies 1-24 are not part of it.
 New studies from 38 up join this review the same way. Items to cover each time (the first review's list):
 1. Study 26: the effect of `spike_fade` 2.0 on trades since 31 Oct (blocked fades and what they would have done).
@@ -78,6 +78,9 @@ New studies from 38 up join this review the same way. Items to cover each time (
    entry level or a target, and Broker F's trades at Fib-labelled levels against the others (win rate, P/L, with the live exit rule). Keep, change the lookback, or remove.
 10. Study 39: `shadow_stretched` (log only, from 4 Nov 2026). Method in `docs/studies-25-plus.md`: flagged against unflagged Broker F trades, the raw `bb20_pos_1h` / `ext_sma20_1h_pct`
     values to pick better cutoffs, and whether the flag adds anything to the RSI/ADX blocks. Real block only if clearly losing on enough flagged trades; otherwise remove the flag.
+11. Study 41: Broker R's take-profit / stop-loss. Live since 6 Nov 2026 at +$7 / -$4 (was +$5 / -$5). Rerun `python broker_r_tp_sl_study.py --bidask` and the default mid mode on Broker R trades
+    opened since 6 Nov only (out of sample) and compare the live +7/-4 result with the grid: is 7/4 still inside the best region, did a neighbour (TP 8-9, SL 3.5-4.5) overtake it, and does the
+    P&L per hour in position still beat 5/5? Broker R has its own table, so the Broker-F-only rule does not apply. Keep, adjust or revert; nothing is changed without the user's approval.
 11. Study 40: the TA levels against the next 2 hours (`python ta_levels_study.py --fetch`, then `python ta_levels_study.py`; method and the 5 Nov result in `docs/studies-25-plus.md`). Rerun on all
     forecasts since 23 Sep and compare with the 5 Nov table: do levels still beat the shifted-zones chance baseline (turns within $5 of a zone 45% vs 28%), is the nearest zone still the only one that
     matters, do the source categories keep their order (4h swing / pivot bounce best, prior-day / 20-day range worst), and do the first Fibonacci-labelled zones (study 38) bounce more or less than the

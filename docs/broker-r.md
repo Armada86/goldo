@@ -1,7 +1,7 @@
 # Broker R (short-range fade paper broker, 5 Nov 2026)
 
 Spec lives in `broker_r.py` / `ta_short.py` and the CLAUDE.md entry. Summary of the user's request: Broker B's behaviour with (a) its own
-tighter technical analysis every 30 minutes (levels only $3-$10 from price), (b) fades only, (c) strict +$5 / -$5 exits, no trail and no
+tighter technical analysis every 30 minutes (levels only $3-$10 from price), (b) fades only, (c) strict +$7 / -$4 exits, no trail and no
 filters, (d) its own page with the chart on the Streamlit dashboard.
 
 Everything is a first guess to be judged on the live paper record: the $3 minimum distance (a level closer than that is mostly
@@ -19,3 +19,8 @@ trade, P&L per hour in position, trades taken, win rate against break-even win r
 trades accumulate; below 100 trades every cell is a hint only. Entries are fixed (a tighter exit freeing the slot for an earlier
 re-entry is not credited), the best cell is optimistic because the grid is searched on the same trades, and it never edits `config.py`.
 First run (30 trades, 5-6 Nov, bid/ask bars): live 5/5 = +$30; 7/4 = +$56, 8/5 = +$52 -- t about 1.5-1.8, not significant; both days were wide-range.
+
+## Exits changed to +$7 / -$4 (6 Nov 2026)
+At the user's request `R_TAKE_PROFIT` / `R_STOP_LOSS` went from +$5 / -$5 to +$7 / -$4 after `broker_r_tp_sl_study.py` replayed the first 30 trades (bid/ask bars: +$30 at 5/5, +$56 at 7/4; the region
+TP 7-10 x SL 3.5-5 was positive throughout; t about 1.7-2.0, so a hint, not proof). Applied at once, no shadow logging. Trades before this change were taken under +$5 / -$5. The Worker's
+`brokerRStatusLines()` and the short-range TA's drawn stop/target levels follow the constants. Restudied at the 28 Nov 2026 combined review (study 41): rerun the grid on trades since 6 Nov only.

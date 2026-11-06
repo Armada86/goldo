@@ -378,3 +378,15 @@ Ranked suggestions, and what was done (user approved all four on 31 Oct 2026):
     tuned); the last few forecasts include Fibonacci zones, the earlier ones do not.
   - *Next (28 Nov review):* rerun `python ta_levels_study.py --fetch` and compare with this table; once there are about 15 more forecast days, decide on re-weighting sources from their reach and bounce
     rates alone (still a price study, no trades). Nothing is changed without the user's approval.
+
+## Study 41 (6 Nov 2026): Broker R's take-profit / stop-loss (+$7 / -$4 applied)
+41. **Is +$7 / -$4 a better exit for Broker R than the original +$5 / -$5?** Broker R is its own engine with its own table (`broker_r_trades`), so the Broker-F-only rule does not apply (same exception as
+    Broker K, study 36). Script: `broker_r_tp_sl_study.py` (read-only grid replay of Broker R's real entries; `--bidask` for side-correct FOREX.com bars, default Twelve Data mid bars with an assumed $0.50 cost).
+  - *Replay result (first 30 trades, 5-6 Nov 2026):* FOREX.com bars reproduce all 30 booked outcomes (+$30 at 5/5). +$7/-$4 replays at +$56 ($1.87/trade, 53% wins, 11 min average hold, $10.06 P&L per hour
+    in position); the mid replay gives +$58.6. The region TP 7-10 x SL 3.5-5 made +$41 to +$62; SL -$3 or tighter and TP above $9 were worse (longer holds, more skipped entries, lower P&L per hour); +$3 targets
+    are near break-even once spread is paid. t about 1.7-2.0, both days wide-range, the grid is searched on the same trades it scores: a hint, not proof.
+  - *Applied (6 Nov 2026, user request, no shadow logging):* `config.R_TAKE_PROFIT` 5 -> 7, `R_STOP_LOSS` 5 -> 4, effective on the first poll after deploy; the Worker's `brokerRStatusLines()` constants were
+    updated with them. Trades before the change were taken under +$5 / -$5. (A log-only shadow exit was built the same day and removed before it ran.)
+  - *Next (28 Nov review):* rerun the script on trades opened since 6 Nov only (out of sample), both price modes: is 7/4 still inside the best region, did a neighbour (TP 8-9, SL 3.5-4.5) overtake it,
+    does P&L per hour in position still beat 5/5, and what did the live record do against its own replay? Keep, adjust or revert; nothing is changed without the user's approval.
+

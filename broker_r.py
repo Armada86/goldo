@@ -4,7 +4,7 @@ Broker B's fade logic, shrunk. Differences from Broker B, all by the user's desi
   - Its own, much tighter technical analysis (ta_short.py, a new row every 30 minutes in `ta_short_forecasts`): the resistance and
     support it trades are only $3-$10 from price.
   - Fades only (`R-Fade-sell` at the resistance, `R-Fade-buy` at the support). No breakouts.
-  - Strict fixed exits on a 1-oz position: take-profit +$5 or stop-loss -$5 (config R_TAKE_PROFIT / R_STOP_LOSS). No trailing
+  - Strict fixed exits on a 1-oz position: take-profit +$7 or stop-loss -$4 (config R_TAKE_PROFIT / R_STOP_LOSS). No trailing
     stop, no profit lock, no time stop, no fade cap, and `make SL` / `make trail` / SLA do not touch it.
   - No entry filters: no DXY / RSI / ADX / ATR / spike gates, no block rules (BRA), no TA-bias gate, no "bias mode". The only
     conditions are the 7am-5pm ET weekday trading window and Telegram `stop trading` / scheduled pauses (which reach it through the
