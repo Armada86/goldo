@@ -353,7 +353,7 @@ test("brokerStatus: Broker R block shows trading state, open trade and the lates
         { name: "sell_resistance", entry: { low: 4136.66, high: 4136.66 } }, { name: "buy_support", entry: { low: 4125, high: 4125 } } ] } }],
     })));
     assert.match(fresh, /Broker R \(paper\): ✅ TRADING/);
-    assert.match(fresh, /open: Sell 1 oz @ \$4136\.66 \(R-Fade-sell; exits \+\$7 \/ -\$4\)/);
+    assert.match(fresh, /open: Sell 1 oz @ \$4136\.66 \(R-Fade-sell; exits \+\$5 \/ -\$5\)/);
     assert.match(fresh, /R2 \(29 min ago\): Sell 4136\.66 · Buy 4125\.00 · price at the run \$4132\.32/);
     assert.doesNotMatch(fresh, /older than 40 min/);
     const stale = await brokerStatus(fakeSql(answers({

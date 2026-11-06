@@ -206,6 +206,8 @@ def init_db() -> None:
             )
             """
         )
+        # shadow_exit: the hypothetical R_SHADOW_TAKE_PROFIT / R_SHADOW_STOP_LOSS outcome of the same entry (6 Nov 2026, study 41).
+        cur.execute("ALTER TABLE broker_r_trades ADD COLUMN IF NOT EXISTS shadow_exit JSONB")
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS broker_a_blocked (
@@ -829,6 +831,22 @@ def close_trade_row_r(
             "status = 'Closed' WHERE id = %s",
             (exit_price, close_ts, pnl, exit_reason, Json(exit_context) if exit_context else None, trade_id),
         )
+
+
+def get_trades_r_without_shadow(since: datetime) -> list[dict]:
+    """Broker R trades (open or closed) opened at/after `since` whose shadow exit is not resolved yet, oldest first."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, trade_type, entry_price, open_ts FROM broker_r_trades "
+            "WHERE shadow_exit IS NULL AND open_ts >= %s ORDER BY open_ts",
+            (since,),
+        )
+        return [{"id": r[0], "trade_type": r[1], "entry_price": r[2], "open_ts": r[3]} for r in cur.fetchall()]
+
+
+def set_shadow_exit_r(trade_id: int, shadow_exit: dict) -> None:
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("UPDATE broker_r_trades SET shadow_exit = %s WHERE id = %s", (Json(shadow_exit), trade_id))
 
 
 def get_open_forex_trade() -> dict | None:

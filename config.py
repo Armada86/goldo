@@ -267,8 +267,10 @@ K_PAUSE_MINUTES = 30             # ... pause new entries for this long after the
 
 # --- Broker R: short-range fade paper broker (broker_r.py, ta_short.py; 5 Nov 2026) ---
 # Fades only, tight levels, fixed exits: no trail, no block rules, no stop-loss analysis.
-R_TAKE_PROFIT = 7.0              # $ per troy ounce: strict +$7 ... (6 Nov 2026: was 5; the grid replay of 30 trades favoured a wider target, restudy 28 Nov, study 41)
-R_STOP_LOSS = 4.0                # ... or strict -$4, nothing in between (no trail, no time stop) (was 5)
+R_TAKE_PROFIT = 5.0              # $ per troy ounce: strict +$5 ...
+R_STOP_LOSS = 5.0                # ... or strict -$5, nothing in between (no trail, no time stop)
+R_SHADOW_TAKE_PROFIT = 7.0       # LOG ONLY (6 Nov 2026, study 41): a second, hypothetical exit scored beside every Broker R trade; never trades
+R_SHADOW_STOP_LOSS = 4.0
 R_LEVEL_MIN_DISTANCE = 3.0       # short-range TA: a resistance/support must be at least this far from price ...
 R_LEVEL_MAX_DISTANCE = 10.0      # ... and at most this far (user: "not more than 5 to $10 away")
 R_LEVEL_STEP = 5.0               # round-number candidates every $5 (guarantees a level each side)

@@ -477,7 +477,7 @@ async function brokerKStatusLines(sql, now, why) {
 
 // Broker R (short-range fade paper broker, broker_r.py): mirrored from config.R_*; keep in step.
 const R_TA_FORECAST_MAX_AGE_MINUTES = 40;
-const R_TAKE_PROFIT = 7, R_STOP_LOSS = 4;
+const R_TAKE_PROFIT = 5, R_STOP_LOSS = 5;
 
 /** Broker R block of `broker status`: trading state, open trade, and the latest short-range levels with whether they are still armed. */
 async function brokerRStatusLines(sql, now, why) {
