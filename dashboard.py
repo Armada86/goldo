@@ -469,7 +469,7 @@ if min_forecast_date is not None:
             f"<tr><td style='padding:3px 16px 3px 0;{'font-weight:700;' if key == 'total' else ''}'>{label}</td>"
             f"<td style='padding:3px 0;text-align:right;font-weight:700;font-size:18px;color:{pnl_color(pnl[key])};'>${pnl[key]:+,.2f}</td></tr>"
             for label, key in (
-                ("Total", "total"), ("Broker B", "broker_b"), ("Broker F", "broker_f"),
+                ("Total", "total"), ("Broker F", "broker_f"),
                 ("Broker K", "broker_k"), ("Broker R", "broker_r"),
             )
         )
