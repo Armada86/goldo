@@ -319,48 +319,32 @@ def load_broker_pnl_for_date(d) -> dict:
     start = pd.Timestamp(d, tz=DISPLAY_TZ)
     end = start + pd.Timedelta(days=1)
     start_utc, end_utc = start.tz_convert("UTC"), end.tz_convert("UTC")
-    with get_connection() as conn, conn.cursor() as cur:
+    def totals(cur, table: str, extra: str = "") -> dict:
+        # Gross profit (winning trades), gross loss (losing trades, negative) and the net, for trades closed in the day.
         cur.execute(
-            "SELECT COALESCE(SUM(pnl), 0) FROM broker_b_trades WHERE status = 'Closed' "
-            "AND close_ts >= %s AND close_ts < %s",
+            "SELECT COALESCE(SUM(pnl) FILTER (WHERE pnl > 0), 0), COALESCE(SUM(pnl) FILTER (WHERE pnl < 0), 0), "
+            f"COALESCE(SUM(pnl), 0) FROM {table} WHERE status = 'Closed'{extra} AND close_ts >= %s AND close_ts < %s",
             (start_utc, end_utc),
         )
-        broker_b = float(cur.fetchone()[0])
-        # The table only exists once init_db() has run with it.
-        broker_f = 0.0
-        cur.execute("SELECT to_regclass('forex_b_trades')")
-        if cur.fetchone()[0] is not None:
-            cur.execute(
-                "SELECT COALESCE(SUM(pnl), 0) FROM forex_b_trades WHERE status = 'Closed' AND mode = 'live' "
-                "AND close_ts >= %s AND close_ts < %s",
-                (start_utc, end_utc),
-            )
-            broker_f = float(cur.fetchone()[0])
-        # Broker K (22 Oct 2026): created by init_db() the first time the poll runs with it.
-        broker_k = 0.0
-        cur.execute("SELECT to_regclass('broker_k_trades')")
-        if cur.fetchone()[0] is not None:
-            cur.execute(
-                "SELECT COALESCE(SUM(pnl), 0) FROM broker_k_trades WHERE status = 'Closed' "
-                "AND close_ts >= %s AND close_ts < %s",
-                (start_utc, end_utc),
-            )
-            broker_k = float(cur.fetchone()[0])
-        # Broker R (5 Nov 2026): created by init_db() the first time the poll runs with it.
-        broker_r = 0.0
-        cur.execute("SELECT to_regclass('broker_r_trades')")
-        if cur.fetchone()[0] is not None:
-            cur.execute(
-                "SELECT COALESCE(SUM(pnl), 0) FROM broker_r_trades WHERE status = 'Closed' "
-                "AND close_ts >= %s AND close_ts < %s",
-                (start_utc, end_utc),
-            )
-            broker_r = float(cur.fetchone()[0])
-    return {
-        "broker_b": broker_b, "broker_f": broker_f, "broker_k": broker_k, "broker_r": broker_r,
-        # Broker B is left out of the total: B and F trade the same rules, so counting both would count each level twice (user request, 5 Nov 2026).
-        "total": broker_f + broker_k + broker_r,
-    }
+        p, l, t = cur.fetchone()
+        return {"profit": float(p), "loss": float(l), "total": float(t)}
+
+    zero = {"profit": 0.0, "loss": 0.0, "total": 0.0}
+    with get_connection() as conn, conn.cursor() as cur:
+        broker_b = totals(cur, "broker_b_trades")
+        # The tables below only exist once init_db() has run with them.
+        out = {}
+        for key, table, extra in (
+            ("broker_f", "forex_b_trades", " AND mode = 'live'"),
+            ("broker_k", "broker_k_trades", ""),
+            ("broker_r", "broker_r_trades", ""),
+        ):
+            cur.execute("SELECT to_regclass(%s)", (table,))
+            out[key] = totals(cur, table, extra) if cur.fetchone()[0] is not None else dict(zero)
+    # Broker B is left out of the total: B and F trade the same rules, so counting both would count each level twice (user request, 5 Nov 2026).
+    out["total"] = {k: sum(out[b][k] for b in ("broker_f", "broker_k", "broker_r")) for k in zero}
+    out["broker_b"] = broker_b
+    return out
 
 
 try:
@@ -465,17 +449,26 @@ if min_forecast_date is not None:
         # CommonMark passes through verbatim rather than scanning for a $-pair to treat as math.
         # One small table, a row per broker, instead of a single run-on line (user request, 5 Nov 2026).
         # The day's total (B + F + K + R) sits above the per-broker rows (user request, 5 Nov 2026).
+        def money_cell(value: float, bold: bool = False) -> str:
+            return (f"<td style='padding:3px 0 3px 16px;text-align:right;font-weight:{700 if bold else 400};"
+                    f"font-size:{18 if bold else 14}px;color:{pnl_color(value)};'>${value:+,.2f}</td>")
+
         pnl_rows = "".join(
             f"<tr><td style='padding:3px 16px 3px 0;{'font-weight:700;' if key == 'total' else ''}'>{label}</td>"
-            f"<td style='padding:3px 0;text-align:right;font-weight:700;font-size:18px;color:{pnl_color(pnl[key])};'>${pnl[key]:+,.2f}</td></tr>"
+            + money_cell(pnl[key]["profit"]) + money_cell(pnl[key]["loss"]) + money_cell(pnl[key]["total"], bold=True)
+            + "</tr>"
             for label, key in (
                 ("Total", "total"), ("Broker F", "broker_f"),
                 ("Broker K", "broker_k"), ("Broker R", "broker_r"),
             )
         )
+        header_cells = "".join(
+            f"<th style='padding:3px 0 3px 16px;text-align:right;font-weight:600;font-size:12px;color:#444;'>{h}</th>"
+            for h in ("Profit", "Loss", "Total")
+        )
         st.markdown(
             f"<div style='font-size:12px;color:#444;margin-bottom:2px;'>P&amp;L ({selected_date:%b %d})</div>"
-            f"<table style='border-collapse:collapse;font-size:14px;'>{pnl_rows}</table>",
+            f"<table style='border-collapse:collapse;font-size:14px;'><tr><th></th>{header_cells}</tr>{pnl_rows}</table>",
             unsafe_allow_html=True,
         )
 
