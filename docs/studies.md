@@ -53,10 +53,10 @@ missing. Add new ones at the bottom of their section (or under "Open / to repeat
     `forex_watcher_sim.py` (two overlapping watchers on a scripted tick path).
 
 ## Studies 25 and up
-Studies 25 and up (Broker B and F fades, levels, filters, exits, the TA bias study, the quiet-market study, Broker K, the DXY block study, plus the 31 Oct review result) are in `docs/studies-25-plus.md`.
+Studies 25 and up (Broker B and F fades, levels, filters, exits, the TA bias study, the quiet-market study, Broker K, the DXY block study, the Broker R +$7/-$4 shadow exit, plus the 31 Oct review result) are in `docs/studies-25-plus.md`.
 
 ## Open / to repeat
-**Monthly combined review, every last Saturday of the month (set 2 Nov 2026). Next: Saturday 28 Nov 2026.** Studies 25, 26, 27, 28, 35, 36, 37, 38, 39 and 40 (everything from 25 up) run
+**Monthly combined review, every last Saturday of the month (set 2 Nov 2026). Next: Saturday 28 Nov 2026.** Studies 25, 26, 27, 28, 35, 36, 37, 38, 39, 40 and 41 (everything from 25 up) run
 together as **one study with one result**, on one shared data set and one replay engine, as on 31 Oct. They are not scheduled or reported separately. Studies 1-24 are not part of it.
 New studies from 38 up join this review the same way. Items to cover each time (the first review's list):
 1. Study 26: the effect of `spike_fade` 2.0 on trades since 31 Oct (blocked fades and what they would have done).
@@ -96,3 +96,5 @@ needed. Consequences to state in each result:
 - Earlier results (studies 1-35) are not redone; they stay as written, with their own data source noted.
 
 Results go into `docs/studies-25-plus.md` on a branch and PR, as for 31 Oct. The review changes no rule or setting by itself; any change needs the user's approval.
+11. Study 41: Broker R's +$7/-$4 shadow exit (log only, from 6 Nov 2026). `python broker_r_tp_sl_study.py --shadow` (live +5/-5 against the logged shadow on the same entries, paired t-stat, by day, overlap count), then the
+    grid replay (`--bidask` and the default mid mode) on all closed Broker R trades. Broker R has its own table, so the Broker-F-only rule does not apply. Switch only if the shadow is ahead with t about 2 or more on 100+ trades.
