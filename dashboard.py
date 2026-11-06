@@ -341,8 +341,8 @@ def load_broker_pnl_for_date(d) -> dict:
         ):
             cur.execute("SELECT to_regclass(%s)", (table,))
             out[key] = totals(cur, table, extra) if cur.fetchone()[0] is not None else dict(zero)
-    # Broker B is left out of the total (B and F trade the same rules, so counting both would count each level twice; user request, 5 Nov 2026), and so is Broker K (user request, 6 Nov 2026): the total is F + R.
-    out["total"] = {k: sum(out[b][k] for b in ("broker_f", "broker_r")) for k in zero}
+    # Broker B is left out of the total: B and F trade the same rules, so counting both would count each level twice (user request, 5 Nov 2026).
+    out["total"] = {k: sum(out[b][k] for b in ("broker_f", "broker_k", "broker_r")) for k in zero}
     out["broker_b"] = broker_b
     return out
 
@@ -448,28 +448,23 @@ if min_forecast_date is not None:
         # LaTeX gotcha noted below), this whole line is one HTML block (starts with "<div"), which
         # CommonMark passes through verbatim rather than scanning for a $-pair to treat as math.
         # One small table, a row per broker, instead of a single run-on line (user request, 5 Nov 2026).
-        # The day's total (F + R; B and K left out) sits above the per-broker rows, ordered B, K, F, R (user requests, 5-6 Nov 2026).
+        # The day's total (B + F + K + R) sits above the per-broker rows (user request, 5 Nov 2026).
         def money_cell(value: float, bold: bool = False) -> str:
             return (f"<td style='padding:3px 0 3px 16px;text-align:right;font-weight:{700 if bold else 400};"
                     f"font-size:{18 if bold else 14}px;color:{pnl_color(value)};'>${value:+,.2f}</td>")
 
-        # Transposed (user request, 6 Nov 2026): one column per broker in the order B, K, F, R, then a Total column
-        # on the right that adds only F and R; rows are Profit / Loss / Total.
-        cols = (
-            ("<b style='font-size:18px;'>B</b>", "broker_b"), ("<b style='font-size:18px;'>K</b>", "broker_k"),
-            ("<b style='font-size:18px;'>F</b>", "broker_f"), ("<b style='font-size:18px;'>R</b>", "broker_r"),
-            ("Total", "total"),
+        pnl_rows = "".join(
+            f"<tr><td style='padding:3px 16px 3px 0;{'font-weight:700;' if key == 'total' else ''}'>{label}</td>"
+            + money_cell(pnl[key]["profit"]) + money_cell(pnl[key]["loss"]) + money_cell(pnl[key]["total"], bold=True)
+            + "</tr>"
+            for label, key in (
+                ("Total", "total"), ("Broker <b style='font-size:18px;'>F</b>", "broker_f"),
+                ("Broker <b style='font-size:18px;'>K</b>", "broker_k"), ("Broker <b style='font-size:18px;'>R</b>", "broker_r"),
+            )
         )
         header_cells = "".join(
-            f"<th style='padding:3px 0 3px 16px;text-align:right;font-weight:{700 if key == 'total' else 600};"
-            f"font-size:12px;color:#444;'>{label}</th>"
-            for label, key in cols
-        )
-        pnl_rows = "".join(
-            f"<tr><td style='padding:3px 16px 3px 0;{'font-weight:700;' if field == 'total' else ''}'>{row_label}</td>"
-            + "".join(money_cell(pnl[key][field], bold=(field == "total")) for _, key in cols)
-            + "</tr>"
-            for row_label, field in (("Profit", "profit"), ("Loss", "loss"), ("Total", "total"))
+            f"<th style='padding:3px 0 3px 16px;text-align:right;font-weight:600;font-size:12px;color:#444;'>{h}</th>"
+            for h in ("Profit", "Loss", "Total")
         )
         st.markdown(
             f"<div style='font-size:12px;color:#444;margin-bottom:2px;'>P&amp;L ({selected_date:%b %d})</div>"
