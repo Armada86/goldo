@@ -23,7 +23,9 @@ import pandas as pd
 
 from broker_b import ENTRY_CANDLE_LOOKBACK_MINUTES, ENTRY_MAX_TOUCH_AGE_MINUTES, _entry_side, _scan_zone_entry
 from broker import _format_ts
-from config import R_MAX_TRADES_PER_LEVEL, R_STOP_LOSS, R_TA_FORECAST_MAX_AGE_MINUTES, R_TAKE_PROFIT
+from config import (
+    R_MAX_TRADES_PER_LEVEL, R_SHADOW_STOP_LOSS, R_SHADOW_TAKE_PROFIT, R_STOP_LOSS, R_TA_FORECAST_MAX_AGE_MINUTES, R_TAKE_PROFIT,
+)
 from notifier import send_telegram_message
 from price_bars import fetch_gold_bars
 from storage import (
@@ -31,10 +33,12 @@ from storage import (
     get_last_close_ts_r,
     get_latest_ta_short_forecast,
     get_open_trade_r,
+    get_trades_r_without_shadow,
     insert_trade_r,
+    set_shadow_exit_r,
     trade_r_level_history,
 )
-from ta_short import DISPLAY_TZ, in_window
+from ta_short import DISPLAY_TZ, WINDOW_END_HOUR_ET, in_window
 from trading_control import trading_pause_reason
 
 log = logging.getLogger("gold-monitor")
@@ -43,6 +47,7 @@ TRADE_ALERT_PREFIX = "\U0001f7e7 "  # orange square (A blue circle, B blue squar
 PROFIT_MARKER = "\U0001f7e9 "
 LOSS_MARKER = "\U0001f7e5 "
 EXIT_BARS_MAX = 3000
+SHADOW_MAX_AGE_HOURS = 48  # older unresolved trades are left alone (the bars may not reach back to their entry)
 
 SCENARIOS = {"sell_resistance": ("Sell", "R-Fade-sell"), "buy_support": ("Buy", "R-Fade-buy")}
 
@@ -51,7 +56,10 @@ def _pnl(trade_type: str, entry_price: float, price: float) -> float:
     return price - entry_price if trade_type == "Buy" else entry_price - price
 
 
-def scan_exit(trade_type: str, entry_price: float, open_ts: datetime, bars: pd.DataFrame) -> tuple[float, datetime, str] | None:
+def scan_exit(
+    trade_type: str, entry_price: float, open_ts: datetime, bars: pd.DataFrame,
+    take_profit: float = R_TAKE_PROFIT, stop_loss: float = R_STOP_LOSS,
+) -> tuple[float, datetime, str] | None:
     """(exit_price, exit_ts, 'TP'|'SL') for the first 1-minute bar after `open_ts` that reaches +R_TAKE_PROFIT or -R_STOP_LOSS.
     `bars` are priced on the exit side (bid for a Buy, ask for a Sell). Exit is at the limit price exactly; a bar touching both
     counts as the stop. None if neither was reached."""
@@ -59,10 +67,10 @@ def scan_exit(trade_type: str, entry_price: float, open_ts: datetime, bars: pd.D
     for row in bars[bars["datetime"] > open_ts].itertuples():
         best = (row.high - entry_price) if sign > 0 else (entry_price - row.low)
         worst = (entry_price - row.low) if sign > 0 else (row.high - entry_price)
-        if worst >= R_STOP_LOSS:
-            return entry_price - sign * R_STOP_LOSS, row.datetime.to_pydatetime(), "SL"
-        if best >= R_TAKE_PROFIT:
-            return entry_price + sign * R_TAKE_PROFIT, row.datetime.to_pydatetime(), "TP"
+        if worst >= stop_loss:
+            return entry_price - sign * stop_loss, row.datetime.to_pydatetime(), "SL"
+        if best >= take_profit:
+            return entry_price + sign * take_profit, row.datetime.to_pydatetime(), "TP"
     return None
 
 
@@ -80,6 +88,52 @@ def _find_exit(trade: dict, spot: float, now: datetime) -> tuple[float, datetime
     if pnl >= R_TAKE_PROFIT:
         return spot, now, "TP"
     return None
+
+
+def resolve_shadow_exits(now: datetime | None = None) -> int:
+    """LOG ONLY (6 Nov 2026, study 41): score the hypothetical R_SHADOW_TAKE_PROFIT / R_SHADOW_STOP_LOSS exit on every Broker R trade
+    (open or closed) that has none yet, and store it in `broker_r_trades.shadow_exit`. Same entry, same side-correct 1-minute bars,
+    same tie rule as the live exit; a shadow still unresolved at 5 PM ET closes at the last bar's close ("EOD"). It never trades,
+    sends nothing and changes no live decision (the live exit ignores it). Bars are only fetched when something is unresolved. Returns
+    the number of shadows resolved. The shadow ignores the one-position-at-a-time rule and `stop trading` closes -- the study handles those."""
+    now = now or datetime.now(timezone.utc)
+    pending = get_trades_r_without_shadow(now - timedelta(hours=SHADOW_MAX_AGE_HOURS))
+    if not pending:
+        return 0
+    minutes = min(int((now - min(t["open_ts"] for t in pending)).total_seconds() // 60) + 5, EXIT_BARS_MAX)
+    bars_by_side: dict[str, pd.DataFrame] = {}
+    resolved = 0
+    for t in pending:
+        side = _entry_side_exit(t["trade_type"])
+        if side not in bars_by_side:
+            bars_by_side[side] = fetch_gold_bars(max(10, minutes), side)
+        bars = bars_by_side[side]
+        if bars.empty or bars["datetime"].iloc[0] > t["open_ts"] + timedelta(minutes=1):
+            continue  # the fetched bars do not reach back to this entry
+        end = t["open_ts"].astimezone(DISPLAY_TZ).replace(hour=WINDOW_END_HOUR_ET, minute=0, second=0, microsecond=0)
+        end = end.astimezone(timezone.utc)
+        bars = bars[bars["datetime"] < end]
+        res = scan_exit(t["trade_type"], t["entry_price"], t["open_ts"], bars, R_SHADOW_TAKE_PROFIT, R_SHADOW_STOP_LOSS)
+        if res is None:
+            after = bars[bars["datetime"] > t["open_ts"]]
+            if now < end + timedelta(minutes=2) or after.empty:
+                continue  # session not over yet (or no bar after the entry): still undecided
+            last = after.iloc[-1]
+            res = (float(last["close"]), last["datetime"].to_pydatetime(), "EOD")
+        exit_price, exit_ts, reason = res
+        set_shadow_exit_r(t["id"], {
+            "take_profit": R_SHADOW_TAKE_PROFIT, "stop_loss": R_SHADOW_STOP_LOSS, "reason": reason,
+            "exit_price": round(float(exit_price), 2), "exit_ts": exit_ts.isoformat(),
+            "pnl": round(_pnl(t["trade_type"], t["entry_price"], exit_price), 2),
+            "held_minutes": round((exit_ts - t["open_ts"]).total_seconds() / 60, 1),
+        })
+        resolved += 1
+    return resolved
+
+
+def _entry_side_exit(trade_type: str) -> str:
+    """Bar side an exit is priced on: a Buy exits on the bid, a Sell on the ask."""
+    return "bid" if trade_type == "Buy" else "ask"
 
 
 def _open_message(trade_id: int, trade_type: str, rule: str, price: float, run: str, open_ts: datetime) -> str:
