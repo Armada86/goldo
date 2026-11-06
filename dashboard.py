@@ -453,19 +453,23 @@ if min_forecast_date is not None:
             return (f"<td style='padding:3px 0 3px 16px;text-align:right;font-weight:{700 if bold else 400};"
                     f"font-size:{18 if bold else 14}px;color:{pnl_color(value)};'>${value:+,.2f}</td>")
 
-        pnl_rows = "".join(
-            f"<tr><td style='padding:3px 16px 3px 0;{'font-weight:700;' if key == 'total' else ''}'>{label}</td>"
-            + money_cell(pnl[key]["profit"]) + money_cell(pnl[key]["loss"]) + money_cell(pnl[key]["total"], bold=True)
-            + "</tr>"
-            for label, key in (
-                ("Total", "total"), ("Broker <b style='font-size:18px;'>B</b>", "broker_b"),
-                ("Broker <b style='font-size:18px;'>K</b>", "broker_k"), ("Broker <b style='font-size:18px;'>F</b>", "broker_f"),
-                ("Broker <b style='font-size:18px;'>R</b>", "broker_r"),
-            )
+        # Transposed (user request, 6 Nov 2026): one column per broker in the order B, K, F, R, then a Total column
+        # on the right that adds only F and R; rows are Profit / Loss / Total.
+        cols = (
+            ("<b style='font-size:18px;'>B</b>", "broker_b"), ("<b style='font-size:18px;'>K</b>", "broker_k"),
+            ("<b style='font-size:18px;'>F</b>", "broker_f"), ("<b style='font-size:18px;'>R</b>", "broker_r"),
+            ("Total", "total"),
         )
         header_cells = "".join(
-            f"<th style='padding:3px 0 3px 16px;text-align:right;font-weight:600;font-size:12px;color:#444;'>{h}</th>"
-            for h in ("Profit", "Loss", "Total")
+            f"<th style='padding:3px 0 3px 16px;text-align:right;font-weight:{700 if key == 'total' else 600};"
+            f"font-size:12px;color:#444;'>{label}</th>"
+            for label, key in cols
+        )
+        pnl_rows = "".join(
+            f"<tr><td style='padding:3px 16px 3px 0;{'font-weight:700;' if field == 'total' else ''}'>{row_label}</td>"
+            + "".join(money_cell(pnl[key][field], bold=(field == "total")) for _, key in cols)
+            + "</tr>"
+            for row_label, field in (("Profit", "profit"), ("Loss", "loss"), ("Total", "total"))
         )
         st.markdown(
             f"<div style='font-size:12px;color:#444;margin-bottom:2px;'>P&amp;L ({selected_date:%b %d})</div>"
