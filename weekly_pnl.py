@@ -13,8 +13,8 @@ DISPLAY_TZ = ZoneInfo("America/New_York")
 # Broker F counts live demo-account trades only, like the P&L line on the main page.
 BROKER_TABLES = [
     ("Broker B", "broker_b_trades", ""),
-    ("Broker F", "forex_b_trades", " AND mode = 'live'"),
     ("Broker K", "broker_k_trades", ""),
+    ("Broker F", "forex_b_trades", " AND mode = 'live'"),
     ("Broker R", "broker_r_trades", ""),
 ]
 
@@ -65,9 +65,9 @@ def render() -> None:
     brokers = list(daily.columns)
     week_start = daily.index - pd.to_timedelta(daily.index.weekday, unit="D")
     header = "".join(f"<th style='text-align:right;'>{b}</th>" for b in brokers)
-    # Last column: F + K + R (Broker B is left out, it trades the same rules as F; user request, 6 Nov 2026).
-    counted = [b for b in brokers if b != "Broker B"]
-    header += "<th style='text-align:right;'>Total (F+K+R)</th>"
+    # Last column: F + K only (Broker B and Broker R are left out; user request, 6 Nov 2026).
+    counted = ["Broker F", "Broker K"]
+    header += "<th style='text-align:right;'>Total (F+K)</th>"
     html = [
         "<style>.goldo-weekly {width:100%;border-collapse:collapse;font-size:13px;}"
         ".goldo-weekly th,.goldo-weekly td {padding:4px 8px;border-bottom:1px solid rgba(128,128,128,.25);}"
