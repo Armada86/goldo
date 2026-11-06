@@ -65,6 +65,9 @@ def render() -> None:
     brokers = list(daily.columns)
     week_start = daily.index - pd.to_timedelta(daily.index.weekday, unit="D")
     header = "".join(f"<th style='text-align:right;'>{b}</th>" for b in brokers)
+    # Last column: F + K + R (Broker B is left out, it trades the same rules as F; user request, 6 Nov 2026).
+    counted = [b for b in brokers if b != "Broker B"]
+    header += "<th style='text-align:right;'>Total (F+K+R)</th>"
     html = [
         "<style>.goldo-weekly {width:100%;border-collapse:collapse;font-size:13px;}"
         ".goldo-weekly th,.goldo-weekly td {padding:4px 8px;border-bottom:1px solid rgba(128,128,128,.25);}"
@@ -76,6 +79,7 @@ def render() -> None:
     html.append(
         "<tr class='wk'><td><b>Overall total</b></td>"
         + "".join(_cell(overall[b], bold=True) for b in brokers)
+        + _cell(overall[counted].sum(), bold=True)
         + "</tr>"
     )
     for ws in sorted(set(week_start), reverse=True):
@@ -85,9 +89,10 @@ def render() -> None:
         html.append(
             f"<tr class='wk'><td><b>Week {ws:%b %d} – {we:%b %d}</b></td>"
             + "".join(_cell(totals[b], bold=True) for b in brokers)
+            + _cell(totals[counted].sum(), bold=True)
             + "</tr>"
         )
         for day, row in week.sort_index(ascending=False).iterrows():
-            html.append(f"<tr><td>{day:%a %b %d}</td>" + "".join(_cell(row[b]) for b in brokers) + "</tr>")
+            html.append(f"<tr><td>{day:%a %b %d}</td>" + "".join(_cell(row[b]) for b in brokers) + _cell(row[counted].sum(), bold=True) + "</tr>")
     html.append("</table>")
     st.markdown("".join(html), unsafe_allow_html=True)
