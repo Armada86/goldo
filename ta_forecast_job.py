@@ -81,6 +81,7 @@ DAILY_SWING_LOOKBACK = 125   # ~6 months of finished weekday daily bars scanned 
 DAILY_SWING_WING = 3         # a daily swing high/low must beat this many days on each side
 FIB_LOOKBACK_DAYS = 30       # finished daily bars (~6 weeks) scanned for the most recent major swing the Fibonacci levels are drawn on
 FIB_RATIOS = (0.382, 0.5, 0.618)
+FIB_LIVE = False             # 9 Nov 2026: Fib levels are SHADOW only (logged in levels.indicators.fib / levels.fib_shadow, not used to pick zones); True = live as 4-9 Nov
 FIB_MIN_SWING_ATR = 2.0      # the swing must span at least this x daily ATR, else it is noise and no Fib levels are listed
 
 # How much a level source counts when two candidate zones are too close to both be listed -- the
@@ -251,8 +252,12 @@ def compute_snapshot() -> dict:
     candidates += [(v, "4h swing low") for v in swing_lows]
     candidates += _daily_swing_candidates(daily, price)
     fib_swing, fib_candidates = _fib_swing_and_levels(daily, atr)
-    ind["fib"] = fib_swing
-    candidates += fib_candidates
+    ind["fib"] = (
+        {**fib_swing, "live": FIB_LIVE, "levels": [{"value": v, "label": lab} for v, lab in fib_candidates]} if fib_swing else None
+    )
+    shadow_candidates = list(candidates) + list(fib_candidates)  # same candidates plus the Fibs, for the shadow comparison
+    if FIB_LIVE:
+        candidates += fib_candidates
     base = int(price // ROUND_NUMBER_STEP) * ROUND_NUMBER_STEP
     candidates += [(float(base + k * ROUND_NUMBER_STEP), "round number") for k in range(-3, 5)]
 
@@ -261,6 +266,7 @@ def compute_snapshot() -> dict:
         "price_ts": h1["datetime"].iloc[-1].isoformat(),
         "indicators": ind,
         "zones": _merge_zones(candidates),
+        "zones_with_fib": _merge_zones(shadow_candidates) if (fib_candidates and not FIB_LIVE) else None,
         "buffer": round(max(MIN_STOP_BUFFER, 0.1 * atr)),
     }
 
@@ -631,7 +637,7 @@ def render(snap: dict, bias: tuple, resistances, supports, scenarios, review_lin
         f"(histogram {ind['macd_hist_1h']:+.2f}, {hist_dir})",
         f"- Daily ATR(14) ${ind['atr14_1d']:,.0f} -> stop buffer ${snap['buffer']:.0f}",
         *([f"- Fib swing: {fib['high']:,.0f} ({fib['high_date']}) to {fib['low']:,.0f} ({fib['low_date']}), {fib['direction']}"]
-          if (fib := ind.get('fib')) else []),
+          if FIB_LIVE and (fib := ind.get('fib')) else []),
         f"- Bias inputs: {'; '.join(reasons)}",
         "",
         "PLAN (zones are fade levels; the stop of each fade is the breakout trigger the other way)",
@@ -983,6 +989,37 @@ def render_diagram_svg(
     )
 
 
+def _entry_prices(scenarios: list[dict]) -> tuple[float | None, float | None]:
+    """(sell_resistance entry, buy_support entry) as Broker B / Broker F trade them: a sell enters at the resistance zone's
+    low edge, a buy at the support zone's high edge."""
+    by = {sc["name"]: sc for sc in scenarios}
+    sell = by.get("sell_resistance", {}).get("entry")
+    buy = by.get("buy_support", {}).get("entry")
+    return (sell["low"] if sell else None, buy["high"] if buy else None)
+
+
+def _fib_shadow(snap: dict, price: float, min_gap: float, resistances: list[dict], supports: list[dict], scenarios: list[dict]) -> dict | None:
+    """LOG ONLY (9 Nov 2026, study 38): what the fade entries would have been with the Fibonacci levels live, next to the ones
+    actually used. Nothing here reaches the text, the diagram, Telegram or any broker."""
+    zones = snap.get("zones_with_fib")
+    if not zones:
+        return None
+    try:
+        res_f, sup_f = _split_zones(zones, price, min_gap)
+        sell_f, buy_f = _entry_prices(build_scenarios(res_f, sup_f, snap["buffer"]))
+        sell, buy = _entry_prices(scenarios)
+        gap = lambda a, b: round(a - b, 2) if a is not None and b is not None else None
+        return {
+            "live": False,
+            "used": {"sell_entry": sell, "buy_entry": buy, "gap": gap(sell, buy)},
+            "with_fib": {"sell_entry": sell_f, "buy_entry": buy_f, "gap": gap(sell_f, buy_f)},
+            "changed": (sell_f, buy_f) != (sell, buy),
+        }
+    except Exception as exc:  # shadow only -- never costs the forecast
+        print(f"[ta_forecast_job] fib shadow skipped: {exc}")
+        return None
+
+
 def main(dry_run: bool) -> None:
     now = datetime.now(timezone.utc)
     snap = compute_snapshot()
@@ -1024,6 +1061,9 @@ def main(dry_run: bool) -> None:
         "scenarios": scenarios,
         "review": review,
     }
+    fib_shadow = _fib_shadow(snap, price, min_gap, resistances, supports, scenarios)
+    if fib_shadow:
+        levels["fib_shadow"] = fib_shadow
     print(analysis)
     if dry_run:
         return
