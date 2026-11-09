@@ -332,6 +332,14 @@ Ranked suggestions, and what was done (user approved all four on 31 Oct 2026):
     trades (`forex_b_trades`, joined on `ta_forecast_id` and the scenario's zone), compare trades at Fib-labelled levels with the rest (win rate, P/L, replayed with the live exit rule, spread
     subtracted); also check whether targets that include a Fib zone were reached more often (the existing grading in `levels.review`). Expect few trades; do not decide on fewer than about 20
     at Fib levels. Options: keep, change the lookback (20-60 days), or remove. Nothing is changed without the user's approval.
+  - *Added 9 Nov 2026 (user request) -- do the Fib levels pull the two fade entries too close together?* Observed on TA2 of 9 Nov (forecast id 102, 11:00 ET): price 4122.11, `sell_resistance`
+    entry 4122.21 was a lone `Fib 61.8%` zone (swing 4280.56 on 28 Sep to 3866.02 on 2 Nov), `buy_support` entry 4120.43 (top edge of the 4115.82-4120.43 zone), so the two fades were
+    only **$1.78** apart (TA1 the same morning: $4.87). Without the Fib the next resistance was 4142.67, about $22 away. Cause: nothing compares the nearest resistance entry with the nearest
+    support entry; the zone weights only settle conflicts between zones on the SAME side (`_pick_side()`), so lowering the Fib weight would not have changed it. For the 28 Nov review: (1) from
+    `ta_forecasts.levels` since the first Fib run (4 Nov), list the gap between the `sell_resistance` and `buy_support` entry prices of every forecast, and mark the forecasts where a Fib-only
+    zone (labels all start with "Fib") is one of the two entries; (2) compare that gap with the forecasts before 4 Nov and with the same forecasts re-picked without the Fib candidates;
+    (3) for the trades at those close pairs (`forex_b_trades`, joined on `ta_forecast_id`) look at win rate and P/L with the live exit rule, spread subtracted, since the opposite-level profit lock sits
+    only that gap away. Options to decide then (nothing changed now): a minimum gap between the two fade entries (about $8-10), keeping a lone Fib out of the fade-entry role, or leaving it.
 
 ## Study 39 (4 Nov 2026): the stretched shadow flag (log only)
 39. **Do entries taken when gold is already stretched (at the upper/lower Bollinger band, or far from its mean) do worse?** Source: the same reference analysis (price at the upper
