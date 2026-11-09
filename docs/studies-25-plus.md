@@ -340,6 +340,9 @@ Ranked suggestions, and what was done (user approved all four on 31 Oct 2026):
     zone (labels all start with "Fib") is one of the two entries; (2) compare that gap with the forecasts before 4 Nov and with the same forecasts re-picked without the Fib candidates;
     (3) for the trades at those close pairs (`forex_b_trades`, joined on `ta_forecast_id`) look at win rate and P/L with the live exit rule, spread subtracted, since the opposite-level profit lock sits
     only that gap away. Options to decide then (nothing changed now): a minimum gap between the two fade entries (about $8-10), keeping a lone Fib out of the fade-entry role, or leaving it.
+  - *Switched to shadow 9 Nov 2026 (user request):* `ta_forecast_job.FIB_LIVE = False`. From the next TA run the Fibs no longer enter the zone candidates (so Broker B and Broker F levels are the pre-4-Nov kind again) and
+    each forecast stores `levels.indicators.fib` (swing + the three levels, `live: false`) and `levels.fib_shadow` (`used` / `with_fib` sell and buy entry prices, their gap, `changed`). At the 28 Nov review: how
+    often `changed` was true, the gap in those cases, and a replay of Broker F's trades at the levels the Fibs would have produced against the ones actually used. Forecasts 4-9 Nov were made with the Fibs live.
 
 ## Study 39 (4 Nov 2026): the stretched shadow flag (log only)
 39. **Do entries taken when gold is already stretched (at the upper/lower Bollinger band, or far from its mean) do worse?** Source: the same reference analysis (price at the upper
