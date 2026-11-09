@@ -76,6 +76,8 @@ New studies from 38 up join this review the same way. Items to cover each time (
    ~$0.68 spread, and add them to the study 37 result (+$19.1 over 4 touches before spread). Nothing is logged by a flag; the blocked table is the record.
 9. Study 38: the Fibonacci levels (live in `ta_forecast_job.py` from the first TA run after PR #283 merged). Method in `docs/studies-25-plus.md`: how often a Fib-labelled zone was a fade
    entry level or a target, and Broker F's trades at Fib-labelled levels against the others (win rate, P/L, with the live exit rule). Keep, change the lookback, or remove.
+    Also (added 9 Nov): the gap between the sell and buy fade entries per forecast, with and without the Fib candidates (TA2 of 9 Nov had them only $1.78 apart because a lone Fib 61.8% was the
+    sell entry); decide on a minimum gap or keeping a lone Fib out of the fade-entry role. Details in study 38.
 10. Study 39: `shadow_stretched` (log only, from 4 Nov 2026). Method in `docs/studies-25-plus.md`: flagged against unflagged Broker F trades, the raw `bb20_pos_1h` / `ext_sma20_1h_pct`
     values to pick better cutoffs, and whether the flag adds anything to the RSI/ADX blocks. Real block only if clearly losing on enough flagged trades; otherwise remove the flag.
 11. Study 40: the TA levels against the next 2 hours (`python ta_levels_study.py --fetch`, then `python ta_levels_study.py`; method and the 5 Nov result in `docs/studies-25-plus.md`). Rerun on all
