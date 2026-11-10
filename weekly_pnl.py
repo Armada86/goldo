@@ -72,12 +72,13 @@ def render() -> None:
         "<style>.goldo-weekly {width:100%;border-collapse:collapse;font-size:13px;}"
         ".goldo-weekly th,.goldo-weekly td {padding:4px 8px;border-bottom:1px solid rgba(128,128,128,.25);}"
         ".goldo-weekly tr.wk td {background:rgba(128,128,128,.15);padding-top:8px;}"
+        ".goldo-weekly tr.all td {background:rgba(212,160,23,.30);padding-top:8px;border-bottom:2px solid rgba(212,160,23,.7);}"
         ".goldo-weekly th {text-align:left;}</style>",
         f"<table class='goldo-weekly'><tr><th>Date</th>{header}</tr>",
     ]
     overall = daily.sum()
     html.append(
-        "<tr class='wk'><td><b>Overall total</b></td>"
+        "<tr class='all'><td><b>Overall total</b></td>"
         + "".join(_cell(overall[b], bold=True) for b in brokers)
         + _cell(overall[counted].sum(), bold=True)
         + "</tr>"
