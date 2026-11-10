@@ -681,20 +681,28 @@ if k_trades.empty:
     st.caption("No Broker K trades on this date.")
 else:
     k_won = [None if pd.isna(v) else (True if v > 0 else (False if v < 0 else None)) for v in k_trades["pnl"]]
+
+    def _k_hm(ts):  # HH:MM in ET, same as Broker R's table
+        if pd.isna(ts):
+            return "—"
+        ts = pd.Timestamp(ts)
+        ts = ts.tz_localize("UTC") if ts.tzinfo is None else ts
+        return ts.tz_convert(DISPLAY_TZ).strftime("%H:%M")
+
+    # Same columns, order and formatting as the Broker R table (broker_r_view.render_trades()).
     k_table = pd.DataFrame({
         "#": k_trades["id"],
         "P&L": k_trades["pnl"].map(lambda v: "—" if pd.isna(v) else f"${v:+,.2f}"),
-        "Opened": to_display_str(k_trades["open_ts"]),
-        "Rule": k_trades["rule_name"],
-        "Entry": k_trades["entry_price"].map("${:,.2f}".format),
-        "Exit": k_trades["exit_price"].map(lambda v: "—" if pd.isna(v) else f"${v:,.2f}"),
-        "Closed": to_display_str(k_trades["close_ts"]).fillna("—"),
-        "Reason": k_trades["exit_reason"].fillna("open"),
-        "Status": k_trades["status"],
+        "rule": k_trades["rule_name"],
+        "opened": k_trades["open_ts"].map(_k_hm),
+        "entry": k_trades["entry_price"].map("${:,.2f}".format),
+        "closed": k_trades["close_ts"].map(_k_hm),
+        "exit": k_trades["exit_price"].map(lambda v: "—" if pd.isna(v) else f"${v:,.2f}"),
+        "reason": k_trades["exit_reason"].fillna("open"),
     })
 
     def _color_k(_col):
         return ["background-color: #1a7f37; color: white; font-weight: 700;" if w is True
                 else "background-color: #cf222e; color: white; font-weight: 700;" if w is False else "" for w in k_won]
 
-    st.dataframe(k_table.style.apply(_color_k, subset=["#"]), width='stretch', hide_index=True)
+    st.dataframe(k_table.style.apply(_color_k, subset=["#"]), hide_index=True, use_container_width=True)
