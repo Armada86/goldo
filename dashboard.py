@@ -381,6 +381,7 @@ except Exception as e:
     st.error(f"Could not load the forecast date range: {e}")
     min_forecast_date = None
 
+selected_date = datetime.now(DISPLAY_TZ).date()  # fallback when the forecast section is skipped
 if min_forecast_date is not None:
     today_et = now_local.date()
 
@@ -576,8 +577,9 @@ if min_forecast_date is not None:
 
     broker_r_view.render_trades(selected_date)
 
-def load_trades() -> pd.DataFrame:
-    """Broker F's `forex_b_trades` (live demo-account trades only, not the shadow-mode records), most recent 20 by `open_ts`.
+def load_trades(d) -> pd.DataFrame:
+    """Broker F's `forex_b_trades` (live demo-account trades only, not the shadow-mode records) that opened or closed on ET date `d`
+    (the date selected at the top; 10 Nov 2026, user request -- was the most recent 20 regardless of date), oldest first.
     This table used to merge Broker B, F and K; since 10 Nov 2026 (user request) it shows Broker F only."""
     cols = ["rule_name", "trade_type", "entry_price", "open_ts", "triggering_alerts", "exit_price", "close_ts", "pnl", "status"]
     with get_connection() as conn:
@@ -586,8 +588,10 @@ def load_trades() -> pd.DataFrame:
             if cur.fetchone()[0] is None:  # created by init_db(); absent before Broker F first runs
                 return pd.DataFrame(columns=cols)
         return pd.read_sql(
-            f"SELECT {', '.join(cols)} FROM forex_b_trades WHERE mode = 'live' ORDER BY open_ts DESC LIMIT 20",
-            conn, parse_dates=["open_ts", "close_ts"],
+            f"SELECT {', '.join(cols)} FROM forex_b_trades WHERE mode = 'live' "
+            "AND ((open_ts AT TIME ZONE 'America/New_York')::date = %(d)s OR (close_ts AT TIME ZONE 'America/New_York')::date = %(d)s) "
+            "ORDER BY open_ts",
+            conn, params={"d": d}, parse_dates=["open_ts", "close_ts"],
         )
 
 
@@ -600,7 +604,7 @@ def to_display_str(ts: pd.Series) -> pd.Series:
 
 st.subheader("Broker F trades")
 try:
-    trades = load_trades()
+    trades = load_trades(selected_date)
 except Exception as e:
     st.error(f"Could not load trades: {e}")
     trades = pd.DataFrame(
@@ -629,7 +633,7 @@ if not trades.empty:
     trades = trades[["#", "P&L", "Opened", "Rule", "Type", "Entry", "Trigger", "Exit", "Closed", "Status"]]
 
 if trades.empty:
-    st.write("No Broker F trades recorded yet.")
+    st.write("No Broker F trades on this date.")
 else:
     # st.dataframe doesn't style the plain pandas index (confirmed empirically -- a Styler.apply_index()
     # renders with no visible effect there), so the row-number "#" column above is a real data column
