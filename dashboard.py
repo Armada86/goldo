@@ -312,26 +312,15 @@ def pause_note_html(pauses: list[tuple]) -> str:
     return f"<span style='color:#cf222e;font-size:14px;font-weight:600;margin-left:12px;'>{text}</span>"
 
 
-def _render_compare_section(selected_date, forecast, b_outcomes, live_price) -> bool:
-    """Broker B / F levels (left) beside Broker R's short-range levels (newest run by default) (right) on one price axis (10 Nov 2026).
-    Always visible (no expander) and never silent: a missing Broker R run or an error is shown as a caption.
-    Returns True if the chart was drawn (the caller then skips the plain Broker B/F chart, 10 Nov 2026 user request)."""
+def _render_compare_section(selected_date, forecast, b_outcomes, live_price, r_run) -> bool:
+    """Broker B / F levels (left) beside the chosen Broker R short-range run (right) on one price axis (10 Nov 2026). Both runs come
+    from the two dropdowns under the date picker. A missing Broker R run or an error is shown as a caption, never silent.
+    Returns True if the chart was drawn (the caller then skips the plain Broker B/F chart)."""
     st.markdown("**Broker B/F vs Broker R — same price axis**")
-    try:
-        r_runs = get_ta_short_forecasts_for_date(selected_date)
-    except Exception as e:
-        st.caption(f"Could not load Broker R's short-range runs: {e}")
-        return False
-    if not r_runs:
+    if r_run is None:
         st.caption("No Broker R short-range analysis recorded for this date, so showing the Broker B/F chart alone.")
         return False
     try:
-        # Broker R run picker (user request, 10 Nov 2026): defaults to the newest run. The widget key includes the newest run's id, so
-        # when a new run arrives the key changes and the picker resets to it instead of keeping a stale earlier choice.
-        labels = [f"{r['levels'].get('session', '?')} · {r['ts'].astimezone(DISPLAY_TZ):%H:%M} ET" for r in r_runs]
-        key = f"compare_r_run_{selected_date}_{forecast.get('id')}_{r_runs[-1]['id']}"
-        choice = st.selectbox("Broker R run", labels, index=len(labels) - 1, key=key)
-        r_run = r_runs[labels.index(choice)]
         r_levels = r_run["levels"] or {}
         try:
             r_trades = short_ta_page.load_trades_for_date(selected_date)
@@ -458,24 +447,34 @@ if min_forecast_date is not None:
         st.session_state[FORECAST_RUN_KEY] = max(len(runs), 1)
         st.session_state[FORECAST_RUN_DATE_KEY] = selected_date
 
-    # Same st.rerun()-after-mutation fix as the date row above (without it both arrows' disabled= stay
-    # one click stale, since they share cur_run computed before either button runs).
-    run_prev, run_label, run_next = st.columns([1, 5, 1])
-    cur_run = st.session_state[FORECAST_RUN_KEY]
-    with run_prev:
-        if st.button("◀", key="forecast_run_prev", disabled=cur_run <= 1):
-            st.session_state[FORECAST_RUN_KEY] = cur_run - 1
-            st.rerun()
-    with run_next:
-        if st.button("▶", key="forecast_run_next", disabled=cur_run >= len(runs)):
-            st.session_state[FORECAST_RUN_KEY] = cur_run + 1
-            st.rerun()
-    with run_label:
-        st.markdown(
-            f"<div style='text-align:center;padding-top:6px;font-size:13px;color:#444;'>"
-            f"TA{cur_run}" + (f" of {len(runs)}" if runs else "") + "</div>",
-            unsafe_allow_html=True,
+    # Two dropdowns side by side under the date (user request, 10 Nov 2026): which Broker B/F analysis (TA1, TA2, ...) and which Broker R
+    # short-range run to draw. Both default to the newest run and reset to it on a date change / when a newer run arrives.
+    try:
+        r_runs = get_ta_short_forecasts_for_date(selected_date)
+    except Exception as e:
+        st.caption(f"Could not load Broker R's short-range runs: {e}")
+        r_runs = []
+    sel_b, sel_r = st.columns(2)
+    with sel_b:
+        cur_run = st.selectbox(
+            "Broker B/F analysis", list(range(1, max(len(runs), 1) + 1)), key=FORECAST_RUN_KEY,
+            format_func=lambda n: (
+                f"TA{n} · {runs[n - 1]['ts'].astimezone(DISPLAY_TZ):%H:%M} ET" if runs else "none"
+            ),
+            disabled=not runs,
         )
+    with sel_r:
+        r_labels = [f"{r['levels'].get('session', '?')} · {r['ts'].astimezone(DISPLAY_TZ):%H:%M} ET" for r in r_runs]
+        if r_runs:
+            # Key includes the newest run's id: a newer run changes the key, so the picker resets to it.
+            r_choice = st.selectbox(
+                "Broker R analysis", r_labels, index=len(r_labels) - 1,
+                key=f"compare_r_run_{selected_date}_{r_runs[-1]['id']}",
+            )
+            r_run_selected = r_runs[r_labels.index(r_choice)]
+        else:
+            st.selectbox("Broker R analysis", ["none"], disabled=True, key=f"compare_r_run_none_{selected_date}")
+            r_run_selected = None
 
     try:
         pnl = load_broker_pnl_for_date(selected_date)
@@ -565,7 +564,7 @@ if min_forecast_date is not None:
             scenario_outcomes = {}
         # The combined B/F + R chart replaces the plain B/F chart; the plain one is only the fallback when the combined one
         # can't be drawn (no Broker R run that day, or an error -- the caption says which). The day candle is only on the plain chart.
-        if not _render_compare_section(selected_date, forecast, scenario_outcomes, live_price):
+        if not _render_compare_section(selected_date, forecast, scenario_outcomes, live_price, r_run_selected):
             diagram_svg = render_diagram_svg(
                 levels["price"], levels["resistances"], levels["supports"], levels["scenarios"],
                 candle, live_price, scenario_outcomes,
