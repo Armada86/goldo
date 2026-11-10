@@ -313,17 +313,21 @@ def pause_note_html(pauses: list[tuple]) -> str:
 
 
 def _render_compare_section(selected_date, forecast, b_outcomes, live_price) -> None:
-    """Broker B / F levels (left) beside the nearest-in-time Broker R short-range levels (right) on one price axis (10 Nov 2026)."""
+    """Broker B / F levels (left) beside the nearest-in-time Broker R short-range levels (right) on one price axis (10 Nov 2026).
+    Always visible (no expander) and never silent: a missing Broker R run or an error is shown as a caption."""
+    st.markdown("**Broker B/F vs Broker R — same price axis**")
     try:
         r_runs = get_ta_short_forecasts_for_date(selected_date)
-    except Exception:
+    except Exception as e:
+        st.caption(f"Could not load Broker R's short-range runs: {e}")
         return
     if not r_runs:
+        st.caption("No Broker R short-range analysis recorded for this date, so there is nothing to compare.")
         return
-    labels = [f"{r['levels'].get('session', '?')} · {r['ts'].astimezone(DISPLAY_TZ):%H:%M} ET" for r in r_runs]
-    nearest = min(range(len(r_runs)), key=lambda i: abs((r_runs[i]["ts"] - forecast["ts"]).total_seconds()))
-    key = f"compare_r_run_{selected_date}_{forecast.get('id')}"
-    with st.expander("Compare with Broker R (same price axis)"):
+    try:
+        labels = [f"{r['levels'].get('session', '?')} · {r['ts'].astimezone(DISPLAY_TZ):%H:%M} ET" for r in r_runs]
+        nearest = min(range(len(r_runs)), key=lambda i: abs((r_runs[i]["ts"] - forecast["ts"]).total_seconds()))
+        key = f"compare_r_run_{selected_date}_{forecast.get('id')}"
         choice = st.selectbox("Broker R run", labels, index=nearest, key=key)
         r_run = r_runs[labels.index(choice)]
         r_levels = r_run["levels"] or {}
@@ -341,6 +345,9 @@ def _render_compare_section(selected_date, forecast, b_outcomes, live_price) -> 
             live_price=live_price,
         )
         st.markdown(f'<div class="goldo-diagram-wrap">{svg}</div>', unsafe_allow_html=True)
+    except Exception as e:
+        st.caption(f"Could not draw the comparison chart: {type(e).__name__}: {e}")
+
 
 def load_broker_pnl_for_date(d) -> dict:
     """Broker B (`broker_b_trades`), Broker F (`forex_b_trades`, live demo-account trades only) and Broker K (`broker_k_trades`) realized P&L, each on its own, for
