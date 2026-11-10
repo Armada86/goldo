@@ -11,11 +11,12 @@ from ta_forecast_job import (
     DIAGRAM_COLOR_RULE, DIAGRAM_COLOR_SUPPORT, DIAGRAM_MIN_LABEL_GAP, DIAGRAM_TOP, _fmt_zone,
 )
 
-WIDTH = 560
-LEFT_LABEL_X = 100      # left labels are right-aligned to this x
-LEFT_BAND_X, BAND_WIDTH = 106, 130
-AXIS_X = 260            # price tick labels, centered here
-RIGHT_BAND_X = 284
+WIDTH = 540
+LEFT_PAD = 20          # room for trade marks after the left labels (labels are right-aligned, so they grow leftwards)
+LEFT_LABEL_X = 104      # left labels are right-aligned to this x
+LEFT_BAND_X, BAND_WIDTH = 110, 120
+AXIS_X = 252            # price tick labels, centered here
+RIGHT_BAND_X = 274
 RIGHT_LABEL_X = RIGHT_BAND_X + BAND_WIDTH + 6
 LEGEND_HEIGHT = 36
 PLOT_HEIGHT = 440       # taller than the single-broker chart: only the first fade level per side + breakout stops are drawn
@@ -75,7 +76,7 @@ def render_compare_svg(
         parts.append(
             f'<line x1="{LEFT_BAND_X}" x2="{RIGHT_BAND_X + BAND_WIDTH}" y1="{y:.1f}" y2="{y:.1f}" stroke="{DIAGRAM_COLOR_RULE}" '
             f'stroke-width="0.5" stroke-dasharray="2 3"/>'
-            f'<text x="{AXIS_X}" y="{y + 3:.1f}" font-size="9" fill="{DIAGRAM_COLOR_MUTED}" text-anchor="middle">{tk:,.0f}</text>'
+            f'<text x="{AXIS_X}" y="{y + 3:.1f}" font-size="12" fill="{DIAGRAM_COLOR_MUTED}" text-anchor="middle">{tk:,.0f}</text>'
         )
 
     for (data, is_left, res, sup), stops in zip(sides, stops_by_side):
@@ -85,7 +86,7 @@ def render_compare_svg(
         outcomes = data.get("outcomes") or {}
         title = left_title if is_left else right_title
         parts.append(
-            f'<text x="{band_x + BAND_WIDTH / 2}" y="14" font-size="11" font-weight="700" fill="{DIAGRAM_COLOR_INK}" '
+            f'<text x="{band_x + BAND_WIDTH / 2}" y="16" font-size="14" font-weight="700" fill="{DIAGRAM_COLOR_INK}" '
             f'text-anchor="middle">{escape(title)}</text>'
         )
 
@@ -103,7 +104,7 @@ def render_compare_svg(
             rows.append((
                 (y_top + y_bot) / 2, zone["low"], color,
                 lambda ly, z=zone, c=color, m=marks, tp=tip: (
-                    f'<text x="{label_x}" y="{ly:.1f}" font-size="9.5" text-anchor="{anchor}" fill="{DIAGRAM_COLOR_INK}">'
+                    f'<text x="{label_x}" y="{ly:.1f}" font-size="13" text-anchor="{anchor}" fill="{DIAGRAM_COLOR_INK}">'
                     f'<tspan font-family="{MONO}" font-weight="600" fill="{c}">{_fmt_zone(z)}</tspan>{m}<title>{tp}</title></text>'
                 ),
             ))
@@ -115,7 +116,7 @@ def render_compare_svg(
         rows.append((
             y, price, DIAGRAM_COLOR_PRICE,
             lambda ly, p=price: (
-                f'<text x="{label_x}" y="{ly:.1f}" font-size="9.5" text-anchor="{anchor}" fill="{DIAGRAM_COLOR_INK}">'
+                f'<text x="{label_x}" y="{ly:.1f}" font-size="13" text-anchor="{anchor}" fill="{DIAGRAM_COLOR_INK}">'
                 f'<tspan font-family="{MONO}" font-weight="700" fill="{DIAGRAM_COLOR_PRICE}">{p:,.2f}</tspan> start</text>'
             ),
         ))
@@ -128,18 +129,18 @@ def render_compare_svg(
             parts.append(
                 f'<line x1="{band_x}" x2="{band_x + BAND_WIDTH}" y1="{ys:.1f}" y2="{ys:.1f}" stroke="{DIAGRAM_COLOR_MUTED}" '
                 f'stroke-width="1" stroke-dasharray="4 3"/>'
-                f'<text x="{band_x + 2}" y="{ys - 2:.1f}" font-size="7.5" fill="{DIAGRAM_COLOR_MUTED}">{stop:,.0f}</text>'
+                f'<text x="{band_x + 2}" y="{ys - 2:.1f}" font-size="10.5" fill="{DIAGRAM_COLOR_MUTED}">{stop:,.0f}</text>'
             )
             marks = _marks(outcomes.get(bname, {}).get("results", []))
             if marks:
-                parts.append(f'<text x="{band_x + BAND_WIDTH - 3}" y="{ys - 2.5:.1f}" font-size="10" text-anchor="end">{marks}</text>')
+                parts.append(f'<text x="{band_x + BAND_WIDTH - 3}" y="{ys - 2.5:.1f}" font-size="13" text-anchor="end">{marks}</text>')
 
         # Label pass, top to bottom, with the usual anti-collision nudge (per side) and a dashed leader when a label moved.
         rows.sort(key=lambda r: -r[1])
         prev = None
         edge_x = band_x if is_left else band_x + BAND_WIDTH
         for true_y, _sp, color, fn in rows:
-            natural = true_y + 3.3
+            natural = true_y + 4.5
             ly = natural if prev is None or natural - prev >= DIAGRAM_MIN_LABEL_GAP else prev + DIAGRAM_MIN_LABEL_GAP
             prev = ly
             if ly != natural:
@@ -161,20 +162,21 @@ def render_compare_svg(
     height = DIAGRAM_TOP + PLOT_HEIGHT + LEGEND_HEIGHT
     ly = height - 22
     live_legend = (
-        f'<line x1="326" x2="340" y1="{ly + 5}" y2="{ly + 5}" stroke="{DIAGRAM_COLOR_LIVE}" stroke-width="1.5" stroke-dasharray="1 3" stroke-linecap="round"/><text x="344" y="{ly + 9}">Live</text>'
+        f'<line x1="378" x2="392" y1="{ly + 6}" y2="{ly + 6}" stroke="{DIAGRAM_COLOR_LIVE}" stroke-width="1.5" '
+        f'stroke-dasharray="1 3" stroke-linecap="round"/><text x="396" y="{ly + 11}">Live</text>'
         if live_price is not None else ""
     )
     legend = (
-        f'<g font-size="9" fill="{DIAGRAM_COLOR_MUTED}">'
-        f'<rect x="106" y="{ly}" width="10" height="10" fill="{DIAGRAM_COLOR_RESISTANCE}" fill-opacity="0.5"/>'
-        f'<text x="120" y="{ly + 9}">Resistance</text>'
-        f'<rect x="184" y="{ly}" width="10" height="10" fill="{DIAGRAM_COLOR_SUPPORT}" fill-opacity="0.5"/>'
-        f'<text x="198" y="{ly + 9}">Support</text>'
-        f'<line x1="250" x2="264" y1="{ly + 5}" y2="{ly + 5}" stroke="{DIAGRAM_COLOR_PRICE}" stroke-width="1.5"/>'
-        f'<text x="268" y="{ly + 9}">Start price</text>{live_legend}</g>'
+        f'<g font-size="11" fill="{DIAGRAM_COLOR_MUTED}">'
+        f'<rect x="108" y="{ly}" width="11" height="11" fill="{DIAGRAM_COLOR_RESISTANCE}" fill-opacity="0.5"/>'
+        f'<text x="123" y="{ly + 11}">Resistance</text>'
+        f'<rect x="196" y="{ly}" width="11" height="11" fill="{DIAGRAM_COLOR_SUPPORT}" fill-opacity="0.5"/>'
+        f'<text x="211" y="{ly + 11}">Support</text>'
+        f'<line x1="272" x2="286" y1="{ly + 6}" y2="{ly + 6}" stroke="{DIAGRAM_COLOR_PRICE}" stroke-width="1.5"/>'
+        f'<text x="290" y="{ly + 11}">Start</text>{live_legend}</g>'
     )
     return (
         f'<svg viewBox="0 0 {WIDTH} {height}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block" '
         f'font-family="IBM Plex Sans, Arial, sans-serif" role="img" aria-label="Broker B/F and Broker R levels on one price axis">'
-        f'{"".join(parts)}{legend}</svg>'
+        f'<g transform="translate({LEFT_PAD},0)">{"".join(parts)}{legend}</g></svg>'
     )
