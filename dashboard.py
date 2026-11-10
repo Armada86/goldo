@@ -577,33 +577,18 @@ if min_forecast_date is not None:
     broker_r_view.render_trades(selected_date)
 
 def load_trades() -> pd.DataFrame:
-    """Broker B's `broker_b_trades`, Broker F's `forex_b_trades` (live demo-account trades only, not the shadow-mode records) and
-    Broker K's `broker_k_trades` (22 Oct 2026), merged into one timeline (not separate tables) via UNION ALL, most recent 20 combined by `open_ts` -- a `broker` column (added
-    here, not a real column on either table) says which engine opened each row. Broker A is deliberately not shown (user request,
-    13 Oct 2026)."""
+    """Broker F's `forex_b_trades` (live demo-account trades only, not the shadow-mode records), most recent 20 by `open_ts`.
+    This table used to merge Broker B, F and K; since 10 Nov 2026 (user request) it shows Broker F only."""
+    cols = ["rule_name", "trade_type", "entry_price", "open_ts", "triggering_alerts", "exit_price", "close_ts", "pnl", "status"]
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT to_regclass('forex_b_trades')")
-            has_f = cur.fetchone()[0] is not None  # created by init_db(); absent before Broker F first runs
-            cur.execute("SELECT to_regclass('broker_k_trades')")
-            has_k = cur.fetchone()[0] is not None  # likewise for Broker K
-        query = (
-            "SELECT 'Broker B' AS broker, rule_name, trade_type, entry_price, open_ts, "
-            "triggering_alerts, exit_price, close_ts, pnl, status FROM broker_b_trades "
+            if cur.fetchone()[0] is None:  # created by init_db(); absent before Broker F first runs
+                return pd.DataFrame(columns=cols)
+        return pd.read_sql(
+            f"SELECT {', '.join(cols)} FROM forex_b_trades WHERE mode = 'live' ORDER BY open_ts DESC LIMIT 20",
+            conn, parse_dates=["open_ts", "close_ts"],
         )
-        if has_f:
-            query += (
-                "UNION ALL "
-                "SELECT 'Broker F' AS broker, rule_name, trade_type, entry_price, open_ts, "
-                "triggering_alerts, exit_price, close_ts, pnl, status FROM forex_b_trades WHERE mode = 'live' "
-            )
-        if has_k:
-            query += (
-                "UNION ALL "
-                "SELECT 'Broker K' AS broker, rule_name, trade_type, entry_price, open_ts, "
-                "triggering_alerts, exit_price, close_ts, pnl, status FROM broker_k_trades "
-            )
-        return pd.read_sql(query + "ORDER BY open_ts DESC LIMIT 20", conn, parse_dates=["open_ts", "close_ts"])
 
 
 def to_display_str(ts: pd.Series) -> pd.Series:
@@ -613,13 +598,13 @@ def to_display_str(ts: pd.Series) -> pd.Series:
     return ts.dt.tz_convert(DISPLAY_TZ).dt.strftime("%Y-%m-%d %H:%M:%S %Z")
 
 
-st.subheader("Recent Trades")
+st.subheader("Broker F trades")
 try:
     trades = load_trades()
 except Exception as e:
     st.error(f"Could not load trades: {e}")
     trades = pd.DataFrame(
-        columns=["broker", "rule_name", "trade_type", "entry_price", "open_ts", "triggering_alerts",
+        columns=["rule_name", "trade_type", "entry_price", "open_ts", "triggering_alerts",
                  "exit_price", "close_ts", "pnl", "status"]
     )
 
@@ -636,15 +621,15 @@ if not trades.empty:
     trades["close_ts"] = trades["close_ts"].fillna("—")
     trades.insert(0, "#", range(len(trades)))
     trades = trades.rename(columns={
-        "broker": "Broker", "rule_name": "Rule", "trade_type": "Type", "entry_price": "Entry",
+        "rule_name": "Rule", "trade_type": "Type", "entry_price": "Entry",
         "open_ts": "Opened", "triggering_alerts": "Trigger", "exit_price": "Exit",
         "close_ts": "Closed", "pnl": "P&L", "status": "Status",
     })
     # P&L third, Opened fourth (counting the "#" column as first).
-    trades = trades[["#", "Broker", "P&L", "Opened", "Rule", "Type", "Entry", "Trigger", "Exit", "Closed", "Status"]]
+    trades = trades[["#", "P&L", "Opened", "Rule", "Type", "Entry", "Trigger", "Exit", "Closed", "Status"]]
 
 if trades.empty:
-    st.write("No trades recorded yet.")
+    st.write("No Broker F trades recorded yet.")
 else:
     # st.dataframe doesn't style the plain pandas index (confirmed empirically -- a Styler.apply_index()
     # renders with no visible effect there), so the row-number "#" column above is a real data column
