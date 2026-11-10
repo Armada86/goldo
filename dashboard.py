@@ -381,6 +381,7 @@ except Exception as e:
     st.error(f"Could not load the forecast date range: {e}")
     min_forecast_date = None
 
+selected_date = datetime.now(DISPLAY_TZ).date()  # fallback when the forecast section is skipped
 if min_forecast_date is not None:
     today_et = now_local.date()
 
@@ -574,10 +575,10 @@ if min_forecast_date is not None:
     elif selected_date != today_et:
         st.caption(f"No forecast recorded for {selected_date:%Y-%m-%d} (weekend, holiday, or a day the job didn't run).")
 
-    broker_r_view.render_trades(selected_date)
 
-def load_trades() -> pd.DataFrame:
-    """Broker F's `forex_b_trades` (live demo-account trades only, not the shadow-mode records), most recent 20 by `open_ts`.
+def load_trades(d) -> pd.DataFrame:
+    """Broker F's `forex_b_trades` (live demo-account trades only, not the shadow-mode records) that opened or closed on ET date `d`
+    (the date selected at the top; 10 Nov 2026, user request -- was the most recent 20 regardless of date), oldest first.
     This table used to merge Broker B, F and K; since 10 Nov 2026 (user request) it shows Broker F only."""
     cols = ["rule_name", "trade_type", "entry_price", "open_ts", "triggering_alerts", "exit_price", "close_ts", "pnl", "status"]
     with get_connection() as conn:
@@ -586,8 +587,10 @@ def load_trades() -> pd.DataFrame:
             if cur.fetchone()[0] is None:  # created by init_db(); absent before Broker F first runs
                 return pd.DataFrame(columns=cols)
         return pd.read_sql(
-            f"SELECT {', '.join(cols)} FROM forex_b_trades WHERE mode = 'live' ORDER BY open_ts DESC LIMIT 20",
-            conn, parse_dates=["open_ts", "close_ts"],
+            f"SELECT {', '.join(cols)} FROM forex_b_trades WHERE mode = 'live' "
+            "AND ((open_ts AT TIME ZONE 'America/New_York')::date = %(d)s OR (close_ts AT TIME ZONE 'America/New_York')::date = %(d)s) "
+            "ORDER BY open_ts",
+            conn, params={"d": d}, parse_dates=["open_ts", "close_ts"],
         )
 
 
@@ -600,7 +603,7 @@ def to_display_str(ts: pd.Series) -> pd.Series:
 
 st.subheader("Broker F trades")
 try:
-    trades = load_trades()
+    trades = load_trades(selected_date)
 except Exception as e:
     st.error(f"Could not load trades: {e}")
     trades = pd.DataFrame(
@@ -629,7 +632,7 @@ if not trades.empty:
     trades = trades[["#", "P&L", "Opened", "Rule", "Type", "Entry", "Trigger", "Exit", "Closed", "Status"]]
 
 if trades.empty:
-    st.write("No Broker F trades recorded yet.")
+    st.write("No Broker F trades on this date.")
 else:
     # st.dataframe doesn't style the plain pandas index (confirmed empirically -- a Styler.apply_index()
     # renders with no visible effect there), so the row-number "#" column above is a real data column
@@ -647,3 +650,50 @@ else:
         return colors
 
     st.dataframe(trades.style.apply(_color_row_number, subset=["#"]), width='stretch', hide_index=True)
+
+# Broker R's table (own module), then Broker K's below -- order F, R, K; all three titles are st.subheader.
+broker_r_view.render_trades(selected_date)
+
+
+def load_trades_k(d) -> pd.DataFrame:
+    """Broker K's `broker_k_trades` that opened or closed on ET date `d`, oldest first."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT to_regclass('broker_k_trades')")
+            if cur.fetchone()[0] is None:
+                return pd.DataFrame()
+        return pd.read_sql(
+            "SELECT id, rule_name, entry_price, open_ts, exit_price, close_ts, pnl, exit_reason, status FROM broker_k_trades "
+            "WHERE (open_ts AT TIME ZONE 'America/New_York')::date = %(d)s OR (close_ts AT TIME ZONE 'America/New_York')::date = %(d)s "
+            "ORDER BY open_ts",
+            conn, params={"d": d}, parse_dates=["open_ts", "close_ts"],
+        )
+
+
+st.subheader("Broker K trades")
+try:
+    k_trades = load_trades_k(selected_date)
+except Exception as e:
+    st.caption(f"Could not load Broker K trades: {e}")
+    k_trades = pd.DataFrame()
+if k_trades.empty:
+    st.caption("No Broker K trades on this date.")
+else:
+    k_won = [None if pd.isna(v) else (True if v > 0 else (False if v < 0 else None)) for v in k_trades["pnl"]]
+    k_table = pd.DataFrame({
+        "#": k_trades["id"],
+        "P&L": k_trades["pnl"].map(lambda v: "—" if pd.isna(v) else f"${v:+,.2f}"),
+        "Opened": to_display_str(k_trades["open_ts"]),
+        "Rule": k_trades["rule_name"],
+        "Entry": k_trades["entry_price"].map("${:,.2f}".format),
+        "Exit": k_trades["exit_price"].map(lambda v: "—" if pd.isna(v) else f"${v:,.2f}"),
+        "Closed": to_display_str(k_trades["close_ts"]).fillna("—"),
+        "Reason": k_trades["exit_reason"].fillna("open"),
+        "Status": k_trades["status"],
+    })
+
+    def _color_k(_col):
+        return ["background-color: #1a7f37; color: white; font-weight: 700;" if w is True
+                else "background-color: #cf222e; color: white; font-weight: 700;" if w is False else "" for w in k_won]
+
+    st.dataframe(k_table.style.apply(_color_k, subset=["#"]), width='stretch', hide_index=True)
