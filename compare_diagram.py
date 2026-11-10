@@ -8,8 +8,7 @@ from html import escape
 
 from ta_forecast_job import (
     DIAGRAM_COLOR_INK, DIAGRAM_COLOR_LIVE, DIAGRAM_COLOR_MUTED, DIAGRAM_COLOR_PRICE, DIAGRAM_COLOR_RESISTANCE,
-    DIAGRAM_COLOR_RULE, DIAGRAM_COLOR_SUPPORT, DIAGRAM_MAX_ZONES_PER_SIDE, DIAGRAM_MIN_LABEL_GAP, DIAGRAM_PLOT_HEIGHT,
-    DIAGRAM_PRICE_DOT_RADIUS, DIAGRAM_TOP, _fmt_zone,
+    DIAGRAM_COLOR_RULE, DIAGRAM_COLOR_SUPPORT, DIAGRAM_MIN_LABEL_GAP, DIAGRAM_TOP, _fmt_zone,
 )
 
 WIDTH = 560
@@ -19,6 +18,8 @@ AXIS_X = 260            # price tick labels, centered here
 RIGHT_BAND_X = 284
 RIGHT_LABEL_X = RIGHT_BAND_X + BAND_WIDTH + 6
 LEGEND_HEIGHT = 36
+PLOT_HEIGHT = 440       # taller than the single-broker chart: only the first fade level per side + breakout stops are drawn
+ZONES_PER_SIDE = 1      # the first (traded) fade level each side; the breakout/breakdown levels are the stop lines
 MONO = "IBM Plex Mono, ui-monospace, monospace"
 
 
@@ -41,7 +42,7 @@ def render_compare_svg(
     for data, is_left in ((left, True), (right, False)):
         sides.append((
             data, is_left,
-            data["resistances"][:DIAGRAM_MAX_ZONES_PER_SIDE], data["supports"][:DIAGRAM_MAX_ZONES_PER_SIDE],
+            data["resistances"][:ZONES_PER_SIDE], data["supports"][:ZONES_PER_SIDE],
         ))
 
     values = [live_price] if live_price is not None else []
@@ -59,7 +60,7 @@ def render_compare_svg(
     span = hi - lo
 
     def y_of(p: float) -> float:
-        return DIAGRAM_TOP + (hi - p) / span * DIAGRAM_PLOT_HEIGHT
+        return DIAGRAM_TOP + (hi - p) / span * PLOT_HEIGHT
 
     step = tick_step or (100 if span > 500 else 50 if span > 200 else 25 if span > 80 else 10 if span > 40 else 5)
     ticks, t = [], math.ceil(lo / step) * step
@@ -151,14 +152,16 @@ def render_compare_svg(
             parts.append(fn(ly))
 
     if live_price is not None:
+        yl = y_of(live_price)
         parts.append(
-            f'<circle cx="{AXIS_X}" cy="{y_of(live_price):.1f}" r="{DIAGRAM_PRICE_DOT_RADIUS}" fill="{DIAGRAM_COLOR_LIVE}"/>'
+            f'<line x1="{LEFT_BAND_X}" x2="{RIGHT_BAND_X + BAND_WIDTH}" y1="{yl:.1f}" y2="{yl:.1f}" stroke="{DIAGRAM_COLOR_LIVE}" '
+            f'stroke-width="1.25" stroke-dasharray="1 3" stroke-linecap="round"/>'
         )
 
-    height = DIAGRAM_TOP + DIAGRAM_PLOT_HEIGHT + LEGEND_HEIGHT
+    height = DIAGRAM_TOP + PLOT_HEIGHT + LEGEND_HEIGHT
     ly = height - 22
     live_legend = (
-        f'<circle cx="326" cy="{ly + 5}" r="{DIAGRAM_PRICE_DOT_RADIUS}" fill="{DIAGRAM_COLOR_LIVE}"/><text x="336" y="{ly + 9}">Live</text>'
+        f'<line x1="326" x2="340" y1="{ly + 5}" y2="{ly + 5}" stroke="{DIAGRAM_COLOR_LIVE}" stroke-width="1.5" stroke-dasharray="1 3" stroke-linecap="round"/><text x="344" y="{ly + 9}">Live</text>'
         if live_price is not None else ""
     )
     legend = (
