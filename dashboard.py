@@ -652,6 +652,7 @@ else:
     st.dataframe(trades.style.apply(_color_row_number, subset=["#"]), width='stretch', hide_index=True)
 
 # Broker R's table (own module), then Broker K's below -- order F, R, K; all three titles are st.subheader.
+st.subheader("Broker R trades")
 broker_r_view.render_trades(selected_date)
 
 
