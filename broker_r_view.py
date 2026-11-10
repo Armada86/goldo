@@ -63,7 +63,6 @@ def traded_levels(levels: dict) -> tuple[list[dict], list[dict], list[dict]]:
 
 def render_trades(d: date) -> None:
     """Broker R's trades for ET date `d`, same look as the Recent Trades table: "#" first, green (win) / red (loss)."""
-    st.subheader("Broker R trades")
     try:
         trades = load_trades_for_date(d)
     except Exception as e:
