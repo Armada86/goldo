@@ -30,7 +30,7 @@ from config import (
     FADE_STOP_LOSS_CAP,
 )
 from storage import get_connection, get_stop_settings_as_of, get_ta_short_forecasts_for_date
-import short_ta_page
+import broker_r_view
 import weekly_pnl
 from compare_diagram import render_compare_svg
 from ta_forecast_job import render_diagram_svg
@@ -101,7 +101,7 @@ st.caption(f"Page refreshes every 5 min · last loaded {now_local.strftime('%Y-%
 
 # Top menu. The page lives in the URL (?page=weekly) so the 5-minute meta refresh above doesn't bounce the
 # viewer back to the first page.
-PAGES = {"dashboard": "Dashboard", "weekly": "Weekly P&L", "short": "Short TA (R)"}
+PAGES = {"dashboard": "Dashboard", "weekly": "Weekly P&L"}
 _current = st.query_params.get("page", "dashboard")
 if _current not in PAGES:
     _current = "dashboard"
@@ -114,9 +114,6 @@ if _choice != _current:
     st.rerun()
 if _choice == "weekly":
     weekly_pnl.render()
-    st.stop()
-if _choice == "short":
-    short_ta_page.render()
     st.stop()
 
 # The daily XAU/USD technical forecast (ta_forecast_job.py, 12am/midday ET weekdays) -- shown at the
@@ -323,11 +320,11 @@ def _render_compare_section(selected_date, forecast, b_outcomes, live_price, r_r
     try:
         r_levels = r_run["levels"] or {}
         try:
-            r_trades = short_ta_page.load_trades_for_date(selected_date)
-            r_outcomes = short_ta_page.outcomes_for(r_trades, r_run["id"]) if not r_trades.empty else {}
+            r_trades = broker_r_view.load_trades_for_date(selected_date)
+            r_outcomes = broker_r_view.outcomes_for(r_trades, r_run["id"]) if not r_trades.empty else {}
         except Exception:
             r_outcomes = {}
-        r_res, r_sup, r_sc = short_ta_page.traded_levels(r_levels)
+        r_res, r_sup, r_sc = broker_r_view.traded_levels(r_levels)
         b_levels = forecast["levels"]
         svg = render_compare_svg(
             {"price": b_levels["price"], "resistances": b_levels["resistances"], "supports": b_levels["supports"],
@@ -576,6 +573,8 @@ if min_forecast_date is not None:
             st.text(forecast["analysis"])
     elif selected_date != today_et:
         st.caption(f"No forecast recorded for {selected_date:%Y-%m-%d} (weekend, holiday, or a day the job didn't run).")
+
+    broker_r_view.render_trades(selected_date)
 
 def load_trades() -> pd.DataFrame:
     """Broker B's `broker_b_trades`, Broker F's `forex_b_trades` (live demo-account trades only, not the shadow-mode records) and
