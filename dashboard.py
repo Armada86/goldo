@@ -313,7 +313,7 @@ def pause_note_html(pauses: list[tuple]) -> str:
 
 
 def _render_compare_section(selected_date, forecast, b_outcomes, live_price) -> bool:
-    """Broker B / F levels (left) beside the newest Broker R short-range levels (right) on one price axis (10 Nov 2026).
+    """Broker B / F levels (left) beside Broker R's short-range levels (newest run by default) (right) on one price axis (10 Nov 2026).
     Always visible (no expander) and never silent: a missing Broker R run or an error is shown as a caption.
     Returns True if the chart was drawn (the caller then skips the plain Broker B/F chart, 10 Nov 2026 user request)."""
     st.markdown("**Broker B/F vs Broker R — same price axis**")
@@ -326,12 +326,12 @@ def _render_compare_section(selected_date, forecast, b_outcomes, live_price) -> 
         st.caption("No Broker R short-range analysis recorded for this date, so showing the Broker B/F chart alone.")
         return False
     try:
-        # Always the newest Broker R run of the selected date (user request, 10 Nov 2026) -- no run picker, nothing older.
-        r_run = r_runs[-1]
-        st.caption(
-            f"Broker B/F: {forecast['ts'].astimezone(DISPLAY_TZ):%H:%M} ET · "
-            f"Broker R: {r_run['levels'].get('session', '?')} {r_run['ts'].astimezone(DISPLAY_TZ):%H:%M} ET"
-        )
+        # Broker R run picker (user request, 10 Nov 2026): defaults to the newest run. The widget key includes the newest run's id, so
+        # when a new run arrives the key changes and the picker resets to it instead of keeping a stale earlier choice.
+        labels = [f"{r['levels'].get('session', '?')} · {r['ts'].astimezone(DISPLAY_TZ):%H:%M} ET" for r in r_runs]
+        key = f"compare_r_run_{selected_date}_{forecast.get('id')}_{r_runs[-1]['id']}"
+        choice = st.selectbox("Broker R run", labels, index=len(labels) - 1, key=key)
+        r_run = r_runs[labels.index(choice)]
         r_levels = r_run["levels"] or {}
         try:
             r_trades = short_ta_page.load_trades_for_date(selected_date)
