@@ -29,9 +29,10 @@ from config import (
     FADE_NO_TRAIL_MAX_LOCK_DISTANCE,
     FADE_STOP_LOSS_CAP,
 )
-from storage import get_connection, get_stop_settings_as_of
+from storage import get_connection, get_stop_settings_as_of, get_ta_short_forecasts_for_date
 import short_ta_page
 import weekly_pnl
+from compare_diagram import render_compare_svg
 from ta_forecast_job import render_diagram_svg
 
 st.set_page_config(page_title="Goldo", layout="wide")
@@ -528,12 +529,43 @@ if min_forecast_date is not None:
         # Wrapped in .goldo-diagram-wrap so the laptop/desktop media query above can cap+center it --
         # see that rule's comment for why the SVG needs a sized container to cap against.
         st.markdown(f'<div class="goldo-diagram-wrap">{diagram_svg}</div>', unsafe_allow_html=True)
+        _render_compare_section(selected_date, forecast, scenario_outcomes, live_price)
         if forecast_local.date() >= BROKER_B_RULES_SHOWN_FROM:
             st.markdown(broker_b_entry_rules_html(forecast["ts"]), unsafe_allow_html=True)
         with st.expander("Full forecast text"):
             st.text(forecast["analysis"])
     elif selected_date != today_et:
         st.caption(f"No forecast recorded for {selected_date:%Y-%m-%d} (weekend, holiday, or a day the job didn't run).")
+
+def _render_compare_section(selected_date, forecast, b_outcomes, live_price) -> None:
+    """Broker B / F levels (left) beside the nearest-in-time Broker R short-range levels (right) on one price axis (10 Nov 2026)."""
+    try:
+        r_runs = get_ta_short_forecasts_for_date(selected_date)
+    except Exception:
+        return
+    if not r_runs:
+        return
+    labels = [f"{r['levels'].get('session', '?')} · {r['ts'].astimezone(DISPLAY_TZ):%H:%M} ET" for r in r_runs]
+    nearest = min(range(len(r_runs)), key=lambda i: abs((r_runs[i]["ts"] - forecast["ts"]).total_seconds()))
+    key = f"compare_r_run_{selected_date}_{forecast.get('id')}"
+    with st.expander("Compare with Broker R (same price axis)"):
+        choice = st.selectbox("Broker R run", labels, index=nearest, key=key)
+        r_run = r_runs[labels.index(choice)]
+        r_levels = r_run["levels"] or {}
+        try:
+            r_trades = short_ta_page.load_trades_for_date(selected_date)
+            r_outcomes = short_ta_page.outcomes_for(r_trades, r_run["id"]) if not r_trades.empty else {}
+        except Exception:
+            r_outcomes = {}
+        r_res, r_sup, r_sc = short_ta_page.traded_levels(r_levels)
+        b_levels = forecast["levels"]
+        svg = render_compare_svg(
+            {"price": b_levels["price"], "resistances": b_levels["resistances"], "supports": b_levels["supports"],
+             "scenarios": b_levels["scenarios"], "outcomes": b_outcomes},
+            {"price": r_levels["price"], "resistances": r_res, "supports": r_sup, "scenarios": r_sc, "outcomes": r_outcomes},
+            live_price=live_price,
+        )
+        st.markdown(f'<div class="goldo-diagram-wrap">{svg}</div>', unsafe_allow_html=True)
 
 def load_trades() -> pd.DataFrame:
     """Broker B's `broker_b_trades`, Broker F's `forex_b_trades` (live demo-account trades only, not the shadow-mode records) and
