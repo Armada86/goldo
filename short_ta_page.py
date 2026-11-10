@@ -70,6 +70,23 @@ def _fmt_ts(ts) -> str:
     return "—" if ts is None or pd.isna(ts) else pd.Timestamp(ts).tz_convert(DISPLAY_TZ).strftime("%H:%M")
 
 
+def traded_levels(levels: dict) -> tuple[list[dict], list[dict], list[dict]]:
+    """(resistances, supports, scenarios) reduced to the two levels Broker R actually trades (the scenarios' entries), with no
+    stop-loss lines: older rows were stored with extra zones and the diagram would draw all of them."""
+    scenarios = levels.get("scenarios", [])
+    entry = {sc["name"]: sc["entry"]["low"] for sc in scenarios}
+
+    def traded(zones, name, edge):
+        hit = [z for z in zones if name in entry and abs(z[edge] - entry[name]) < 0.01]
+        return hit or zones[:1]
+
+    return (
+        traded(levels.get("resistances", []), "sell_resistance", "low"),
+        traded(levels.get("supports", []), "buy_support", "high"),
+        [{k: v for k, v in sc.items() if k != "stop"} for sc in scenarios],
+    )
+
+
 def render() -> None:
     st.subheader("Broker R · short-range technical analysis")
     st.caption(
@@ -124,19 +141,9 @@ def render() -> None:
     )
 
     live = load_latest_gold_price() if selected == today else None
-    # Only the two levels Broker R actually trades (the scenarios' entries), with no stop-loss lines: older rows were stored
-    # with extra zones and the diagram would draw all of them.
-    scenarios = levels.get("scenarios", [])
-    entry = {sc["name"]: sc["entry"]["low"] for sc in scenarios}
-
-    def traded(zones, name, edge):
-        hit = [z for z in zones if name in entry and abs(z[edge] - entry[name]) < 0.01]
-        return hit or zones[:1]
-
-    resistances = traded(levels.get("resistances", []), "sell_resistance", "low")
-    supports = traded(levels.get("supports", []), "buy_support", "high")
+    resistances, supports, scenarios = traded_levels(levels)
     svg = render_diagram_svg(
-        levels["price"], resistances, supports, [{k: v for k, v in sc.items() if k != "stop"} for sc in scenarios],
+        levels["price"], resistances, supports, scenarios,
         live_price=live, scenario_outcomes=outcomes_for(trades, run["id"]), tick_step=5, stop_legend=None,
     )
     st.markdown(f'<div class="goldo-diagram-wrap">{svg}</div>', unsafe_allow_html=True)
