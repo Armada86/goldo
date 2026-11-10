@@ -312,18 +312,19 @@ def pause_note_html(pauses: list[tuple]) -> str:
     return f"<span style='color:#cf222e;font-size:14px;font-weight:600;margin-left:12px;'>{text}</span>"
 
 
-def _render_compare_section(selected_date, forecast, b_outcomes, live_price) -> None:
+def _render_compare_section(selected_date, forecast, b_outcomes, live_price) -> bool:
     """Broker B / F levels (left) beside the nearest-in-time Broker R short-range levels (right) on one price axis (10 Nov 2026).
-    Always visible (no expander) and never silent: a missing Broker R run or an error is shown as a caption."""
+    Always visible (no expander) and never silent: a missing Broker R run or an error is shown as a caption.
+    Returns True if the chart was drawn (the caller then skips the plain Broker B/F chart, 10 Nov 2026 user request)."""
     st.markdown("**Broker B/F vs Broker R — same price axis**")
     try:
         r_runs = get_ta_short_forecasts_for_date(selected_date)
     except Exception as e:
         st.caption(f"Could not load Broker R's short-range runs: {e}")
-        return
+        return False
     if not r_runs:
-        st.caption("No Broker R short-range analysis recorded for this date, so there is nothing to compare.")
-        return
+        st.caption("No Broker R short-range analysis recorded for this date, so showing the Broker B/F chart alone.")
+        return False
     try:
         labels = [f"{r['levels'].get('session', '?')} · {r['ts'].astimezone(DISPLAY_TZ):%H:%M} ET" for r in r_runs]
         nearest = min(range(len(r_runs)), key=lambda i: abs((r_runs[i]["ts"] - forecast["ts"]).total_seconds()))
@@ -345,8 +346,10 @@ def _render_compare_section(selected_date, forecast, b_outcomes, live_price) -> 
             live_price=live_price,
         )
         st.markdown(f'<div class="goldo-diagram-wrap">{svg}</div>', unsafe_allow_html=True)
+        return True
     except Exception as e:
         st.caption(f"Could not draw the comparison chart: {type(e).__name__}: {e}")
+        return False
 
 
 def load_broker_pnl_for_date(d) -> dict:
@@ -559,14 +562,14 @@ if min_forecast_date is not None:
         except Exception as e:
             st.error(f"Could not load Broker B outcomes for this forecast: {e}")
             scenario_outcomes = {}
-        diagram_svg = render_diagram_svg(
-            levels["price"], levels["resistances"], levels["supports"], levels["scenarios"],
-            candle, live_price, scenario_outcomes,
-        )
-        # Wrapped in .goldo-diagram-wrap so the laptop/desktop media query above can cap+center it --
-        # see that rule's comment for why the SVG needs a sized container to cap against.
-        st.markdown(f'<div class="goldo-diagram-wrap">{diagram_svg}</div>', unsafe_allow_html=True)
-        _render_compare_section(selected_date, forecast, scenario_outcomes, live_price)
+        # The combined B/F + R chart replaces the plain B/F chart; the plain one is only the fallback when the combined one
+        # can't be drawn (no Broker R run that day, or an error -- the caption says which). The day candle is only on the plain chart.
+        if not _render_compare_section(selected_date, forecast, scenario_outcomes, live_price):
+            diagram_svg = render_diagram_svg(
+                levels["price"], levels["resistances"], levels["supports"], levels["scenarios"],
+                candle, live_price, scenario_outcomes,
+            )
+            st.markdown(f'<div class="goldo-diagram-wrap">{diagram_svg}</div>', unsafe_allow_html=True)
         if forecast_local.date() >= BROKER_B_RULES_SHOWN_FROM:
             st.markdown(broker_b_entry_rules_html(forecast["ts"]), unsafe_allow_html=True)
         with st.expander("Full forecast text"):
