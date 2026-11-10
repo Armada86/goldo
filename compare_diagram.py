@@ -157,6 +157,12 @@ def render_compare_svg(
         parts.append(
             f'<line x1="{LEFT_BAND_X}" x2="{RIGHT_BAND_X + BAND_WIDTH}" y1="{yl:.1f}" y2="{yl:.1f}" stroke="{DIAGRAM_COLOR_LIVE}" '
             f'stroke-width="1.25" stroke-dasharray="1 3" stroke-linecap="round"/>'
+            # The number, centered on the line in the middle of the chart, on a white plate so it stays readable over the
+            # price-scale labels and gridlines (10 Nov 2026, user request).
+            f'<rect x="{AXIS_X - 33}" y="{yl - 9:.1f}" width="66" height="18" rx="3" fill="#ffffff" stroke="{DIAGRAM_COLOR_LIVE}" '
+            f'stroke-width="1"/>'
+            f'<text x="{AXIS_X}" y="{yl + 4.5:.1f}" font-size="13" font-weight="700" text-anchor="middle" '
+            f'font-family="{MONO}" fill="{DIAGRAM_COLOR_LIVE}">{live_price:,.2f}</text>'
         )
 
     height = DIAGRAM_TOP + PLOT_HEIGHT + LEGEND_HEIGHT
