@@ -66,8 +66,8 @@ def render() -> None:
     week_start = daily.index - pd.to_timedelta(daily.index.weekday, unit="D")
     header = "".join(f"<th style='text-align:right;'>{b}</th>" for b in brokers)
     # Last column: F + K only (Broker B and Broker R are left out; user request, 6 Nov 2026).
-    counted = ["Broker F", "Broker R"]
-    header += "<th style='text-align:right;'>Total (F+R)</th>"
+    counted = ["Broker F", "Broker R", "Broker K"]
+    header += "<th style='text-align:right;'>Total (F+R+K)</th>"
     html = [
         "<style>.goldo-weekly {width:100%;border-collapse:collapse;font-size:13px;}"
         ".goldo-weekly th,.goldo-weekly td {padding:4px 8px;border-bottom:1px solid rgba(128,128,128,.25);}"
