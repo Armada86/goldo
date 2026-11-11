@@ -84,8 +84,8 @@ New studies from 38 up join this review the same way. Items to cover each time (
     forecasts since 23 Sep and compare with the 5 Nov table: do levels still beat the shifted-zones chance baseline (turns within $5 of a zone 45% vs 28%), is the nearest zone still the only one that
     matters, do the source categories keep their order (4h swing / pivot bounce best, prior-day / 20-day range worst), and do the first Fibonacci-labelled zones (study 38) bounce more or less than the
     rest. Observation only; reads no trades, so the Broker-F-only rule does not apply.
-12. Study 42: the Broker F daily reviews (`broker_f_daily_reviews`, added 11 Nov 2026). Each review's fixes section says no decision can be made on one trade, so read all of them together:
-    `SELECT review_date, trade_count, total_pnl, analysis, trade_reviews FROM broker_f_daily_reviews ORDER BY review_date`. Method and the questions to answer are in `docs/studies-25-plus.md`
+12. Study 42: the Broker F daily reviews (saved in `broker_daily_reviews`, per the user 11 Nov 2026; `broker_f_daily_reviews` is also checked in case some are there). Each review's fixes section says no decision can be made on one trade, so read all of them together:
+    `SELECT review_date, trade_count, total_pnl, analysis, trade_reviews FROM broker_daily_reviews ORDER BY review_date` (plus the same on `broker_f_daily_reviews`). Method and the questions to answer are in `docs/studies-25-plus.md`
     study 42. Observation only; the reviews are Broker F's own, so the Broker-F-only rule is met.
 
 **Broker A is excluded from every study (user rule, 3 Nov 2026).** No study, replay, analysis or recorded total reads Broker A's trades, signals or blocked entries
