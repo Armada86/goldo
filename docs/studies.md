@@ -56,7 +56,7 @@ missing. Add new ones at the bottom of their section (or under "Open / to repeat
 Studies 25 and up (Broker B and F fades, levels, filters, exits, the TA bias study, the quiet-market study, Broker K, the DXY block study, the Broker R +$7/-$4 shadow exit, plus the 31 Oct review result) are in `docs/studies-25-plus.md`.
 
 ## Open / to repeat
-**Monthly combined review, every last Saturday of the month (set 2 Nov 2026). Next: Saturday 28 Nov 2026.** Studies 25, 26, 27, 28, 35, 36, 37, 38, 39, 40 and 41 (everything from 25 up) run
+**Monthly combined review, every last Saturday of the month (set 2 Nov 2026). Next: Saturday 28 Nov 2026.** Studies 25, 26, 27, 28, 35, 36, 37, 38, 39, 40, 41 and 42 (everything from 25 up) run
 together as **one study with one result**, on one shared data set and one replay engine, as on 31 Oct. They are not scheduled or reported separately. Studies 1-24 are not part of it.
 New studies from 38 up join this review the same way. Items to cover each time (the first review's list):
 1. Study 26: the effect of `spike_fade` 2.0 on trades since 31 Oct (blocked fades and what they would have done).
@@ -84,6 +84,9 @@ New studies from 38 up join this review the same way. Items to cover each time (
     forecasts since 23 Sep and compare with the 5 Nov table: do levels still beat the shifted-zones chance baseline (turns within $5 of a zone 45% vs 28%), is the nearest zone still the only one that
     matters, do the source categories keep their order (4h swing / pivot bounce best, prior-day / 20-day range worst), and do the first Fibonacci-labelled zones (study 38) bounce more or less than the
     rest. Observation only; reads no trades, so the Broker-F-only rule does not apply.
+12. Study 42: the Broker F daily reviews (`broker_f_daily_reviews`, added 11 Nov 2026). Each review's fixes section says no decision can be made on one trade, so read all of them together:
+    `SELECT review_date, trade_count, total_pnl, analysis, trade_reviews FROM broker_f_daily_reviews ORDER BY review_date`. Method and the questions to answer are in `docs/studies-25-plus.md`
+    study 42. Observation only; the reviews are Broker F's own, so the Broker-F-only rule is met.
 
 **Broker A is excluded from every study (user rule, 3 Nov 2026).** No study, replay, analysis or recorded total reads Broker A's trades, signals or blocked entries
 (`trades`, `broker_a_blocked`), and nothing Broker A did feeds any setting. Broker B and Broker F run the same rules and are studied as below; a Broker K study uses Broker K's own
