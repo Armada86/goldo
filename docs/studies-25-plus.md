@@ -407,3 +407,17 @@ Ranked suggestions, and what was done (user approved all four on 31 Oct 2026):
     to re-check the grid region (is 7/4 still inside the best region? is SL 3.5-4.5 still better than 5? did TP 8-9 take over?). Judge on out-of-sample trades since 6 Nov only; trades closed by `stop trading`
     (`exit_reason` Stop) are excluded. A change of `R_TAKE_PROFIT` / `R_STOP_LOSS` also needs `brokerRStatusLines()` in the Worker and the Broker R text in `CLAUDE.md` / `docs/broker-r.md` updated.
     Switch only if the shadow is ahead with a paired t of about 2 or more on 100 or more trades (fewer: keep logging); nothing is changed without the user's approval.
+
+## Study 42 (11 Nov 2026): do the Broker F daily reviews show a repeating problem? (added to the 28 Nov review)
+42. **Is anything in the Broker F daily reviews persistent and repeated across days, and so worth acting on?** Each day's review (Telegram 🟪 `BROKER F DAILY REVIEW`, saved in
+    `broker_daily_reviews`, as the user confirmed 11 Nov 2026) ends with fixes, and each one says no decision can be made from a single trade. Read alone they can never justify a change, so the monthly review reads them all together.
+    Observation only: it changes no rule or setting without the user's approval. Broker F's own reviews, so the Broker-F-only rule is met; Broker A/B/K/R reviews are not read.
+  - *Data:* `SELECT review_date, trade_count, total_pnl, analysis, trade_reviews FROM broker_daily_reviews ORDER BY review_date`; also query `broker_f_daily_reviews` and use whichever has the Broker F reviews. `review_date` is unique per table, so a day's A/B and F reviews cannot both sit in `broker_daily_reviews`: check what each row's text covers (Broker F trades only, from `forex_b_trades`) and which days are missing (run in Actions or the Neon SQL editor; the sandbox cannot reach port 5432).
+    Join each `trade_reviews` entry to its `forex_b_trades` row (rule, exit reason, `entry_context`, `exit_context`) so a theme can be counted rather than quoted.
+  - *Method:* (1) list every "bad" and "improve" point from every review and group them into themes (the same filter or gate named, the same rule, hour, exit reason, spread/ATR/ADX/RSI condition, level source);
+    (2) for each theme count the distinct trades and days it appears on, and its P/L on those trades against the rest; (3) mark a theme "repeating" only if it appears on at least 3 separate days and 5 or more trades,
+    and "persistent" if it is also still there in the most recent week; (4) check each repeating theme against the studies already in this file (is it already covered, shadow-logged or rejected?) so nothing is re-studied
+    from scratch; (5) for the new ones, replay on the live trades with the live exit rule and, only if it still holds, write it up as a proposal with the sample size. Also note fixes the reviews suggested that were
+    later applied, and whether the same complaint stopped after the change.
+  - *Limits:* the reviews are written by an agent after the close, so the wording drifts and a theme can hide under different names; the counts come from the trades, not the prose. Few trades per day, so
+    most themes will stay below the thresholds in step 3 -- say so rather than force a result.
