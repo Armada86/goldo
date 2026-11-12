@@ -224,6 +224,12 @@ SHADOW_QUIET_MAX_ADX = 20.0
 # hand-picked from a third-party report (4 Nov 2026), not calibrated; the raw values are logged so the 28 Nov review can pick better ones.
 SHADOW_STRETCHED_BB_POS = 1.0
 SHADOW_STRETCHED_EXT_PCT = 2.0
+# Candle-pattern shadow flag (12 Nov 2026, LOG ONLY, Broker B and Broker F, every rule, study 43 in docs/studies-25-plus.md): `candle_patterns.py` reads the last
+# two CLOSED 15-min gold candles at entry; `candle_15m` / `candle_15m_prev` hold their pattern names (bull_engulfing, bear_engulfing, hammer, shooting_star, doji,
+# inside_bar, none) and `shadow_candle_support` is true when either one points the way of the trade (a Buy after a bullish pattern, a Sell after a bearish one).
+# A candle under CANDLE_MIN_RANGE_ATR x ATR(14) is noise and gets no pattern. Nothing is blocked or changed. A 52-day edge check (`python candle_pattern_study.py
+# --edge`) found no pattern with a t-stat above 1.6, so this is logged to be judged on trades, not because an edge was found.
+CANDLE_MIN_RANGE_ATR = 0.5
 # Spike gate (live since 8 Oct 2026, Broker B, split by rule type): blocks an entry when the last 15 one-minute bars' entry-side
 # high-low range is at/above this multiple of ATR(14) on 15-min candles -- ATR lags a sudden spike (B #48: range 12.5 vs ATR 6.08
 # = 2.06x, lost the full stop). Fades (TA-Zone-*) trade the reversal AFTER a run into the level, so they get the looser gate (only

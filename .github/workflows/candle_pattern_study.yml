@@ -1,0 +1,25 @@
+name: Candle pattern study (XAU/USD)
+
+# Manual (workflow_dispatch) only, read-only (study 43). Prints, in the run log, whether candlestick patterns predict gold's next candles (--edge)
+# and how Broker F's closed live trades did with and without a supporting reversal candle before entry (--trades).
+on:
+  workflow_dispatch: {}
+
+jobs:
+  candle-pattern-study:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -r requirements.txt
+
+      - run: |
+          python candle_pattern_study.py --edge
+          python candle_pattern_study.py --trades
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
