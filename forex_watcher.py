@@ -89,7 +89,7 @@ from broker_b import (
 from config import ADX_PERIOD, ATR_PERIOD, INTRAHOUR_SWING_ALERT_THRESHOLD, RSI_PERIOD
 from data_fetcher import fetch_gold_candles, gold_adx_rising_from_candles, gold_rsi_adx_atr_from_candles
 from entry_context import DISPLAY_TZ as ENTRY_TZ
-from entry_context import _num, build_exit_context, level_distances, shadow_bias_adx, shadow_quiet_market, shadow_stretched
+from entry_context import _num, build_exit_context, level_distances, shadow_bias_adx, shadow_candle_pattern, shadow_quiet_market, shadow_stretched
 from forex_client import TRADABLE_MARKET_ID, ForexClient, ForexClientError, ForexOrderUncertainError
 from forex_stream import PriceStream
 from market_hours import is_daily_break, is_market_closed
@@ -676,6 +676,7 @@ class Watcher:
         entry_context.update(shadow_bias_adx(rule_name, trade_type, entry_context))  # log only, blocks nothing (study 26)
         entry_context.update(shadow_quiet_market(entry_context))  # log only, blocks nothing (study 35)
         entry_context.update(shadow_stretched(trade_type, trigger_price))  # log only, blocks nothing (study 39)
+        entry_context.update(shadow_candle_pattern(trade_type, now))  # log only, blocks nothing (study 43)
         trade_id = insert_forex_b_trade(
             self.mode, rule_name, trade_type, trigger_price, fill_price, touch_ts, now, forecast["id"], trigger_text,
             entry_context, forex_order_id=order_id,

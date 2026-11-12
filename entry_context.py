@@ -15,7 +15,7 @@ forecast_id, session, spread (ask - bid close), range_15m_bid / range_15m_ask (l
 plus whatever the calling broker adds via `extra` (Broker A: the flagging indicators; Broker B: scenario,
 trigger price, minutes between the touch and the poll that acted on it, distance to the next resistance /
 support zone, zone width). Fades also get `shadow_bias_adx` (see shadow_bias_adx(); log only); every Broker B/F trade gets `shadow_quiet_market` (see shadow_quiet_market(); log only)
-and `bb20_pos_1h` / `ext_sma20_1h_pct` / `shadow_stretched` (see shadow_stretched(); log only).
+and `bb20_pos_1h` / `ext_sma20_1h_pct` / `shadow_stretched` (see shadow_stretched(); log only), and `candle_15m` / `candle_15m_prev` / `shadow_candle_support` (see shadow_candle_pattern(); log only).
 """
 
 import logging
@@ -24,7 +24,7 @@ from zoneinfo import ZoneInfo
 
 from config import (
     INTRAHOUR_SWING_ALERT_THRESHOLD, RSI_PERIOD, SHADOW_BIAS_ADX_MIN_ADX, SHADOW_BIAS_ADX_MIN_BIAS,
-    SHADOW_QUIET_MAX_ADX, SHADOW_QUIET_MAX_ATR, SHADOW_STRETCHED_BB_POS, SHADOW_STRETCHED_EXT_PCT,
+    CANDLE_MIN_RANGE_ATR, SHADOW_QUIET_MAX_ADX, SHADOW_QUIET_MAX_ATR, SHADOW_STRETCHED_BB_POS, SHADOW_STRETCHED_EXT_PCT,
 )
 
 log = logging.getLogger("gold-monitor")
@@ -94,6 +94,32 @@ def shadow_stretched(trade_type: str, price) -> dict:
         side = 1 if trade_type == "Buy" else -1
         stretched = side * pos >= SHADOW_STRETCHED_BB_POS or side * ext >= SHADOW_STRETCHED_EXT_PCT
         return {"bb20_pos_1h": round(pos, 2), "ext_sma20_1h_pct": round(ext, 2), "shadow_stretched": bool(stretched)}
+    except Exception:
+        return {}
+
+
+def shadow_candle_pattern(trade_type: str, now: datetime | None = None) -> dict:
+    """{"candle_15m", "candle_15m_prev", "shadow_candle_support"} from the last two CLOSED 15-min gold candles (one Twelve Data call), else {}.
+    Pattern names come from candle_patterns.detect(); shadow_candle_support is true when either candle points the trade's way (a Buy after a bullish
+    pattern, a Sell after a bearish one). LOG ONLY (study 43): nothing reads it, and no entry, stop or trail changes. Never raises."""
+    try:
+        import pandas as pd
+
+        import candle_patterns as cp
+        from data_fetcher import compute_atr, fetch_gold_candles
+
+        df = fetch_gold_candles("15min", 60).reset_index(drop=True)
+        now = pd.Timestamp(now) if now is not None else pd.Timestamp.now(tz="UTC")
+        if now.tzinfo is None:
+            now = now.tz_localize("UTC")
+        df = df[df["datetime"] + pd.Timedelta(minutes=15) <= now].reset_index(drop=True)  # drop the forming candle
+        if len(df) < 20:
+            return {}
+        det = cp.detect(df, compute_atr(df), CANDLE_MIN_RANGE_ATR)
+        last, prev = cp.label(det.iloc[-1]), cp.label(det.iloc[-2])
+        side = 1 if trade_type == "Buy" else -1
+        return {"candle_15m": last, "candle_15m_prev": prev,
+                "shadow_candle_support": bool(cp.direction(last) == side or cp.direction(prev) == side)}
     except Exception:
         return {}
 
