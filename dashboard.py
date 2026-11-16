@@ -365,12 +365,14 @@ def load_broker_pnl_for_date(d) -> dict:
         for key, table, extra in (
             ("broker_f", "forex_b_trades", " AND mode = 'live'"),
             ("broker_k", "broker_k_trades", ""),
-            ("broker_r", "broker_r_trades", ""),
+            ("broker_r_paper", "broker_r_trades", " AND mode = 'paper'"),  # Broker R is split by mode (16 Nov 2026); old rows default to 'paper'
+            ("broker_r_live", "broker_r_trades", " AND mode = 'live'"),
         ):
             cur.execute("SELECT to_regclass(%s)", (table,))
             out[key] = totals(cur, table, extra) if cur.fetchone()[0] is not None else dict(zero)
     # Broker B is left out of the total: B and F trade the same rules, so counting both would count each level twice (user request, 5 Nov 2026).
-    out["total"] = {k: sum(out[b][k] for b in ("broker_f", "broker_k", "broker_r")) for k in zero}
+    # Broker R counts only its live (FOREX.com demo) trades in the total; its paper trades are shown but not added (user request, 16 Nov 2026).
+    out["total"] = {k: sum(out[b][k] for b in ("broker_f", "broker_k", "broker_r_live")) for k in zero}
     out["broker_b"] = broker_b
     return out
 
@@ -498,7 +500,8 @@ if min_forecast_date is not None:
             + "</tr>"
             for label, key in (
                 ("Total", "total"), ("Broker <b style='font-size:18px;'>F</b>", "broker_f"),
-                ("Broker <b style='font-size:18px;'>R</b>", "broker_r"), ("Broker <b style='font-size:18px;'>K</b>", "broker_k"),
+                ("Broker <b style='font-size:18px;'>R</b> paper", "broker_r_paper"), ("Broker <b style='font-size:18px;'>R</b> live", "broker_r_live"),
+                ("Broker <b style='font-size:18px;'>K</b>", "broker_k"),
             )
         )
         header_cells = "".join(
