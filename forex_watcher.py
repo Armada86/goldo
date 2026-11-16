@@ -111,6 +111,7 @@ from storage import (
     get_last_close_ts_forex_b,
     get_latest_ta_forecast,
     get_open_forex_b_trade,
+    get_open_trade_r,
     get_recent_readings,
     init_db,
     insert_forex_b_trade,
@@ -699,6 +700,15 @@ class Watcher:
         """Sends the market order. Returns (fill price, order id), or None if nothing was opened. An order whose outcome is unknown
         (timeout / 5xx) is never retried: the account's positions are read instead and a single new XAU/USD position is adopted."""
         direction = "buy" if trade_type == "Buy" else "sell"
+        try:
+            r_trade = get_open_trade_r()
+        except Exception:
+            r_trade = None  # fail open, like every other gate here
+        if r_trade is not None and r_trade.get("mode") == "live":
+            # Broker R holds a real position on the same account; a second order could net against it (see broker_r.py).
+            _send(_message(0, f"{rule_name} not opened: Broker R has a live trade (#{r_trade['id']}) on the demo account -- "
+                              f"orders would net against it. Not retried.", self.mode))
+            return None
         try:
             result = self.client.place_market_order(direction)
             return result["fill_price"], result["order_id"]

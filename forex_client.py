@@ -384,11 +384,12 @@ class ForexClient:
         )
 
     def attach_take_profit_and_stop_loss(
-        self, order_id, direction: str, entry_price: float, distance: float, *, quantity: float | None = None
+        self, order_id, direction: str, entry_price: float, distance: float, *, quantity: float | None = None,
+        limit_distance: float | None = None,
     ) -> dict:
         """Attaches a take-profit (limit) and stop-loss (stop) order, each `distance` dollars from
         `entry_price`, to the already-open position `order_id` -- visible on the forex.com platform as
-        that position's TP/SL. `direction` is the POSITION's direction ("buy"/"sell"); both exit orders
+        that position's TP/SL (the stop is `distance` away; the take-profit too unless `limit_distance` is given). `direction` is the POSITION's direction ("buy"/"sell"); both exit orders
         go the opposite way. forex.com links the two as one-cancels-the-other, good-till-cancelled, so
         whichever triggers first closes the position and cancels the other.
 
@@ -417,7 +418,7 @@ class ForexClient:
                 f"{TRADABLE_MARKET_NAME} ({TRADABLE_MARKET_ID}). Nothing was attached."
             )
         sign = 1 if direction == "buy" else -1
-        limit_price = round(entry_price + sign * distance, 2)
+        limit_price = round(entry_price + sign * (distance if limit_distance is None else limit_distance), 2)
         stop_price = round(entry_price - sign * distance, 2)
         exit_direction = "sell" if direction == "buy" else "buy"
         price = self.get_price(TRADABLE_MARKET_NAME)
