@@ -25,6 +25,7 @@ from broker_r import (
     _pnl,
     armed_scenarios,
     choose_venue,
+    close_live_now,
     forex_mode,
     manage_live_trade,
     open_trade_r,
@@ -114,6 +115,24 @@ class RTickTrader:
 
     def demote(self) -> None:
         self.open_trade = None
+
+    def close_for_broker_f(self, now: datetime) -> bool:
+        """Broker F has priority (16 Nov 2026): when an F entry is about to open, any open R trade -- live or paper, in profit or loss -- is closed
+        on the spot. True when R holds nothing afterwards; False if a live close was not confirmed (F must then not open: the two would share the account)."""
+        trade = self.open_trade
+        if trade is None:
+            return True
+        if not self.w.feed.ticks:
+            return False
+        spot = self._price(_exit_side(trade["trade_type"]))
+        if trade.get("mode") == "live":
+            if not close_live_now(trade, spot, now, self.w.client):
+                return False
+        else:
+            self._close_paper(trade, spot, now, "Priority")
+        self.open_trade = None
+        self.context_at = -1e9
+        return True
 
     # --- per tick --------------------------------------------------------------------------------------------------
 

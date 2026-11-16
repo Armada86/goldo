@@ -658,6 +658,11 @@ class Watcher:
                 )
             log.info("%s blocked: %s", rule_name, reasons)
             return False
+        # Broker F has priority over Broker R: an open R trade (live or paper, profit or loss) is closed on the spot before F opens.
+        if not self.r.close_for_broker_f(now):
+            _send(_message(0, f"{rule_name} level ${trigger_price:.2f} reached but NOT opened: Broker R's open trade could not be closed "
+                              f"first (see the previous message) -- CHECK THE DEMO ACCOUNT.", self.mode))
+            return False
         fill_price = float(self.feed.side(side).iloc[-1]["close"])  # a Buy fills on the ask, a Sell on the bid
         order_id = stop_order_id = None
         if self.mode == "live":
@@ -711,7 +716,7 @@ class Watcher:
             r_trade = None  # fail open, like every other gate here
         if r_trade is not None and r_trade.get("mode") == "live":
             # Broker R holds a real position on the same account; a second order could net against it (see broker_r.py).
-            _send(_message(0, f"{rule_name} not opened: Broker R has a live trade (#{r_trade['id']}) on the demo account -- "
+            _send(_message(0, f"{rule_name} not opened: Broker R still has a live trade (#{r_trade['id']}) on the demo account -- "
                               f"orders would net against it. Not retried.", self.mode))
             return None
         try:
@@ -846,6 +851,8 @@ class Watcher:
             return "rejected", 'trading is stopped/paused for Broker F (send "start trading broker F" or "start trading" first).'
         if is_market_closed():
             return "rejected", "the market is closed (Friday 5pm - Sunday 6pm ET)."
+        if not self.r.close_for_broker_f(now):
+            return "failed", "Broker R's open trade could not be closed first (see the previous message)."
         side = _entry_side(trade_type)
         fill_price = float(self.last_quote[side])
         order_id = None
