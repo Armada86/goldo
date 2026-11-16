@@ -10,15 +10,16 @@ Broker B's fade logic, shrunk. Differences from Broker B, all by the user's desi
     conditions are the 7am-5pm ET weekday trading window and Telegram `stop trading` / scheduled pauses (which reach it through the
     global state, since the Worker does not name R).
 It borrows Broker B's touch scan unchanged (`broker_b._scan_zone_entry()`): a level counts only once price was first seen on its
-approach side, and the fill is at the exact level price on the side-correct bar (ask for a Buy, bid for a Sell). A touch older than
-broker_b.ENTRY_MAX_TOUCH_AGE_MINUTES when noticed is never filled. A level is traded at most R_MAX_TRADES_PER_LEVEL times per
+approach side; it is fed live ticks, and the fill is the live entry-side tick (ask for a Buy, bid for a Sell) or the real order fill. A touch
+older than forex_r.ENTRY_MAX_TOUCH_AGE_SECONDS when noticed is never filled. A level is traded at most R_MAX_TRADES_PER_LEVEL times per
 forecast row and is retired by its first stop-out (re-arm only after a win), then a new half-hourly analysis supplies new levels.
-FOREX.com demo (16 Nov 2026): with the repo variable FOREX_R_MODE=live (default paper) R's trades are real market orders on the FOREX.com demo
-account, with a take-profit and stop-loss attached on the platform at fill +/- R_TAKE_PROFIT / R_STOP_LOSS, but ONLY while Broker F has no open
-trade (any mode) and the account shows no other XAU/USD position; otherwise the trade is opened as paper at the level price and Telegram says it
-is not on Forex and why (a live fill also needs the quote within R_FOREX_MAX_SLIPPAGE of the level -- a poll can notice a touch minutes late).
-Broker F in turn refuses to place an order while an R live trade is open (forex_watcher._place_entry), because both share one account and an
-opposite order could net against the other's position.
+Tick-level (16 Nov 2026): Broker R no longer runs in the 5-minute poll. forex_r.py runs inside forex_watcher.py's loop (same live bid/ask stream, same
+lease as Broker F), judging every tick. The poll only produces the half-hourly short-range TA and scores the shadow exit.
+FOREX.com demo: with the repo variable FOREX_R_MODE=live (default paper) R's trades are real market orders on the FOREX.com demo account, with a
+take-profit and stop-loss attached on the platform at fill +/- R_TAKE_PROFIT / R_STOP_LOSS, but ONLY while Broker F has no open trade (any mode)
+and the account shows no other XAU/USD position; otherwise the trade is opened as paper at the live tick price and Telegram says it is not on
+Forex and why. Broker F in turn refuses to place an order while an R live trade is open (forex_watcher._place_entry), because both share one
+account and an opposite order could net against the other's position.
 One position at a time. Paper by default; own table `broker_r_trades`, never read by SLA / BRA / the reviews. Telegram: orange square.
 """
 
@@ -28,27 +29,21 @@ from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 
-from broker_b import ENTRY_CANDLE_LOOKBACK_MINUTES, ENTRY_MAX_TOUCH_AGE_MINUTES, _entry_side, _scan_zone_entry
 from broker import _format_ts
 from config import (
-    R_FOREX_MAX_SLIPPAGE, R_MAX_TRADES_PER_LEVEL, R_SHADOW_STOP_LOSS, R_SHADOW_TAKE_PROFIT, R_STOP_LOSS, R_TA_FORECAST_MAX_AGE_MINUTES, R_TAKE_PROFIT,
+    R_MAX_TRADES_PER_LEVEL, R_SHADOW_STOP_LOSS, R_SHADOW_TAKE_PROFIT, R_STOP_LOSS, R_TA_FORECAST_MAX_AGE_MINUTES, R_TAKE_PROFIT,
 )
 from forex_client import TRADABLE_MARKET_ID, ForexClient, ForexClientError, ForexOrderUncertainError
 from notifier import send_telegram_message
 from price_bars import fetch_gold_bars
 from storage import (
     close_trade_row_r,
-    get_last_close_ts_r,
-    get_open_forex_b_trade,
-    get_latest_ta_short_forecast,
-    get_open_trade_r,
     get_trades_r_without_shadow,
     insert_trade_r,
     set_shadow_exit_r,
     trade_r_level_history,
 )
-from ta_short import DISPLAY_TZ, WINDOW_END_HOUR_ET, in_window
-from trading_control import trading_pause_reason
+from ta_short import DISPLAY_TZ, WINDOW_END_HOUR_ET
 
 log = logging.getLogger("gold-monitor")
 
@@ -78,29 +73,18 @@ def _xau_positions(client: ForexClient) -> list[dict]:
     return [p for p in client.get_open_positions() if p.get("MarketId") == TRADABLE_MARKET_ID]
 
 
-def choose_venue(trade_type: str, trigger_price: float) -> tuple[ForexClient | None, str | None]:
-    """(client, None) when this entry may be a real FOREX.com demo order, else (None, reason) -- the reason is worded to follow
-    "not on Forex because ". (None, None) is plain paper trading (FOREX_R_MODE not 'live'): no notice. Every doubt means paper."""
-    if forex_mode() != "live":
-        return None, None
+def choose_venue(client: ForexClient, broker_f_has_trade: bool) -> str | None:
+    """None when this entry may be a real FOREX.com demo order, else the reason it is paper, worded to follow "not on Forex because ".
+    FOREX_R_MODE not 'live' is plain paper trading and also returns None here -- the caller checks forex_mode() first. Every doubt means paper."""
+    if broker_f_has_trade:
+        return NOT_ON_FOREX_F
     try:
-        if get_open_forex_b_trade() is not None:
-            return None, NOT_ON_FOREX_F
-    except Exception:
-        log.exception("Broker R: could not read Broker F's trade")
-        return None, "Broker F's state could not be read"
-    try:
-        client = ForexClient()
         if _xau_positions(client):
-            return None, "forex.com already shows an open XAU/USD position"
-        quote = client.get_quote()
+            return "forex.com already shows an open XAU/USD position"
     except Exception as e:
         log.exception("Broker R: forex.com unavailable")
-        return None, f"forex.com could not be reached ({e})"
-    price = quote["ask"] if trade_type == "Buy" else quote["bid"]
-    if abs(price - trigger_price) > R_FOREX_MAX_SLIPPAGE:
-        return None, f"the price had already moved ${abs(price - trigger_price):.2f} from the level (limit ${R_FOREX_MAX_SLIPPAGE:g})"
-    return client, None
+        return f"forex.com could not be reached ({e})"
+    return None
 
 
 def _place_live(client: ForexClient, trade_type: str) -> tuple[dict | None, str | None]:
@@ -153,11 +137,11 @@ def _finish_live(trade: dict, exit_price: float, exit_ts: datetime, reason: str,
     send_telegram_message(_close_message(trade, exit_price, exit_ts, pnl, reason) + note)
 
 
-def manage_live_trade(trade: dict, spot: float, now: datetime, paused: bool) -> bool:
+def manage_live_trade(trade: dict, spot: float, now: datetime, paused: bool, client: ForexClient | None = None) -> bool:
     """One poll's look at an open live trade. Its TP/SL sit on forex.com, so normally this only notices that the position is gone and records
     the close from the trade history. Returns True once the trade is closed. Any forex.com problem leaves it open for the next poll."""
     try:
-        client = ForexClient()
+        client = client or ForexClient()
         position = next((p for p in _xau_positions(client) if str(p.get("OrderId")) == str(trade["forex_order_id"])), None)
     except Exception:
         log.exception("Broker R: could not read the live position -- trying again next poll")
@@ -311,20 +295,6 @@ def _close_message(trade: dict, exit_price: float, exit_ts: datetime, pnl: float
     )
 
 
-def find_fresh_touch(scenario_name: str, scenario: dict, bars: pd.DataFrame, now: datetime):
-    """First touch of the level that is still young enough to fill, else None. A touch older than the age limit is skipped, and
-    the scan continues after it -- price must retreat and touch again, exactly Broker B's fresh-approach rule."""
-    while True:
-        touch = _scan_zone_entry(scenario_name, scenario, bars)
-        if touch is None:
-            return None
-        price, ts = touch
-        if (now - ts).total_seconds() / 60 <= ENTRY_MAX_TOUCH_AGE_MINUTES:
-            return price, ts
-        log.info("Broker R: %s touch at %s is older than %d min -- not filled retroactively", scenario_name, ts, ENTRY_MAX_TOUCH_AGE_MINUTES)
-        bars = bars[bars["datetime"] > ts]
-
-
 def armed_scenarios(forecast: dict, now: datetime, history_fn=trade_r_level_history) -> list[tuple[str, str, str, dict]]:
     """(scenario_name, trade_type, rule_name, scenario) for each level of a young, same-day forecast still within its trade budget."""
     if forecast.get("forecast_date") != now.astimezone(DISPLAY_TZ).date():
@@ -344,93 +314,31 @@ def armed_scenarios(forecast: dict, now: datetime, history_fn=trade_r_level_hist
     return out
 
 
-def check_broker_r_trades(prices: dict[str, float]) -> None:
-    """Once per poll: close the open trade at +$5 / -$5 if a 1-minute bar reached either, then (in the trading window, flat) open a
-    fade if a young short-range forecast's level was freshly touched."""
-    spot = prices.get("gold")
-    if spot is None:
-        return
-    now = datetime.now(timezone.utc)
-
-    trade = get_open_trade_r()
-    paused = trading_pause_reason(now, "R") is not None
-    if trade is not None and trade.get("mode") == "live":
-        if not manage_live_trade(trade, spot, now, paused):
-            return  # still open on forex.com: nothing else can open
-    elif paused:
-        if trade is not None:
-            pnl = _pnl(trade["trade_type"], trade["entry_price"], spot)
-            close_trade_row_r(trade["id"], spot, now, pnl, "Stop", {"reason": "Stop"})
-            send_telegram_message(_close_message(trade, spot, now, pnl, "Stop"))
-        return
-    elif trade is not None:
-        result = _find_exit(trade, spot, now)
-        if result is None:
-            return
-        exit_price, exit_ts, reason = result
-        pnl = _pnl(trade["trade_type"], trade["entry_price"], exit_price)
-        close_trade_row_r(
-            trade["id"], exit_price, exit_ts, pnl, reason,
-            {"reason": reason, "held_minutes": round((exit_ts - trade["open_ts"]).total_seconds() / 60, 1)},
-        )
-        send_telegram_message(_close_message(trade, exit_price, exit_ts, pnl, reason))
-    if paused:
-        return
-
-    if not in_window(now):
-        return
-    forecast = get_latest_ta_short_forecast()
-    if forecast is None or not forecast.get("levels"):
-        return
-    armed = armed_scenarios(forecast, now)
-    if not armed:
-        return
-
-    floor_ts = forecast["ts"]
-    last_close = get_last_close_ts_r()
-    if last_close is not None and last_close > floor_ts:
-        floor_ts = last_close
-    bars_by_side: dict[str, pd.DataFrame] = {}
-    touches = []
-    for name, trade_type, rule, scenario in armed:
-        side = _entry_side(trade_type)
-        if side not in bars_by_side:
-            bars_by_side[side] = fetch_gold_bars(ENTRY_CANDLE_LOOKBACK_MINUTES, side)
-        # Like Broker B: only bars after the forecast's own ts and after the last close can open a trade.
-        bars = bars_by_side[side]
-        bars = bars[bars["datetime"] > floor_ts]
-        touch = find_fresh_touch(name, scenario, bars, now)
-        if touch is not None:
-            touches.append((touch[1], touch[0], trade_type, rule, name))
-    if not touches:
-        return
-    touches.sort(key=lambda t: t[0])
-    trigger_ts, trigger_price, trade_type, rule, name = touches[0]
-    run = (forecast["levels"] or {}).get("session", "?")
-    context = {
-        "scenario": name, "trigger_price": round(float(trigger_price), 2), "spot_at_poll": round(float(spot), 2),
-        "minutes_since_touch": round((now - trigger_ts).total_seconds() / 60, 1),
-        "hour_et": now.astimezone(DISPLAY_TZ).hour, "minute_et": now.astimezone(DISPLAY_TZ).minute,
-    }
-    client, paper_reason = choose_venue(trade_type, trigger_price)
-    mode, order_id, note = "paper", None, ""
-    entry_price, open_ts = trigger_price, trigger_ts
+def open_trade_r(
+    client: ForexClient | None, paper_reason: str | None, trade_type: str, rule: str, scenario_name: str, forecast: dict,
+    level: float, touch_ts: datetime, paper_price: float, now: datetime, context: dict,
+) -> int:
+    """Records (and announces) a new Broker R trade filled at `now`. With a `client` it is a real FOREX.com demo market order plus platform TP/SL;
+    if that order fails, or without a client, it is a paper trade at `paper_price` (the live entry-side tick) -- with `paper_reason`
+    in the Telegram message when R was meant to be live. Called by forex_r.py on the tick that touched the level."""
+    mode, order_id, note, entry_price = "paper", None, "", paper_price
     if client is not None:
         result, failure = _place_live(client, trade_type)
         if result is not None:
-            mode, order_id, entry_price, open_ts = "live", result["order_id"], float(result["fill_price"]), datetime.now(timezone.utc)
-            context["trigger_price_level"] = round(float(trigger_price), 2)
-            context["slippage"] = round(entry_price - trigger_price if trade_type == "Buy" else trigger_price - entry_price, 2)
+            mode, order_id, entry_price = "live", result["order_id"], float(result["fill_price"])
             failed = _attach_exits(client, order_id, trade_type, entry_price)
             if failed:
-                note = (f"\u26a0\ufe0f The platform TP/SL could NOT be attached ({failed}) -- the poll retries and watches the price "
-                        f"itself every 5 minutes.\n")
+                note = (f"\u26a0\ufe0f The platform TP/SL could NOT be attached ({failed}) -- it is retried every few seconds and the "
+                        f"price is watched meanwhile.\n")
         else:
-            paper_reason = failure  # the touch is still recorded as a paper trade, so it can never be re-sent as an order
+            paper_reason = failure  # still recorded as a paper trade, so the touch can never be sent as an order twice
+    context = dict(context)
+    context["slippage"] = round(entry_price - level if trade_type == "Buy" else level - entry_price, 2)
     if paper_reason:
         context["not_on_forex"] = paper_reason
+    run = (forecast["levels"] or {}).get("session", "?")
     trade_id = insert_trade_r(
-        rule, trade_type, entry_price, open_ts, f"short-range TA {run}, {name} @ ${trigger_price:.2f}", forecast["id"], context,
-        mode, order_id,
+        rule, trade_type, entry_price, now, f"short-range TA {run}, {scenario_name} @ ${level:.2f}", forecast["id"], context, mode, order_id,
     )
-    send_telegram_message(_open_message(trade_id, trade_type, rule, entry_price, run, open_ts, mode, paper_reason, trigger_price, note))
+    send_telegram_message(_open_message(trade_id, trade_type, rule, entry_price, run, now, mode, paper_reason, level, note))
+    return trade_id

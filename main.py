@@ -7,7 +7,7 @@ from apscheduler.schedulers.blocking import BlockingScheduler   #runs in the for
 from broker import check_broker_trades
 from broker_b import check_broker_b_trades
 from broker_k import check_broker_k_trades
-from broker_r import check_broker_r_trades, resolve_shadow_exits
+from broker_r import resolve_shadow_exits
 from config import (
     ATR_PERIOD,
     ADX_PERIOD,
@@ -123,15 +123,11 @@ def poll_once() -> None:
         log.exception("Broker K check failed")
 
     # Broker R (5 Nov 2026) -- short-range fade paper broker. First the half-hourly short-range TA (one 5-min candle call per
-    # half hour, nothing otherwise), then the broker itself. Each isolated so neither can break the rest of the poll.
+    # half hour, nothing otherwise); the broker itself trades tick by tick inside forex_watcher.py (forex_r.py). Each isolated so neither can break the rest of the poll.
     try:
         run_short_ta_if_due(prices.get("gold"))
     except Exception:
         log.exception("Short-range TA (Broker R) failed")
-    try:
-        check_broker_r_trades(prices)
-    except Exception:
-        log.exception("Broker R check failed")
     try:
         resolve_shadow_exits()  # log only: study 41's hypothetical +7/-4 exit beside each Broker R trade
     except Exception:
