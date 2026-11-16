@@ -137,6 +137,23 @@ def _finish_live(trade: dict, exit_price: float, exit_ts: datetime, reason: str,
     send_telegram_message(_close_message(trade, exit_price, exit_ts, pnl, reason) + note)
 
 
+def close_live_now(trade: dict, spot: float, now: datetime, client: ForexClient, reason: str = "Priority") -> bool:
+    """Closes an open live trade at market right now, profit or loss (Broker F has priority, 16 Nov 2026). True once it is closed and recorded;
+    False if forex.com could not confirm it (the position may still be open). A position already gone is recorded the normal way."""
+    try:
+        position = next((p for p in _xau_positions(client) if str(p.get("OrderId")) == str(trade["forex_order_id"])), None)
+    except Exception:
+        log.exception("Broker R: could not read the live position to close it")
+        return False
+    if position is None:
+        return manage_live_trade(trade, spot, now, False, client)
+    closed = _close_live_at_market(client, trade, position)
+    if closed is None:
+        return False
+    _finish_live(trade, closed[0], datetime.now(timezone.utc), reason, closed[1])
+    return True
+
+
 def manage_live_trade(trade: dict, spot: float, now: datetime, paused: bool, client: ForexClient | None = None) -> bool:
     """One poll's look at an open live trade. Its TP/SL sit on forex.com, so normally this only notices that the position is gone and records
     the close from the trade history. Returns True once the trade is closed. Any forex.com problem leaves it open for the next poll."""
@@ -287,7 +304,8 @@ def _open_message(
 
 def _close_message(trade: dict, exit_price: float, exit_ts: datetime, pnl: float, reason: str) -> str:
     marker = PROFIT_MARKER if pnl >= 0 else LOSS_MARKER
-    why = {"TP": "take-profit", "SL": "stop-loss", "Stop": "closed by stop trading / pause"}[reason]
+    why = {"TP": "take-profit", "SL": "stop-loss", "Stop": "closed by stop trading / pause",
+           "Priority": "closed on the spot to give Broker F priority"}[reason]
     return (
         f"{TRADE_ALERT_PREFIX.rstrip()}{marker}{'P' if pnl >= 0 else 'L'} ${abs(pnl):.2f} {_label(trade.get('mode'))} #{trade['id']}: closed "
         f"{trade['trade_type']} 1 oz XAU/USD @ ${exit_price:.2f} (opened @ ${trade['entry_price']:.2f}, rule {trade['rule_name']}, {why})\n"

@@ -35,5 +35,5 @@ Broker R is judged on every live tick, inside `forex_watcher.py` (module `forex_
 Set the GitHub repo variable `FOREX_R_MODE` to `live` (Settings > Secrets and variables > Actions > Variables) to make Broker R place real orders on the
 FOREX.com **demo** account. Unset or `paper` = paper trades only (filled at the live tick). Rules: only while Broker F has no open trade (any mode) and the
 account holds no other XAU/USD position; otherwise R opens a paper trade and Telegram says it is not on Forex and why. TP/SL (+$5/-$5 from the actual
-fill) are platform orders. Broker F will not send an order while an R live trade is open. The live path has not been exercised against forex.com --
+fill) are platform orders. Broker F has priority: when an F entry is applicable, an open R trade (live or paper, in profit or loss) is closed on the spot first (`exit_reason` `Priority`), then F opens; if a live R close cannot be confirmed, F does not open. The live path has not been exercised against forex.com --
 watch the first live trade. Query: `SELECT mode, COUNT(*), SUM(pnl) FROM broker_r_trades WHERE status='Closed' GROUP BY 1`.
