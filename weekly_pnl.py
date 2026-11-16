@@ -15,7 +15,8 @@ BROKER_TABLES = [
     ("Broker B", "broker_b_trades", ""),
     ("Broker K", "broker_k_trades", ""),
     ("Broker F", "forex_b_trades", " AND mode = 'live'"),
-    ("Broker R", "broker_r_trades", ""),
+    ("Broker R paper", "broker_r_trades", " AND mode = 'paper'"),  # split by mode, 16 Nov 2026 (old rows default to 'paper')
+    ("Broker R live", "broker_r_trades", " AND mode = 'live'"),
 ]
 
 
@@ -65,9 +66,9 @@ def render() -> None:
     brokers = list(daily.columns)
     week_start = daily.index - pd.to_timedelta(daily.index.weekday, unit="D")
     header = "".join(f"<th style='text-align:right;'>{b}</th>" for b in brokers)
-    # Last column: F + K only (Broker B and Broker R are left out; user request, 6 Nov 2026).
-    counted = ["Broker F", "Broker R", "Broker K"]
-    header += "<th style='text-align:right;'>Total (F+R+K)</th>"
+    # Last column: F + R live + K (Broker B and Broker R paper are left out; user request, 6 and 16 Nov 2026).
+    counted = ["Broker F", "Broker R live", "Broker K"]
+    header += "<th style='text-align:right;'>Total (F+R live+K)</th>"
     html = [
         "<style>.goldo-weekly {width:100%;border-collapse:collapse;font-size:13px;}"
         ".goldo-weekly th,.goldo-weekly td {padding:4px 8px;border-bottom:1px solid rgba(128,128,128,.25);}"
