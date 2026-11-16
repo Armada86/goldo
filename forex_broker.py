@@ -32,6 +32,7 @@ from notifier import send_telegram_message
 from storage import (
     close_forex_trade_row,
     get_forex_b_order_ids,
+    get_broker_r_forex_order_ids,
     get_last_forex_trade_open_ts,
     get_open_forex_trade,
     get_recent_alerts,
@@ -114,7 +115,7 @@ def _reconcile(client: ForexClient, prices: dict[str, float], now: datetime) -> 
     tracked. Returns (the still-open tracked trade or None, XAU/USD positions on the account)."""
     # Positions opened by the Broker F watcher (forex_watcher.py) are tracked in forex_b_trades, not here.
     try:
-        forex_b_orders = get_forex_b_order_ids()
+        forex_b_orders = get_forex_b_order_ids() | get_broker_r_forex_order_ids()
     except Exception:
         forex_b_orders = set()
     positions = [

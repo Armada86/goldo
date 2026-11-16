@@ -91,6 +91,8 @@ from data_fetcher import fetch_gold_candles, gold_adx_rising_from_candles, gold_
 from entry_context import DISPLAY_TZ as ENTRY_TZ
 from entry_context import _num, build_exit_context, level_distances, shadow_bias_adx, shadow_candle_pattern, shadow_quiet_market, shadow_stretched
 from forex_client import TRADABLE_MARKET_ID, ForexClient, ForexClientError, ForexOrderUncertainError
+from forex_r import RTickTrader
+from forex_r import entry_possible as r_entry_possible
 from forex_stream import PriceStream
 from market_hours import is_daily_break, is_market_closed
 from notifier import send_telegram_message
@@ -111,6 +113,7 @@ from storage import (
     get_last_close_ts_forex_b,
     get_latest_ta_forecast,
     get_open_forex_b_trade,
+    get_open_trade_r,
     get_recent_readings,
     init_db,
     insert_forex_b_trade,
@@ -282,6 +285,7 @@ class Watcher:
         self.stream_restart_at = 0.0
         self._gate_inputs = None  # (rsi, adx, atr, adx_rising) of gold's 15-min candles
         self._gate_inputs_at = -1e9
+        self.r = RTickTrader(self)  # Broker R (forex_r.py): same stream and lease, its own rules
 
     # --- role ------------------------------------------------------------------------------------------------------
 
@@ -297,12 +301,14 @@ class Watcher:
         self.open_trade = get_open_forex_b_trade()
         self._refresh_context(force=True)
         self.position_checked_at = 0.0
+        self.r.activate()
         log.info("this watcher is now ACTIVE (open trade: %s, used-up touches: %s)", self.open_trade and self.open_trade["id"], list(self.consumed))
 
     def demote(self) -> None:
         """The lease was lost to another process: stop acting (that process now trades), keep the feed warm."""
         self.role = "standby"
         self.open_trade = None
+        self.r.demote()
         log.warning("this watcher lost the lease and is now STANDBY")
 
     def lease_state(self) -> dict:
@@ -700,6 +706,15 @@ class Watcher:
         (timeout / 5xx) is never retried: the account's positions are read instead and a single new XAU/USD position is adopted."""
         direction = "buy" if trade_type == "Buy" else "sell"
         try:
+            r_trade = get_open_trade_r()
+        except Exception:
+            r_trade = None  # fail open, like every other gate here
+        if r_trade is not None and r_trade.get("mode") == "live":
+            # Broker R holds a real position on the same account; a second order could net against it (see broker_r.py).
+            _send(_message(0, f"{rule_name} not opened: Broker R has a live trade (#{r_trade['id']}) on the demo account -- "
+                              f"orders would net against it. Not retried.", self.mode))
+            return None
+        try:
             result = self.client.place_market_order(direction)
             return result["fill_price"], result["order_id"]
         except ForexOrderUncertainError as e:
@@ -735,7 +750,7 @@ class Watcher:
 
     def idle(self, now: datetime) -> bool:
         """True when there is nothing to watch: no open trade and no entry possible right now."""
-        return self.open_trade is None and not self._entry_ok(now) and not _commands_pending()
+        return self.open_trade is None and not self._entry_ok(now) and not _commands_pending() and self.r.idle(now)
 
     def _check_feed_lag(self, newest_tick_ts, now: datetime) -> None:
         """Warns (Telegram, at most one per 15 min) when the newest tick is more than FEED_LAG_WARN_SECONDS old."""
@@ -796,6 +811,11 @@ class Watcher:
             self._check_exit(now)
         elif self._entry_ok(now):
             self._check_entry(now)
+        try:
+            self.r.step(now)  # Broker R, after F so F's open trade is already up to date when R decides its venue
+        except Exception as e:
+            log.exception("Broker R step failed -- continuing")
+            self.r._note("tick", f"a check failed ({type(e).__name__}: {str(e)[:200]}) -- it keeps running.")
 
     # --- manual commands (Telegram "buy broker F" / "sell broker F" / "close broker F") ----------------------------------
 
@@ -877,8 +897,10 @@ def _live_ready(client: ForexClient) -> bool:
     """Live mode assumes the account holds no XAU/USD position except Broker F's own: refuses to trade (and says so) if there is an
     untracked one, e.g. a manual position, since closing at market could net against it."""
     tracked = get_open_forex_b_trade()
+    r_open = get_open_trade_r()  # Broker R's own live position (forex_r.py) is not "untracked"
+    known = {str(t["forex_order_id"]) for t in (tracked, r_open) if t is not None and t.get("forex_order_id") is not None}
     positions = [p for p in client.get_open_positions() if p.get("MarketId") == TRADABLE_MARKET_ID]
-    extra = [p for p in positions if tracked is None or str(p.get("OrderId")) != str(tracked["forex_order_id"])]
+    extra = [p for p in positions if str(p.get("OrderId")) not in known]
     if extra:
         _send(
             f"{TRADE_PREFIX.rstrip()}BROKER F (live): not trading -- the demo account already has {len(extra)} untracked XAU/USD "
@@ -919,7 +941,8 @@ def _decide_role(holder: str, ends_at: datetime) -> tuple[str, dict] | None:
 def run(max_minutes: float, mode: str) -> None:
     started = time.monotonic()
     init_db()
-    if get_open_forex_b_trade() is None and not _entry_possible(datetime.now(timezone.utc)) and not _commands_pending():
+    if (get_open_forex_b_trade() is None and get_open_trade_r() is None and not _entry_possible(datetime.now(timezone.utc))
+            and not r_entry_possible(datetime.now(timezone.utc)) and not _commands_pending()):
         log.info("Nothing to watch (market closed, outside the entry window, or paused) -- exiting")
         return
     holder = f"{os.environ.get('GITHUB_RUN_ID', 'local')}-{uuid.uuid4().hex[:6]}"

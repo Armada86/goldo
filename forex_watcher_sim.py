@@ -70,6 +70,16 @@ fw.is_market_closed = lambda: False
 fw._within_entry_window = lambda now: True
 fw.trading_pause_reason = lambda now, b: None
 fw.get_pending_forex_b_commands = lambda: []
+# Broker R (forex_r.py) runs in the same loop: no short-range forecast, no trade -- it only has to stay out of the way.
+import forex_r
+fw.get_open_trade_r = lambda: None
+forex_r.get_open_trade_r = lambda: None
+forex_r.get_latest_ta_short_forecast = lambda: None
+forex_r.get_last_close_ts_r = lambda: None
+forex_r.trading_pause_reason = lambda now, b: None
+forex_r.is_market_closed = lambda: False
+forex_r.in_window = lambda now: True
+fw.r_entry_possible = lambda now: True
 fw.get_last_close_ts_forex_b = lambda: None
 fw.get_recent_readings = lambda *a, **k: []
 fw.get_block_rules = lambda: None

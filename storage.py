@@ -208,6 +208,10 @@ def init_db() -> None:
         )
         # shadow_exit: the hypothetical R_SHADOW_TAKE_PROFIT / R_SHADOW_STOP_LOSS outcome of the same entry (6 Nov 2026, study 41).
         cur.execute("ALTER TABLE broker_r_trades ADD COLUMN IF NOT EXISTS shadow_exit JSONB")
+        # mode: 'paper' (imaginary, the original behaviour) or 'live' (a real order on the FOREX.com demo account, 16 Nov 2026).
+        cur.execute("ALTER TABLE broker_r_trades ADD COLUMN IF NOT EXISTS mode TEXT NOT NULL DEFAULT 'paper'")
+        cur.execute("ALTER TABLE broker_r_trades ADD COLUMN IF NOT EXISTS forex_order_id TEXT")
+        cur.execute("ALTER TABLE broker_r_trades ADD COLUMN IF NOT EXISTS forex_close_order_id TEXT")
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS broker_a_blocked (
@@ -777,7 +781,7 @@ def count_ta_short_forecasts_for_date(forecast_date: date) -> int:
 def get_open_trade_r() -> dict | None:
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "SELECT id, rule_name, trade_type, entry_price, open_ts, triggering_alerts, ta_short_id "
+            "SELECT id, rule_name, trade_type, entry_price, open_ts, triggering_alerts, ta_short_id, mode, forex_order_id "
             "FROM broker_r_trades WHERE status = 'Open' ORDER BY open_ts DESC LIMIT 1"
         )
         row = cur.fetchone()
@@ -785,8 +789,15 @@ def get_open_trade_r() -> dict | None:
         return None
     return {
         "id": row[0], "rule_name": row[1], "trade_type": row[2], "entry_price": row[3],
-        "open_ts": row[4], "triggering_alerts": row[5], "ta_short_id": row[6],
+        "open_ts": row[4], "triggering_alerts": row[5], "ta_short_id": row[6], "mode": row[7], "forex_order_id": row[8],
     }
+
+
+def get_broker_r_forex_order_ids() -> set[str]:
+    """forex.com OrderIds of every live Broker R position ever opened, so forex_broker's poll close-check never adopts one as 'Manual'."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT forex_order_id FROM broker_r_trades WHERE forex_order_id IS NOT NULL")
+        return {row[0] for row in cur.fetchall()}
 
 
 def get_last_close_ts_r() -> datetime | None:
@@ -810,26 +821,28 @@ def trade_r_level_history(ta_short_id: int, rule_name: str, min_win_pnl: float =
 
 def insert_trade_r(
     rule_name: str, trade_type: str, entry_price: float, open_ts: datetime, triggering_alerts: str,
-    ta_short_id: int, entry_context: dict | None = None,
+    ta_short_id: int, entry_context: dict | None = None, mode: str = "paper", forex_order_id=None,
 ) -> int:
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
             "INSERT INTO broker_r_trades (rule_name, trade_type, entry_price, open_ts, triggering_alerts, ta_short_id, "
-            "status, entry_context) VALUES (%s, %s, %s, %s, %s, %s, 'Open', %s) RETURNING id",
+            "status, entry_context, mode, forex_order_id) VALUES (%s, %s, %s, %s, %s, %s, 'Open', %s, %s, %s) RETURNING id",
             (rule_name, trade_type, entry_price, open_ts, triggering_alerts, ta_short_id,
-             Json(entry_context) if entry_context else None),
+             Json(entry_context) if entry_context else None, mode, None if forex_order_id is None else str(forex_order_id)),
         )
         return cur.fetchone()[0]
 
 
 def close_trade_row_r(
-    trade_id: int, exit_price: float, close_ts: datetime, pnl: float, exit_reason: str, exit_context: dict | None = None
+    trade_id: int, exit_price: float, close_ts: datetime, pnl: float, exit_reason: str, exit_context: dict | None = None,
+    forex_close_order_id=None,
 ) -> None:
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
             "UPDATE broker_r_trades SET exit_price = %s, close_ts = %s, pnl = %s, exit_reason = %s, exit_context = %s, "
-            "status = 'Closed' WHERE id = %s",
-            (exit_price, close_ts, pnl, exit_reason, Json(exit_context) if exit_context else None, trade_id),
+            "forex_close_order_id = %s, status = 'Closed' WHERE id = %s",
+            (exit_price, close_ts, pnl, exit_reason, Json(exit_context) if exit_context else None,
+             None if forex_close_order_id is None else str(forex_close_order_id), trade_id),
         )
 
 

@@ -26,3 +26,14 @@ Every Broker R trade (open or closed) also gets a hypothetical exit at +$7 / -$4
 poll). It never trades or messages and the live +$5 / -$5 exit ignores it. Compare with `python broker_r_tp_sl_study.py --shadow`; it is judged at the 28 Nov 2026 combined review (study 41).
 Query: `SELECT id, pnl, shadow_exit->>'reason', (shadow_exit->>'pnl')::float FROM broker_r_trades WHERE shadow_exit IS NOT NULL`.
 
+
+## Tick-level trading and the FOREX.com demo account (16 Nov 2026)
+
+Broker R is judged on every live tick, inside `forex_watcher.py` (module `forex_r.py`), not in the 5-minute poll. It needs the watcher workflow
+(`forex_watch.yml`, cron-job.org every 5 minutes) to be running, exactly like Broker F; the poll still writes the half-hourly short-range TA.
+
+Set the GitHub repo variable `FOREX_R_MODE` to `live` (Settings > Secrets and variables > Actions > Variables) to make Broker R place real orders on the
+FOREX.com **demo** account. Unset or `paper` = paper trades only (filled at the live tick). Rules: only while Broker F has no open trade (any mode) and the
+account holds no other XAU/USD position; otherwise R opens a paper trade and Telegram says it is not on Forex and why. TP/SL (+$5/-$5 from the actual
+fill) are platform orders. Broker F will not send an order while an R live trade is open. The live path has not been exercised against forex.com --
+watch the first live trade. Query: `SELECT mode, COUNT(*), SUM(pnl) FROM broker_r_trades WHERE status='Closed' GROUP BY 1`.
