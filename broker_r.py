@@ -4,8 +4,10 @@ Broker B's fade logic, shrunk. Differences from Broker B, all by the user's desi
   - Its own, much tighter technical analysis (ta_short.py, a new row every 30 minutes in `ta_short_forecasts`): the resistance and
     support it trades are only $3-$10 from price.
   - Fades only (`R-Fade-sell` at the resistance, `R-Fade-buy` at the support). No breakouts.
-  - Strict fixed exits on a 1-oz position: take-profit +$5 or stop-loss -$5 (config R_TAKE_PROFIT / R_STOP_LOSS). No trailing
-    stop, no profit lock, no time stop, no fade cap, and `make SL` / `make trail` / SLA do not touch it.
+  - Its own stop rule on a 1-oz position (16 Nov 2026, replacing the fixed +$5/-$5): no take-profit. The stop starts at -$5
+    (R_STOP_LOSS); when the profit reaches +$5 (R_LOCK_PROFIT) the stop moves to +$5 and never goes below it; from +$10 of best profit upward it
+    trails R_TRAIL_DISTANCE ($5) behind the best price (stop_profit()). So a trade that reaches +$5 can no longer close below +$5. No time
+    stop, no fade cap, and `make SL` / `make trail` / SLA do not touch it.
   - No entry filters: no DXY / RSI / ADX / ATR / spike gates, no block rules (BRA), no TA-bias gate, no "bias mode". The only
     conditions are the 7am-5pm ET weekday trading window and Telegram `stop trading` / scheduled pauses (which reach it through the
     global state, since the Worker does not name R).
@@ -16,7 +18,7 @@ forecast row and is retired by its first stop-out (re-arm only after a win), the
 Tick-level (16 Nov 2026): Broker R no longer runs in the 5-minute poll. forex_r.py runs inside forex_watcher.py's loop (same live bid/ask stream, same
 lease as Broker F), judging every tick. The poll only produces the half-hourly short-range TA and scores the shadow exit.
 FOREX.com demo: with the repo variable FOREX_R_MODE=live (default paper) R's trades are real market orders on the FOREX.com demo account, with a
-take-profit and stop-loss attached on the platform at fill +/- R_TAKE_PROFIT / R_STOP_LOSS, but ONLY while Broker F has no open trade (any mode)
+stop attached on the platform at fill - R_STOP_LOSS and moved up with the trailing rule, but ONLY while Broker F has no open trade (any mode)
 and the account shows no other XAU/USD position; otherwise the trade is opened as paper at the live tick price and Telegram says it is not on
 Forex and why. Broker F in turn refuses to place an order while an R live trade is open (forex_watcher._place_entry), because both share one
 account and an opposite order could net against the other's position.
@@ -31,7 +33,7 @@ import pandas as pd
 
 from broker import _format_ts
 from config import (
-    R_MAX_TRADES_PER_LEVEL, R_SHADOW_STOP_LOSS, R_SHADOW_TAKE_PROFIT, R_STOP_LOSS, R_TA_FORECAST_MAX_AGE_MINUTES, R_TAKE_PROFIT,
+    R_LOCK_PROFIT, R_MAX_TRADES_PER_LEVEL, R_SHADOW_STOP_LOSS, R_SHADOW_TAKE_PROFIT, R_STOP_LOSS, R_TA_FORECAST_MAX_AGE_MINUTES, R_TAKE_PROFIT, R_TRAIL_DISTANCE,
 )
 from forex_client import TRADABLE_MARKET_ID, ForexClient, ForexClientError, ForexOrderUncertainError
 from notifier import send_telegram_message
@@ -99,15 +101,28 @@ def _place_live(client: ForexClient, trade_type: str) -> tuple[dict | None, str 
         return None, f"the order was rejected ({e})"
 
 
-def _attach_exits(client: ForexClient, order_id, trade_type: str, fill_price: float) -> str | None:
-    """Attaches the platform TP/SL; returns an error text if that failed (the poll then watches the price itself)."""
+def stop_profit(best: float) -> float:
+    """Profit (a negative number = a loss) at which Broker R's stop sits once the best profit so far is `best` (16 Nov 2026): -R_STOP_LOSS
+    at first; once `best` reaches R_LOCK_PROFIT the stop moves to +R_LOCK_PROFIT and stays at least there; beyond that it trails
+    R_TRAIL_DISTANCE behind the best price (best - R_TRAIL_DISTANCE, i.e. from +$10 of best profit upward). It only ever rises."""
+    if best >= R_LOCK_PROFIT:
+        return max(R_LOCK_PROFIT, best - R_TRAIL_DISTANCE)
+    return -R_STOP_LOSS
+
+
+def stop_price(trade_type: str, entry_price: float, best: float) -> float:
+    sign = 1.0 if trade_type == "Buy" else -1.0
+    return round(entry_price + sign * stop_profit(best), 2)
+
+
+def _attach_stop(client: ForexClient, order_id, trade_type: str, price: float) -> str | None:
+    """Attaches a stop-only platform order (no take-profit any more) at `price`; returns an error text if that failed (the watcher
+    then judges the stop itself on every tick and closes at market)."""
     try:
-        client.attach_take_profit_and_stop_loss(
-            order_id, "buy" if trade_type == "Buy" else "sell", fill_price, R_STOP_LOSS, limit_distance=R_TAKE_PROFIT
-        )
+        client.attach_stop(order_id, "buy" if trade_type == "Buy" else "sell", price)
         return None
     except ForexClientError as e:
-        log.exception("Broker R: could not attach TP/SL")
+        log.exception("Broker R: could not attach the stop")
         return str(e)
 
 
@@ -137,7 +152,9 @@ def _finish_live(trade: dict, exit_price: float, exit_ts: datetime, reason: str,
     send_telegram_message(_close_message(trade, exit_price, exit_ts, pnl, reason) + note)
 
 
-def close_live_now(trade: dict, spot: float, now: datetime, client: ForexClient, reason: str = "Priority") -> bool:
+def close_live_now(
+    trade: dict, spot: float, now: datetime, client: ForexClient, reason: str = "Priority", desired_stop: float | None = None,
+) -> bool:
     """Closes an open live trade at market right now, profit or loss (Broker F has priority, 16 Nov 2026). True once it is closed and recorded;
     False if forex.com could not confirm it (the position may still be open). A position already gone is recorded the normal way."""
     try:
@@ -146,7 +163,7 @@ def close_live_now(trade: dict, spot: float, now: datetime, client: ForexClient,
         log.exception("Broker R: could not read the live position to close it")
         return False
     if position is None:
-        return manage_live_trade(trade, spot, now, False, client)
+        return manage_live_trade(trade, spot, now, False, client, desired_stop)
     closed = _close_live_at_market(client, trade, position)
     if closed is None:
         return False
@@ -154,9 +171,16 @@ def close_live_now(trade: dict, spot: float, now: datetime, client: ForexClient,
     return True
 
 
-def manage_live_trade(trade: dict, spot: float, now: datetime, paused: bool, client: ForexClient | None = None) -> bool:
-    """One poll's look at an open live trade. Its TP/SL sit on forex.com, so normally this only notices that the position is gone and records
-    the close from the trade history. Returns True once the trade is closed. Any forex.com problem leaves it open for the next poll."""
+MIN_STOP_STEP = 0.5  # the platform stop is only moved when the new level is at least this much better ($ per oz), like Broker F
+
+
+def manage_live_trade(
+    trade: dict, spot: float, now: datetime, paused: bool, client: ForexClient | None = None, desired_stop: float | None = None,
+) -> bool:
+    """One look at an open live trade. Its stop sits on forex.com (no take-profit); `desired_stop` is where the trailing rule wants it now (the
+    watcher computes it from the ticks). This keeps the platform stop at or better than that, records the close from the trade history
+    once the position is gone, and closes at market if trading is paused. Returns True once the trade is closed. Any forex.com problem
+    leaves it open for the next look."""
     try:
         client = client or ForexClient()
         position = next((p for p in _xau_positions(client) if str(p.get("OrderId")) == str(trade["forex_order_id"])), None)
@@ -172,12 +196,11 @@ def manage_live_trade(trade: dict, spot: float, now: datetime, paused: bool, cli
         if closing is not None:
             price, ts, order_id, note = closing["price"], closing["closed_at"] or now, closing["order_id"], ""
         else:
-            sign = 1.0 if trade["trade_type"] == "Buy" else -1.0
-            levels = (trade["entry_price"] + sign * R_TAKE_PROFIT, trade["entry_price"] - sign * R_STOP_LOSS)
-            price, ts, order_id = min(levels, key=lambda lv: abs(lv - spot)), now, None
-            note = "\n(exit price ESTIMATED from the nearer TP/SL level -- not found in forex.com trade history)"
+            price = desired_stop if desired_stop is not None else stop_price(trade["trade_type"], trade["entry_price"], 0.0)
+            ts, order_id = now, None
+            note = "\n(exit price ESTIMATED from the stop level -- not found in forex.com trade history)"
         pnl = _pnl(trade["trade_type"], trade["entry_price"], price)
-        _finish_live(trade, price, ts, "TP" if pnl > 0 else "SL", order_id, note)
+        _finish_live(trade, price, ts, "Trail" if pnl > 0 else "SL", order_id, note)
         return True
     if paused:
         closed = _close_live_at_market(client, trade, position)
@@ -185,21 +208,27 @@ def manage_live_trade(trade: dict, spot: float, now: datetime, paused: bool, cli
             return False
         _finish_live(trade, closed[0], datetime.now(timezone.utc), "Stop", closed[1])
         return True
-    if not (position.get("StopOrder") and position.get("LimitOrder")):
-        # TP/SL missing (the attach failed, or one leg is gone): try again; if that fails the poll judges +/-$ on the spot price itself.
-        for key in ("StopOrder", "LimitOrder"):
-            if position.get(key):
-                try:
-                    client.cancel_order(position[key]["OrderId"])
-                except ForexClientError:
-                    pass
-        if _attach_exits(client, trade["forex_order_id"], trade["trade_type"], trade["entry_price"]) is not None:
-            pnl = _pnl(trade["trade_type"], trade["entry_price"], spot)
-            if pnl <= -R_STOP_LOSS or pnl >= R_TAKE_PROFIT:
-                closed = _close_live_at_market(client, trade, position)
-                if closed is not None:
-                    _finish_live(trade, closed[0], datetime.now(timezone.utc), "TP" if pnl > 0 else "SL", closed[1])
-                    return True
+    want = desired_stop if desired_stop is not None else stop_price(trade["trade_type"], trade["entry_price"], 0.0)
+    is_buy = trade["trade_type"] == "Buy"
+    stop = position.get("StopOrder")
+    try:
+        if not stop:
+            if _attach_stop(client, trade["forex_order_id"], trade["trade_type"], want) is not None:
+                # No stop on the platform and none could be set: judge it here; a crossed stop is closed at market.
+                if (spot <= want) if is_buy else (spot >= want):
+                    closed = _close_live_at_market(client, trade, position)
+                    if closed is not None:
+                        won = _pnl(trade["trade_type"], trade["entry_price"], closed[0]) > 0
+                        _finish_live(trade, closed[0], datetime.now(timezone.utc), "Trail" if won else "SL", closed[1])
+                        return True
+            return False
+        current = float(stop["TriggerPrice"])
+        better = want - current if is_buy else current - want
+        if better >= MIN_STOP_STEP:
+            moved = client.move_stop(trade["forex_order_id"], stop["OrderId"], "buy" if is_buy else "sell", want)
+            log.info("Broker R #%s platform stop %.2f -> %.2f", trade["id"], current, moved["stop_price"])
+    except ForexClientError as e:  # incl. ForexOrderUncertainError: the next look re-reads the position's real stop
+        log.warning("Broker R #%s: could not set the platform stop to %.2f: %s", trade["id"], want, e)
     return False
 
 
@@ -211,7 +240,7 @@ def scan_exit(
     trade_type: str, entry_price: float, open_ts: datetime, bars: pd.DataFrame,
     take_profit: float = R_TAKE_PROFIT, stop_loss: float = R_STOP_LOSS,
 ) -> tuple[float, datetime, str] | None:
-    """(exit_price, exit_ts, 'TP'|'SL') for the first 1-minute bar after `open_ts` that reaches +R_TAKE_PROFIT or -R_STOP_LOSS.
+    """Fixed-limit scan, used only by the LOG-ONLY shadow exit now (the live exit is scan_trail()): (exit_price, exit_ts, 'TP'|'SL') for the first 1-minute bar after `open_ts` that reaches +take_profit or -stop_loss.
     `bars` are priced on the exit side (bid for a Buy, ask for a Sell). Exit is at the limit price exactly; a bar touching both
     counts as the stop. None if neither was reached."""
     sign = 1.0 if trade_type == "Buy" else -1.0
@@ -225,19 +254,37 @@ def scan_exit(
     return None
 
 
+def scan_trail(
+    trade_type: str, entry_price: float, open_ts: datetime, bars: pd.DataFrame,
+) -> tuple[tuple[float, datetime, str] | None, float]:
+    """Broker R's live exit (16 Nov 2026): walks every bar/tick after `open_ts` against the stop of stop_profit(best profit so far).
+    Returns (hit, stop_now): hit = (exit_price, exit_ts, 'SL'|'Trail') for the first row whose worst point reaches the stop as it stood BEFORE that
+    row could raise the best price (conservative, like broker._scan_exit_crossing), the exit being at the stop level exactly; None if
+    not hit. stop_now = the stop price after the last row (where the platform stop should sit). `bars` are priced on the exit side
+    (bid for a Buy, ask for a Sell); a tick frame has high = low = price."""
+    sign = 1.0 if trade_type == "Buy" else -1.0
+    best = 0.0
+    for row in bars[bars["datetime"] > open_ts].itertuples():
+        stop = stop_profit(best)
+        worst = (row.low - entry_price) if sign > 0 else (entry_price - row.high)
+        if worst <= stop:
+            ts = row.datetime.to_pydatetime() if hasattr(row.datetime, "to_pydatetime") else row.datetime
+            return (round(entry_price + sign * stop, 2), ts, "Trail" if stop > 0 else "SL"), round(entry_price + sign * stop, 2)
+        best = max(best, (row.high - entry_price) if sign > 0 else (entry_price - row.low))
+    return None, stop_price(trade_type, entry_price, best)
+
+
 def _find_exit(trade: dict, spot: float, now: datetime) -> tuple[float, datetime, str] | None:
+    """Retroactive check of a still-open PAPER trade on 1-minute bars (left open overnight or across a watcher handover)."""
     try:
         side = "bid" if trade["trade_type"] == "Buy" else "ask"
         minutes = int((now - trade["open_ts"]).total_seconds() // 60) + 5
         bars = fetch_gold_bars(max(10, min(minutes, EXIT_BARS_MAX)), side)
-        return scan_exit(trade["trade_type"], trade["entry_price"], trade["open_ts"], bars)
+        return scan_trail(trade["trade_type"], trade["entry_price"], trade["open_ts"], bars)[0]
     except Exception:
         log.exception("Broker R: 1-minute bars unavailable -- point check on spot")
-    pnl = _pnl(trade["trade_type"], trade["entry_price"], spot)
-    if pnl <= -R_STOP_LOSS:
+    if _pnl(trade["trade_type"], trade["entry_price"], spot) <= -R_STOP_LOSS:  # a point price can only judge the initial stop
         return spot, now, "SL"
-    if pnl >= R_TAKE_PROFIT:
-        return spot, now, "TP"
     return None
 
 
@@ -294,8 +341,8 @@ def _open_message(
     where = f" (level ${level:.2f})" if level is not None and mode == "live" else ""
     text = (
         f"{TRADE_ALERT_PREFIX}{_label(mode, paper_reason)} #{trade_id}: opened {trade_type} 1 oz XAU/USD @ ${price:.2f}{where} (rule {rule}).\n"
-        f"Exits: take-profit +${R_TAKE_PROFIT:g} / stop-loss -${R_STOP_LOSS:g}, nothing else"
-        f"{' (set on the forex.com platform)' if mode == 'live' else ''}. Level from short-range TA {run}.\n"
+        f"Stop: -${R_STOP_LOSS:g}; at +${R_LOCK_PROFIT:g} it moves to +${R_LOCK_PROFIT:g}, then trails ${R_TRAIL_DISTANCE:g} behind the best price"
+        f"{' (stop set on the forex.com platform)' if mode == 'live' else ''}. Level from short-range TA {run}.\n"
     )
     if paper_reason:
         text += f"Paper only -- not on Forex because {paper_reason}.\n"
@@ -304,7 +351,7 @@ def _open_message(
 
 def _close_message(trade: dict, exit_price: float, exit_ts: datetime, pnl: float, reason: str) -> str:
     marker = PROFIT_MARKER if pnl >= 0 else LOSS_MARKER
-    why = {"TP": "take-profit", "SL": "stop-loss", "Stop": "closed by stop trading / pause",
+    why = {"TP": "take-profit", "SL": "stop-loss", "Trail": "trailing stop (profit secured)", "Stop": "closed by stop trading / pause",
            "Priority": "closed on the spot to give Broker F priority"}[reason]
     return (
         f"{TRADE_ALERT_PREFIX.rstrip()}{marker}{'P' if pnl >= 0 else 'L'} ${abs(pnl):.2f} {_label(trade.get('mode'))} #{trade['id']}: closed "
@@ -325,7 +372,7 @@ def armed_scenarios(forecast: dict, now: datetime, history_fn=trade_r_level_hist
         sc = scenarios.get(name)
         if sc is None:
             continue
-        history = history_fn(forecast["id"], rule, 0.0)  # a win is any close at +R_TAKE_PROFIT; a stop-out retires the level
+        history = history_fn(forecast["id"], rule, 0.0)  # a win is any close at or above breakeven (a trailing stop never closes below +R_LOCK_PROFIT); a stop-out retires the level
         if history["stopped_out"] or history["count"] >= R_MAX_TRADES_PER_LEVEL:
             continue
         out.append((name, trade_type, rule, sc))
@@ -344,10 +391,10 @@ def open_trade_r(
         result, failure = _place_live(client, trade_type)
         if result is not None:
             mode, order_id, entry_price = "live", result["order_id"], float(result["fill_price"])
-            failed = _attach_exits(client, order_id, trade_type, entry_price)
+            failed = _attach_stop(client, order_id, trade_type, stop_price(trade_type, entry_price, 0.0))
             if failed:
-                note = (f"\u26a0\ufe0f The platform TP/SL could NOT be attached ({failed}) -- it is retried every few seconds and the "
-                        f"price is watched meanwhile.\n")
+                note = (f"\u26a0\ufe0f The platform stop could NOT be attached ({failed}) -- it is retried every few seconds and the "
+                        f"price is watched meanwhile (the stop is closed at market if crossed).\n")
         else:
             paper_reason = failure  # still recorded as a paper trade, so the touch can never be sent as an order twice
     context = dict(context)
