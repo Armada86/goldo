@@ -37,3 +37,13 @@ FOREX.com **demo** account. Unset or `paper` = paper trades only (filled at the 
 account holds no other XAU/USD position; otherwise R opens a paper trade and Telegram says it is not on Forex and why. TP/SL (+$5/-$5 from the actual
 fill) are platform orders. Broker F has priority: when an F entry is applicable, an open R trade (live or paper, in profit or loss) is closed on the spot first (`exit_reason` `Priority`), then F opens; if a live R close cannot be confirmed, F does not open. The live path has not been exercised against forex.com --
 watch the first live trade. Query: `SELECT mode, COUNT(*), SUM(pnl) FROM broker_r_trades WHERE status='Closed' GROUP BY 1`.
+
+## Stop rule (17 Nov 2026)
+
+The fixed +$5 take-profit / -$5 stop-loss was replaced by a stop that secures profit, by the user's design: the stop starts at -$5; when the
+best profit reaches +$5 the stop moves to +$5 (a trade that got there can no longer close below +$5); from +$10 of best profit upward the stop
+trails $5 behind the best price (best $12.50 -> stop +$7.50, best $20 -> stop +$15). There is no take-profit, so winners can run. Constants:
+`R_STOP_LOSS`, `R_LOCK_PROFIT`, `R_TRAIL_DISTANCE` in `config.py`; logic in `broker_r.stop_profit()` / `scan_trail()`. Exit reasons stored in
+`broker_r_trades.exit_reason`: `SL` (the -$5 stop), `Trail` (the +$5-or-better stop), `Stop`, `Priority`; older rows have `TP`/`SL`.
+Live: a stop-only order on the platform that follows the rule (a move needs `ForexClient.move_stop()`, which `forex_live_check.py` has to verify), plus
+the watcher's own per-tick check as the backstop. The shadow +$7/-$4 exit is unchanged and still compares against the booked P&L.

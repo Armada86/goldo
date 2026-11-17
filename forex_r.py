@@ -29,7 +29,7 @@ from broker_r import (
     forex_mode,
     manage_live_trade,
     open_trade_r,
-    scan_exit,
+    scan_trail,
 )
 from market_hours import is_market_closed
 from notifier import send_telegram_message
@@ -156,21 +156,29 @@ class RTickTrader:
         trade = self.open_trade
         paused = self._is_paused(now)
         spot = self._price(_exit_side(trade["trade_type"]))
-        if trade.get("mode") == "live":
-            if paused or time.monotonic() - self.position_checked_at >= POSITION_CHECK_SECONDS:
-                self.position_checked_at = time.monotonic()
-                if manage_live_trade(trade, spot, now, paused, self.w.client):
-                    self.open_trade = None
-                    self.context_at = -1e9
-            return
-        if paused:
+        if paused and trade.get("mode") != "live":
             self._close_paper(trade, spot, now, "Stop")
             return
+        # The stop (-$5, then locked at +$5, then trailing $5 behind the best price) is judged on every tick, here, for both modes.
         frame = self.w.feed.side(_exit_side(trade["trade_type"]))
-        result = scan_exit(trade["trade_type"], trade["entry_price"], pd.Timestamp(trade["open_ts"]), frame)
-        if result is not None:
-            exit_price, exit_ts, reason = result
-            self._close_paper(trade, exit_price, exit_ts, reason)
+        hit, stop_now = scan_trail(trade["trade_type"], trade["entry_price"], pd.Timestamp(trade["open_ts"]), frame)
+        if trade.get("mode") != "live":
+            if hit is not None:
+                exit_price, exit_ts, reason = hit
+                self._close_paper(trade, exit_price, exit_ts, reason)
+            return
+        # Live: the stop also sits on the platform (kept at stop_now every POSITION_CHECK_SECONDS); if our own scan says it was crossed
+        # first (a quick spike and reversal between two checks) the position is closed at market at once.
+        if hit is not None and not paused:
+            if close_live_now(trade, spot, now, self.w.client, reason=hit[2], desired_stop=stop_now):
+                self.open_trade = None
+                self.context_at = -1e9
+            return
+        if paused or time.monotonic() - self.position_checked_at >= POSITION_CHECK_SECONDS:
+            self.position_checked_at = time.monotonic()
+            if manage_live_trade(trade, spot, now, paused, self.w.client, desired_stop=stop_now):
+                self.open_trade = None
+                self.context_at = -1e9
 
     def _refresh_context(self) -> dict:
         if time.monotonic() - self.context_at < CONTEXT_REFRESH_SECONDS:

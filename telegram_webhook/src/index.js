@@ -489,7 +489,7 @@ async function brokerRStatusLines(sql, now, why) {
     return lines;
   }
   const open = (await sql`SELECT trade_type, entry_price, rule_name FROM broker_r_trades WHERE status = 'Open' ORDER BY open_ts DESC LIMIT 1`)[0];
-  if (open) lines.push(`    open: ${open.trade_type} 1 oz @ $${Number(open.entry_price).toFixed(2)} (${open.rule_name}; exits +$${R_TAKE_PROFIT} / -$${R_STOP_LOSS})`);
+  if (open) lines.push(`    open: ${open.trade_type} 1 oz @ $${Number(open.entry_price).toFixed(2)} (${open.rule_name}; stop -$${R_STOP_LOSS}, locks at +$${R_TAKE_PROFIT}, then trails $${R_TAKE_PROFIT} behind)`);
   const fc = (await sql`SELECT ts, levels FROM ta_short_forecasts ORDER BY ts DESC LIMIT 1`)[0];
   if (!fc) {
     lines.push("    no short-range analysis yet (one is written every 30 min, 7:00 AM-5:00 PM ET)");
