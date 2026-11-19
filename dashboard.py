@@ -500,8 +500,8 @@ if min_forecast_date is not None:
             + "</tr>"
             for label, key in (
                 ("Total", "total"), ("Broker <b style='font-size:18px;'>F</b>", "broker_f"),
-                ("Broker <b style='font-size:18px;'>R</b> paper", "broker_r_paper"), ("Broker <b style='font-size:18px;'>R</b> live", "broker_r_live"),
-                ("Broker <b style='font-size:18px;'>K</b>", "broker_k"),
+                ("Broker <b style='font-size:18px;'>R</b> live", "broker_r_live"), ("Broker <b style='font-size:18px;'>R</b> paper", "broker_r_paper"),
+                ("Broker <b style='font-size:18px;'>K</b> paper", "broker_k"),
             )
         )
         header_cells = "".join(
