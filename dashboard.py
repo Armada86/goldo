@@ -499,7 +499,7 @@ if min_forecast_date is not None:
             + money_cell(pnl[key]["profit"]) + money_cell(pnl[key]["loss"]) + money_cell(pnl[key]["total"], bold=True)
             + "</tr>"
             for label, key in (
-                ("Total", "total"), ("Broker <b style='font-size:18px;'>F</b>", "broker_f"),
+                ("Total", "total"), ("Broker <b style='font-size:18px;'>F</b> live", "broker_f"),
                 ("Broker <b style='font-size:18px;'>R</b> live", "broker_r_live"), ("Broker <b style='font-size:18px;'>R</b> paper", "broker_r_paper"),
                 ("Broker <b style='font-size:18px;'>K</b> paper", "broker_k"),
             )
