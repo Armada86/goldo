@@ -64,7 +64,7 @@ def traded_levels(levels: dict) -> tuple[list[dict], list[dict], list[dict]]:
 def render_trades(d: date) -> None:
     """Broker R's trades for ET date `d`, same look as the Recent Trades table: "#" first, green (win) / red (loss)."""
     try:
-        trades = load_trades_for_date(d).iloc[::-1]  # newest first (user request, 24 Nov 2026)
+        trades = load_trades_for_date(d).sort_values("open_ts", ascending=False, kind="stable").reset_index(drop=True)  # newest first
     except Exception as e:
         st.caption(f"Could not load Broker R trades: {e}")
         return
