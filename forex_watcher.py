@@ -61,6 +61,8 @@ from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 
+import broker_r
+
 from block_rules import get_block_rules
 from broker import (
     _format_ts,
@@ -714,6 +716,9 @@ class Watcher:
             r_trade = get_open_trade_r()
         except Exception:
             r_trade = None  # fail open, like every other gate here
+        if r_trade is not None and r_trade.get("mode") == "live" and broker_r.reconcile_if_gone(r_trade, self.client):
+            # The R row was an orphan: forex.com no longer has its position, so it has just been closed from the trade history.
+            r_trade = None
         if r_trade is not None and r_trade.get("mode") == "live":
             # Broker R holds a real position on the same account; a second order could net against it (see broker_r.py).
             _send(_message(0, f"{rule_name} not opened: Broker R still has a live trade (#{r_trade['id']}) on the demo account -- "

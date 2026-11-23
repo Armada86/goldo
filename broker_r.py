@@ -171,6 +171,20 @@ def close_live_now(
     return True
 
 
+def reconcile_if_gone(trade: dict, client: ForexClient, now: datetime | None = None) -> bool:
+    """A live R row still marked Open whose position is no longer on forex.com (its platform stop fired and the close was never recorded -- the
+    row would otherwise block Broker F forever, 23 Nov 2026): record the close from the trade history. True if the row is closed afterwards;
+    False if the position is still there or forex.com could not be read."""
+    try:
+        position = next((p for p in _xau_positions(client) if str(p.get("OrderId")) == str(trade["forex_order_id"])), None)
+    except Exception:
+        log.exception("Broker R: could not read positions to reconcile #%s", trade.get("id"))
+        return False
+    if position is not None:
+        return False
+    return manage_live_trade(trade, 0.0, now or datetime.now(timezone.utc), False, client)
+
+
 MIN_STOP_STEP = 0.5  # the platform stop is only moved when the new level is at least this much better ($ per oz), like Broker F
 
 

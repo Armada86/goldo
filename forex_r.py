@@ -29,11 +29,12 @@ from broker_r import (
     forex_mode,
     manage_live_trade,
     open_trade_r,
+    reconcile_if_gone,
     scan_trail,
 )
 from market_hours import is_market_closed
 from notifier import send_telegram_message
-from storage import close_trade_row_r, get_last_close_ts_r, get_latest_ta_short_forecast, get_open_trade_r
+from storage import close_trade_row_r, get_last_close_ts_r, get_latest_ta_short_forecast, get_open_trade_r, get_open_trades_r
 from ta_short import DISPLAY_TZ, in_window
 from trading_control import trading_pause_reason
 
@@ -43,6 +44,7 @@ ENTRY_MAX_TOUCH_AGE_SECONDS = 15
 ENTRY_MAX_FEED_AGE_SECONDS = 20
 CONTEXT_REFRESH_SECONDS = 60
 GATE_CACHE_SECONDS = 5
+SWEEP_SECONDS = 60  # how often every Open R row is compared with what this trader tracks (orphan rows, 23 Nov 2026)
 POSITION_CHECK_SECONDS = 3  # live: how often the open position is read from forex.com
 
 
@@ -60,6 +62,7 @@ class RTickTrader:
         self.context: dict = {}
         self.context_at = -1e9
         self.position_checked_at = 0.0
+        self.swept_at = -1e9
         self.notified: dict[str, float] = {}
         self._gate_at = -1e9
         self._paused = False
@@ -136,9 +139,41 @@ class RTickTrader:
 
     # --- per tick --------------------------------------------------------------------------------------------------
 
+    def _sweep_orphans(self, now: datetime) -> None:
+        """Every Open R row other than the one tracked here is an orphan (e.g. two processes both opened a trade in a handover overlap, 23 Nov 2026:
+        the live #203 was never managed or closed and blocked Broker F). A live orphan whose position is gone is closed from the trade history;
+        a paper one is judged on 1-minute bars; with nothing tracked, a still-live orphan is adopted and managed normally."""
+        if time.monotonic() - self.swept_at < SWEEP_SECONDS:
+            return
+        self.swept_at = time.monotonic()
+        try:
+            rows = get_open_trades_r()
+        except Exception:
+            return
+        tracked = self.open_trade["id"] if self.open_trade is not None else None
+        for trade in rows:
+            if trade["id"] == tracked:
+                continue
+            if trade.get("mode") == "live":
+                if reconcile_if_gone(trade, self.w.client, now):
+                    log.warning("Broker R: orphaned live row #%s was already closed on forex.com -- recorded", trade["id"])
+                elif self.open_trade is None:
+                    self.open_trade = trade
+                    tracked = trade["id"]
+                    log.warning("Broker R: adopted orphaned live row #%s", trade["id"])
+            else:
+                spot = self._price(_exit_side(trade["trade_type"])) if self.w.feed.ticks else trade["entry_price"]
+                result = _find_exit(trade, spot, now)
+                if result is not None:
+                    exit_price, exit_ts, reason = result
+                    pnl = _pnl(trade["trade_type"], trade["entry_price"], exit_price)
+                    close_trade_row_r(trade["id"], exit_price, exit_ts, pnl, reason, {"reason": reason, "orphan": True})
+                    log.warning("Broker R: orphaned paper row #%s closed (%s)", trade["id"], reason)
+
     def step(self, now: datetime) -> None:
         if self.w.role != "active":
             return
+        self._sweep_orphans(now)
         if self.open_trade is not None:
             self._check_exit(now)
         elif self.entry_ok(now):
@@ -235,6 +270,10 @@ class RTickTrader:
             "seconds_since_touch": round(age, 1),
             "hour_et": now.astimezone(DISPLAY_TZ).hour, "minute_et": now.astimezone(DISPLAY_TZ).minute,
         }
+        existing = get_open_trade_r()
+        if existing is not None:  # another process opened one in the meantime: never a second open R row
+            self.open_trade = existing
+            return
         trade_id = open_trade_r(client, paper_reason, trade_type, rule, name, forecast, level, touch_ts, spot, now, ctx)
         self.open_trade = get_open_trade_r()
         self.context_at = -1e9
