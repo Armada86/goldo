@@ -778,6 +778,21 @@ def count_ta_short_forecasts_for_date(forecast_date: date) -> int:
         return cur.fetchone()[0]
 
 
+def get_open_trades_r() -> list[dict]:
+    """Every Broker R trade still marked Open, newest first (normally zero or one; more than one means an orphaned row)."""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, rule_name, trade_type, entry_price, open_ts, triggering_alerts, ta_short_id, mode, forex_order_id "
+            "FROM broker_r_trades WHERE status = 'Open' ORDER BY open_ts DESC"
+        )
+        rows = cur.fetchall()
+    return [
+        {"id": r[0], "rule_name": r[1], "trade_type": r[2], "entry_price": r[3], "open_ts": r[4],
+         "triggering_alerts": r[5], "ta_short_id": r[6], "mode": r[7], "forex_order_id": r[8]}
+        for r in rows
+    ]
+
+
 def get_open_trade_r() -> dict | None:
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
