@@ -581,7 +581,7 @@ if min_forecast_date is not None:
 
 def load_trades(d) -> pd.DataFrame:
     """Broker F's `forex_b_trades` (live demo-account trades only, not the shadow-mode records) that opened or closed on ET date `d`
-    (the date selected at the top; 10 Nov 2026, user request -- was the most recent 20 regardless of date), oldest first.
+    (the date selected at the top; 10 Nov 2026, user request -- was the most recent 20 regardless of date), newest first.
     This table used to merge Broker B, F and K; since 10 Nov 2026 (user request) it shows Broker F only."""
     cols = ["rule_name", "trade_type", "entry_price", "open_ts", "triggering_alerts", "exit_price", "close_ts", "pnl", "status"]
     with get_connection() as conn:
@@ -592,7 +592,7 @@ def load_trades(d) -> pd.DataFrame:
         return pd.read_sql(
             f"SELECT {', '.join(cols)} FROM forex_b_trades WHERE mode = 'live' "
             "AND ((open_ts AT TIME ZONE 'America/New_York')::date = %(d)s OR (close_ts AT TIME ZONE 'America/New_York')::date = %(d)s) "
-            "ORDER BY open_ts",
+            "ORDER BY open_ts DESC",
             conn, params={"d": d}, parse_dates=["open_ts", "close_ts"],
         )
 
@@ -625,7 +625,7 @@ if not trades.empty:
         trades[col] = trades[col].map(lambda v: f"${v:,.2f}" if pd.notna(v) else "—")
     trades["pnl"] = trades["pnl"].map(lambda v: f"${v:+,.2f}" if pd.notna(v) else "—")
     trades["close_ts"] = trades["close_ts"].fillna("—")
-    trades.insert(0, "#", range(len(trades)))
+    trades.insert(0, "#", range(len(trades) - 1, -1, -1))  # newest first, so the numbers count down
     trades = trades.rename(columns={
         "rule_name": "Rule", "trade_type": "Type", "entry_price": "Entry",
         "open_ts": "Opened", "triggering_alerts": "Trigger", "exit_price": "Exit",
@@ -669,7 +669,7 @@ def load_trades_k(d) -> pd.DataFrame:
         return pd.read_sql(
             "SELECT id, rule_name, entry_price, open_ts, exit_price, close_ts, pnl, exit_reason, status FROM broker_k_trades "
             "WHERE (open_ts AT TIME ZONE 'America/New_York')::date = %(d)s OR (close_ts AT TIME ZONE 'America/New_York')::date = %(d)s "
-            "ORDER BY open_ts",
+            "ORDER BY open_ts DESC",
             conn, params={"d": d}, parse_dates=["open_ts", "close_ts"],
         )
 
