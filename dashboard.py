@@ -618,6 +618,7 @@ if not trades.empty:
     # Captured from the raw numeric pnl before it's formatted to a "$+X.XX"/"—" string below --
     # True (win, green), False (loss, red), None (still open or exactly breakeven, left unstyled)
     # colors the "#" row-number column two paragraphs down.
+    trades = trades.sort_values("open_ts", ascending=False, kind="stable").reset_index(drop=True)  # newest first
     trade_won = [None if pd.isna(v) else (True if v > 0 else (False if v < 0 else None)) for v in trades["pnl"]]
     trades["open_ts"] = to_display_str(trades["open_ts"])
     trades["close_ts"] = to_display_str(trades["close_ts"])
@@ -683,6 +684,7 @@ except Exception as e:
 if k_trades.empty:
     st.caption("No Broker K trades on this date.")
 else:
+    k_trades = k_trades.sort_values("open_ts", ascending=False, kind="stable").reset_index(drop=True)  # newest first
     k_won = [None if pd.isna(v) else (True if v > 0 else (False if v < 0 else None)) for v in k_trades["pnl"]]
 
     def _k_hm(ts):  # HH:MM in ET, same as Broker R's table
