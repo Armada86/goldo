@@ -9,11 +9,12 @@ from storage import get_connection
 
 DISPLAY_TZ = ZoneInfo("America/New_York")
 
-# (column label, table, extra WHERE clause). Broker A stays out of the dashboard (user request, 13 Oct 2026);
+# (column label, table, extra WHERE clause). Broker A is back on the dashboard (user request, 25 Nov 2026; out since 13 Oct 2026);
 # Broker F counts live demo-account trades only, like the P&L line on the main page.
 BROKER_TABLES = [
     ("Broker B", "broker_b_trades", ""),
     ("Broker K", "broker_k_trades", ""),
+    ("Broker A", "trades", ""),  # Broker A's paper trades (user request, 25 Nov 2026)
     ("Broker F", "forex_b_trades", " AND mode = 'live'"),
     ("Broker R paper", "broker_r_trades", " AND mode = 'paper'"),  # split by mode, 16 Nov 2026 (old rows default to 'paper')
     ("Broker R live", "broker_r_trades", " AND mode = 'live'"),
@@ -66,9 +67,9 @@ def render() -> None:
     brokers = list(daily.columns)
     week_start = daily.index - pd.to_timedelta(daily.index.weekday, unit="D")
     header = "".join(f"<th style='text-align:right;'>{b}</th>" for b in brokers)
-    # Last column: F + R live + K (Broker B and Broker R paper are left out; user request, 6 and 16 Nov 2026).
-    counted = ["Broker F", "Broker R live", "Broker K"]
-    header += "<th style='text-align:right;'>Total (F+R live+K)</th>"
+    # Last column: F + R live + K + A (Broker B and Broker R paper are left out; user request, 6 and 16 Nov 2026; A added 25 Nov 2026).
+    counted = ["Broker F", "Broker R live", "Broker K", "Broker A"]
+    header += "<th style='text-align:right;'>Total (F+R live+K+A)</th>"
     html = [
         "<style>.goldo-weekly {width:100%;border-collapse:collapse;font-size:13px;}"
         ".goldo-weekly th,.goldo-weekly td {padding:4px 8px;border-bottom:1px solid rgba(128,128,128,.25);}"
