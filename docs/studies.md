@@ -56,7 +56,7 @@ missing. Add new ones at the bottom of their section (or under "Open / to repeat
 Studies 25 and up (Broker B and F fades, levels, filters, exits, the TA bias study, the quiet-market study, Broker K, the DXY block study, the Broker R +$7/-$4 shadow exit, plus the 31 Oct review result) are in `docs/studies-25-plus.md`.
 
 ## Open / to repeat
-**Monthly combined review, every last Saturday of the month (set 2 Nov 2026). Next: Saturday 28 Nov 2026.** Studies 25, 26, 27, 28, 35, 36, 37, 38, 39, 40, 41 and 42 (everything from 25 up) run
+**Monthly combined review, every last Saturday of the month (set 2 Nov 2026). Next: Saturday 28 Nov 2026.** Studies 25, 26, 27, 28, 35, 36, 37, 38, 39, 40, 41, 42 and 44 (everything from 25 up; 44, Broker A's blocked signals, was added 25 Nov 2026) run
 together as **one study with one result**, on one shared data set and one replay engine, as on 31 Oct. They are not scheduled or reported separately. Studies 1-24 are not part of it.
 New studies from 38 up join this review the same way. Items to cover each time (the first review's list):
 1. Study 26: the effect of `spike_fade` 2.0 on trades since 31 Oct (blocked fades and what they would have done).
@@ -88,7 +88,11 @@ New studies from 38 up join this review the same way. Items to cover each time (
     `SELECT review_date, trade_count, total_pnl, analysis, trade_reviews FROM broker_daily_reviews ORDER BY review_date` (plus the same on `broker_f_daily_reviews`). Method and the questions to answer are in `docs/studies-25-plus.md`
     study 42. Observation only; the reviews are Broker F's own, so the Broker-F-only rule is met.
 
-**Broker A is excluded from every study (user rule, 3 Nov 2026).** No study, replay, analysis or recorded total reads Broker A's trades, signals or blocked entries
+13. Study 44 (added 25 Nov 2026 at the user's request): Broker A's blocked signals and how to change its block rules, the DXY confirmation first. Replay every `broker_a_blocked` signal as if it had opened (live exit rule, minus the spread),
+    per block reason, then replay `Consensus5of7` under alternative DXY gates (none, Broker B's opposing-only/3-poll rule, a shorter window, a lower threshold) on the same signals, and read Broker A's real trades, including 25 Nov's large winner. Method, data and limits in `docs/studies-25-plus.md` study 44.
+    **Reads Broker A's data, as the one exception below.** Observation only; any rule change needs the user's approval and its own PR.
+
+**Broker A is excluded from every study (user rule, 3 Nov 2026), except study 44 (25 Nov 2026, the user's request: Broker A's blocked signals and the DXY gate).** No other study, replay, analysis or recorded total reads Broker A's trades, signals or blocked entries
 (`trades`, `broker_a_blocked`), and nothing Broker A did feeds any setting. Broker B and Broker F run the same rules and are studied as below; a Broker K study uses Broker K's own
 trades only. `get_closed_trades_for_analysis()` (SLA, BRA) now reads Broker B only.
 
